@@ -290,7 +290,7 @@ CREATE TABLE `drop_group_bindings` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`binding_id`),
-  UNIQUE KEY `uk_drop_binding` (`drop_group_id`,`source_type`,`source_id`),
+  UNIQUE KEY `uk_drop_source` (`source_type`,`source_id`),
   KEY `idx_drop_binding_source` (`source_type`,`source_id`,`is_enabled`),
   KEY `idx_drop_binding_group` (`drop_group_id`),
   CONSTRAINT `fk_drop_binding_group` FOREIGN KEY (`drop_group_id`) REFERENCES `drop_groups` (`drop_group_id`)
@@ -333,7 +333,7 @@ CREATE TABLE `reward_group_bindings` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`binding_id`),
-  UNIQUE KEY `uk_reward_binding` (`reward_group_id`,`source_type`,`source_id`),
+  UNIQUE KEY `uk_reward_source` (`source_type`,`source_id`),
   KEY `idx_reward_binding_source` (`source_type`,`source_id`,`is_enabled`),
   KEY `idx_reward_binding_group` (`reward_group_id`),
   CONSTRAINT `fk_reward_binding_group` FOREIGN KEY (`reward_group_id`) REFERENCES `reward_groups` (`reward_group_id`)
@@ -351,12 +351,29 @@ CREATE TABLE `user_reward_grants` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `granted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`reward_grant_id`),
-  UNIQUE KEY `uk_reward_grant_idempotency` (`idempotency_key`),
+  UNIQUE KEY `uk_user_idempotency` (`user_id`,`idempotency_key`),
   UNIQUE KEY `uk_reward_grant_once` (`user_id`,`source_type`,`source_id`,`reward_group_id`),
   KEY `idx_reward_grants_user` (`user_id`,`created_at`),
   KEY `idx_reward_grants_source` (`source_type`,`source_id`),
   KEY `idx_reward_grants_status` (`grant_status`),
   CONSTRAINT `fk_reward_grants_group` FOREIGN KEY (`reward_group_id`) REFERENCES `reward_groups` (`reward_group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+CREATE TABLE `user_reward_grant_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `reward_grant_id` bigint unsigned NOT NULL,
+  `item_id` varchar(64) NOT NULL,
+  `quantity` int NOT NULL DEFAULT 1,
+  `equipment_instance_id` bigint unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_reward_grant_items_grant` (`reward_grant_id`),
+  KEY `idx_reward_grant_items_item` (`item_id`),
+  KEY `idx_reward_grant_items_equipment_instance` (`equipment_instance_id`),
+  CONSTRAINT `fk_reward_grant_items_grant` FOREIGN KEY (`reward_grant_id`) REFERENCES `user_reward_grants` (`reward_grant_id`),
+  CONSTRAINT `fk_reward_grant_items_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`item_id`),
+  CONSTRAINT `fk_reward_grant_items_equipment_instance` FOREIGN KEY (`equipment_instance_id`) REFERENCES `inventory_equipment_instances` (`equipment_instance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
