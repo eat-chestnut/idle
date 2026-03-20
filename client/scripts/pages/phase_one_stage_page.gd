@@ -2,9 +2,10 @@ extends "res://client/scripts/pages/phase_one_page_base.gd"
 class_name PhaseOneStagePage
 
 var chapter_list: ItemList
-var recent_stage_selector: OptionButton
+var stage_list: ItemList
 var stage_id_input: LineEdit
 var difficulty_list: ItemList
+var _selected_chapter_id := ""
 var _selected_stage_difficulty_id := ""
 
 
@@ -12,20 +13,22 @@ func _init() -> void:
 	setup_page(
 		"章节与难度",
 		[
-			"当前 phase-one 没有公开 stage list API，所以这里不会伪造正式关卡列表。",
-			"章节页展示真实章节接口结果，stage_id 只提供默认联调值、最近成功值和手动补充入口。",
+			"章节页会先读取真实章节列表，再读取章节下的真实关卡列表，最后进入难度选择。",
+			"客户端不再依赖手输 `stage_id` 作为主流程，只保留当前选中值展示。",
 		]
 	)
 
 	var chapter_buttons := add_button_row()
 	add_action_button(chapter_buttons, "读取章节列表", "load_chapters")
+	add_action_button(chapter_buttons, "读取当前章节关卡", "load_stages")
 
 	chapter_list = add_labeled_item_list("章节列表", 120)
 	chapter_list.item_selected.connect(_on_chapter_selected)
 
-	recent_stage_selector = add_labeled_option_button("最近成功的 stage_id（非正式 stage list）")
-	recent_stage_selector.item_selected.connect(_on_recent_stage_selected)
-	stage_id_input = add_labeled_input("stage_id", "stage_nanshan_001")
+	stage_list = add_labeled_item_list("关卡列表", 120)
+	stage_list.item_selected.connect(_on_stage_selected)
+
+	stage_id_input = add_labeled_input("当前 stage_id", "stage_nanshan_001")
 	stage_id_input.text_changed.connect(_on_stage_id_changed)
 
 	var difficulty_buttons := add_button_row()
@@ -40,26 +43,20 @@ func apply_config(values: Dictionary) -> void:
 	stage_id_input.text = str(values.get("stage_id", "stage_nanshan_001"))
 
 
-func set_recent_stage_ids(stage_ids: Array, current_stage_id: String) -> void:
-	var options: Array = []
-	for stage_id in stage_ids:
-		var normalized = str(stage_id).strip_edges()
-		if normalized.is_empty():
-			continue
-		options.append({
-			"label": normalized,
-			"value": normalized,
-		})
-
-	replace_options(recent_stage_selector, options, "暂无成功 stage_id", current_stage_id)
-
-
 func set_stage_id(stage_id: String) -> void:
 	stage_id_input.text = stage_id
 
 
 func get_stage_id_text() -> String:
 	return stage_id_input.text.strip_edges()
+
+
+func get_selected_chapter_id() -> String:
+	return _selected_chapter_id
+
+
+func set_selected_chapter_id(chapter_id: String) -> void:
+	_selected_chapter_id = chapter_id
 
 
 func set_selected_stage_difficulty(stage_difficulty_id: String) -> void:
@@ -75,8 +72,10 @@ func get_selected_stage_difficulty() -> String:
 	return _selected_stage_difficulty_id
 
 
-func render_chapters(payload: Dictionary) -> void:
+func render_chapters(payload: Dictionary, current_chapter_id: String = "") -> void:
 	chapter_list.clear()
+	var selected_chapter_id := current_chapter_id
+
 	for chapter in payload.get("chapters", []):
 		var entry = chapter if typeof(chapter) == TYPE_DICTIONARY else {}
 		chapter_list.add_item("%s (%s)" % [
@@ -85,7 +84,60 @@ func render_chapters(payload: Dictionary) -> void:
 		])
 		chapter_list.set_item_metadata(chapter_list.item_count - 1, entry)
 
-	set_summary_text("chapters=%d | 当前 stage_id=%s" % [chapter_list.item_count, get_stage_id_text()])
+	if selected_chapter_id.is_empty() and chapter_list.item_count > 0:
+		var first_entry = chapter_list.get_item_metadata(0)
+		if typeof(first_entry) == TYPE_DICTIONARY:
+			selected_chapter_id = str(first_entry.get("chapter_id", ""))
+
+	for index in range(chapter_list.item_count):
+		var metadata = chapter_list.get_item_metadata(index)
+		if typeof(metadata) != TYPE_DICTIONARY:
+			continue
+		if str(metadata.get("chapter_id", "")) == selected_chapter_id:
+			chapter_list.select(index)
+			break
+
+	_selected_chapter_id = selected_chapter_id
+	set_summary_text("chapters=%d | 当前 chapter_id=%s | 当前 stage_id=%s" % [
+		chapter_list.item_count,
+		_selected_chapter_id if not _selected_chapter_id.is_empty() else "(未选择)",
+		get_stage_id_text(),
+	])
+
+
+func render_stages(payload: Dictionary) -> void:
+	stage_list.clear()
+	var selected_stage_id := get_stage_id_text()
+
+	for stage in payload.get("stages", []):
+		var entry = stage if typeof(stage) == TYPE_DICTIONARY else {}
+		stage_list.add_item("%s (%s)" % [
+			str(entry.get("stage_name", "")),
+			str(entry.get("stage_id", "")),
+		])
+		stage_list.set_item_metadata(stage_list.item_count - 1, entry)
+
+	if selected_stage_id.is_empty() and stage_list.item_count > 0:
+		var first_stage = stage_list.get_item_metadata(0)
+		if typeof(first_stage) == TYPE_DICTIONARY:
+			selected_stage_id = str(first_stage.get("stage_id", ""))
+
+	for index in range(stage_list.item_count):
+		var metadata = stage_list.get_item_metadata(index)
+		if typeof(metadata) != TYPE_DICTIONARY:
+			continue
+		if str(metadata.get("stage_id", "")) == selected_stage_id:
+			stage_list.select(index)
+			break
+
+	if not selected_stage_id.is_empty():
+		stage_id_input.text = selected_stage_id
+
+	set_summary_text("chapter_id=%s | stages=%d | 当前 stage_id=%s" % [
+		str(payload.get("chapter_id", _selected_chapter_id)),
+		stage_list.item_count,
+		get_stage_id_text(),
+	])
 
 
 func render_difficulties(payload: Dictionary, reward_status: Dictionary) -> void:
@@ -116,15 +168,21 @@ func render_difficulties(payload: Dictionary, reward_status: Dictionary) -> void
 	})
 
 
-func render_reward_status(chapters: Dictionary, difficulties: Dictionary, reward_status: Dictionary) -> void:
+func render_reward_context(
+	chapters: Dictionary,
+	stages: Dictionary,
+	difficulties: Dictionary,
+	reward_status: Dictionary
+) -> void:
 	set_output_json({
 		"chapters": chapters.get("chapters", []),
+		"stages": stages.get("stages", []),
 		"difficulties": difficulties.get("difficulties", []),
 		"reward_status": reward_status,
 	})
 
 
-func set_stage_summary(chapter_count: int, difficulty_count: int, reward_status: Dictionary) -> void:
+func set_stage_summary(chapter_count: int, stage_count: int, difficulty_count: int, reward_status: Dictionary) -> void:
 	var reward_text = "未读取奖励状态"
 	if not reward_status.is_empty():
 		if int(reward_status.get("has_reward", 0)) == 1 and int(reward_status.get("has_granted", 0)) == 1:
@@ -134,22 +192,13 @@ func set_stage_summary(chapter_count: int, difficulty_count: int, reward_status:
 		else:
 			reward_text = "无首通奖励"
 
-	set_summary_text("chapters=%d | difficulties=%d | 当前 stage_id=%s | %s" % [
+	set_summary_text("chapters=%d | stages=%d | difficulties=%d | 当前 stage_id=%s | %s" % [
 		chapter_count,
+		stage_count,
 		difficulty_count,
 		get_stage_id_text(),
 		reward_text,
 	])
-
-
-func _on_recent_stage_selected(_index: int) -> void:
-	var selected = get_selected_option(recent_stage_selector)
-	var stage_id = str(selected.get("value", ""))
-	if stage_id.is_empty():
-		return
-
-	stage_id_input.text = stage_id
-	_emit_context("stage_id_changed", {"stage_id": stage_id})
 
 
 func _on_stage_id_changed(_text: String) -> void:
@@ -162,7 +211,23 @@ func _on_chapter_selected(index: int) -> void:
 		return
 
 	var chapter_id = str(metadata.get("chapter_id", ""))
-	set_page_state("success", "已选中章节 %s。当前章节接口不返回 stage_id，请从最近成功 stage 或默认联调值继续。" % chapter_id)
+	_selected_chapter_id = chapter_id
+	set_page_state("success", "已选中章节 %s，接下来读取真实关卡列表。" % chapter_id)
+	_emit_action("chapter_selected", {"chapter_id": chapter_id})
+
+
+func _on_stage_selected(index: int) -> void:
+	var metadata = stage_list.get_item_metadata(index)
+	if typeof(metadata) != TYPE_DICTIONARY:
+		return
+
+	var stage_id = str(metadata.get("stage_id", ""))
+	if stage_id.is_empty():
+		return
+
+	stage_id_input.text = stage_id
+	_emit_context("stage_id_changed", {"stage_id": stage_id})
+	set_page_state("success", "已选中关卡 %s，可继续读取难度列表。" % stage_id)
 
 
 func _on_difficulty_selected(index: int) -> void:

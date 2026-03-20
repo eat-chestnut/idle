@@ -17,7 +17,7 @@ func _init() -> void:
 		]
 	)
 
-	recent_character_selector = add_labeled_option_button("当前角色 / 最近联调角色")
+	recent_character_selector = add_labeled_option_button("当前角色 / 真实角色列表")
 	recent_character_selector.item_selected.connect(_on_recent_character_selected)
 	character_id_input = add_labeled_input("character_id", "")
 	character_id_input.text_changed.connect(_on_character_id_changed)

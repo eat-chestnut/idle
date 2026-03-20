@@ -113,9 +113,13 @@ php artisan serve
 以下以真实 backend 代码为准：
 
 - `POST /api/characters` 当前真实存在。
+- `GET /api/characters` 当前真实返回当前认证用户名下全部角色，不引入分页。
+- `POST /api/characters/{character_id}/activate` 当前真实会切换当前用户唯一启用角色。
 - `GET /api/inventory` 当前真实实现返回全量摘要，不返回 `pagination`；`page/page_size` 仅保留接收。
 - `GET /api/chapters` 当前 seed 下 `chapter_desc`、`chapter_group`、`unlock_condition` 为 `null`。
+- `GET /api/chapters/{chapter_id}/stages` 当前真实返回章节下启用关卡列表，不引入额外筛选。
 - `GET /api/stages/{stage_id}/difficulties` 当前 seed 下 `stage_nanshan_001_normal` 与 `stage_nanshan_001_hard` 都绑定 `reward_first_clear_001`。
+- 当前角色创建真实行为为：首个角色默认激活，后续角色默认 `is_active=0`；battle 仍要求使用启用角色。
 - 错误码必须以 `App\Support\ErrorCode` 与《错误码总表》为准。
 
 ## 6. 推荐联调顺序
@@ -124,10 +128,15 @@ php artisan serve
 2. `php artisan phase-one:diagnose --profile=interop --json`
 3. `php artisan phase-one:contract-drift-check --json`
 4. `php artisan workflow-lock:check --json`
-5. `POST /api/characters`
-6. `POST /api/characters/{character_id}/equip`
-7. `POST /api/battles/prepare`
-8. `POST /api/battles/settle`
+5. `GET /api/characters`
+6. `POST /api/characters`
+7. `POST /api/characters/{character_id}/activate`
+8. `GET /api/chapters`
+9. `GET /api/chapters/{chapter_id}/stages`
+10. `GET /api/stages/{stage_id}/difficulties`
+11. `POST /api/characters/{character_id}/equip`
+12. `POST /api/battles/prepare`
+13. `POST /api/battles/settle`
 
 完整闭环基线可直接参考：
 

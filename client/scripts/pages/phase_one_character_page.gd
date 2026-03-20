@@ -1,9 +1,9 @@
 extends "res://client/scripts/pages/phase_one_page_base.gd"
 class_name PhaseOneCharacterPage
 
+var character_list: ItemList
 var class_input: LineEdit
 var name_input: LineEdit
-var recent_character_selector: OptionButton
 var character_id_input: LineEdit
 
 
@@ -11,11 +11,18 @@ func _init() -> void:
 	setup_page(
 		"角色",
 		[
-			"角色页负责创建角色、读取角色详情，并维护当前角色上下文。",
-			"由于 backend 当前没有正式角色列表接口，这里的角色选择器只展示真实成功创建/读取过的最近记录。",
+			"角色页负责读取真实角色列表、创建角色、读取角色详情，并维护当前角色上下文。",
+			"battle 可战斗资格以后端 `is_active` 为准；若需要切换当前启用角色，请走真实激活接口。",
 		]
 	)
 
+	add_section_title("当前用户角色")
+	var list_buttons := add_button_row()
+	add_action_button(list_buttons, "读取角色列表", "load_characters")
+	character_list = add_labeled_item_list("真实角色列表", 140)
+	character_list.item_selected.connect(_on_character_selected)
+
+	add_separator()
 	add_section_title("创建角色")
 	class_input = add_labeled_input("class_id", "class_jingang")
 	name_input = add_labeled_input("character_name", "联调角色")
@@ -25,13 +32,12 @@ func _init() -> void:
 
 	add_separator()
 	add_section_title("当前角色")
-	recent_character_selector = add_labeled_option_button("最近联调角色（真实记录）")
-	recent_character_selector.item_selected.connect(_on_recent_character_selected)
 	character_id_input = add_labeled_input("character_id", "")
 	character_id_input.text_changed.connect(_on_character_id_changed)
 
 	var detail_buttons := add_button_row()
 	add_action_button(detail_buttons, "读取角色详情", "load_character")
+	add_action_button(detail_buttons, "激活当前角色", "activate_current_character")
 	add_action_button(detail_buttons, "同步当前角色到后续页面", "sync_current_character")
 
 
@@ -56,27 +62,69 @@ func set_character_id(character_id: String) -> void:
 	character_id_input.text = character_id
 
 
-func set_recent_characters(records: Array, current_character_id: String) -> void:
-	var options: Array = []
-	for record in records:
-		var entry = record if typeof(record) == TYPE_DICTIONARY else {}
+func set_character_list(records: Array, current_character_id: String) -> String:
+	character_list.clear()
+
+	var selected_character_id := current_character_id
+	var active_character_id := ""
+
+	for character in records:
+		var entry = character if typeof(character) == TYPE_DICTIONARY else {}
 		var character_id = str(entry.get("character_id", ""))
 		if character_id.is_empty():
 			continue
 
-		var label = "%s #%s" % [str(entry.get("character_name", "角色")), character_id]
-		if entry.has("is_active") and int(entry.get("is_active", 0)) == 1:
-			label += " [可战斗]"
-		elif entry.has("is_active"):
-			label += " [未激活]"
+		var label = "%s #%s | %s" % [
+			str(entry.get("character_name", "角色")),
+			character_id,
+			str(entry.get("class_name", entry.get("class_id", ""))),
+		]
+		if int(entry.get("is_active", 0)) == 1:
+			label += " [当前启用]"
+			active_character_id = character_id
+		else:
+			label += " [未启用]"
 
-		options.append({
-			"label": label,
-			"value": character_id,
-			"record": entry,
-		})
+		character_list.add_item(label)
+		character_list.set_item_metadata(character_list.item_count - 1, entry)
 
-	replace_options(recent_character_selector, options, "暂无真实角色记录", current_character_id)
+	if selected_character_id.is_empty() and character_list.item_count > 0:
+		var first_entry = character_list.get_item_metadata(0)
+		if typeof(first_entry) == TYPE_DICTIONARY:
+			selected_character_id = str(first_entry.get("character_id", ""))
+
+	for index in range(character_list.item_count):
+		var metadata = character_list.get_item_metadata(index)
+		if typeof(metadata) != TYPE_DICTIONARY:
+			continue
+		if str(metadata.get("character_id", "")) == selected_character_id:
+			character_list.select(index)
+			break
+
+	if not selected_character_id.is_empty():
+		character_id_input.text = selected_character_id
+
+	return active_character_id
+
+
+func render_character_list(payload: Dictionary, current_character_id: String) -> void:
+	var active_character_id := set_character_list(payload.get("characters", []), current_character_id)
+
+	set_summary_text("characters=%d | 当前启用角色=%s" % [
+		character_list.item_count,
+		active_character_id if not active_character_id.is_empty() else "(无)",
+	])
+	set_output_json(payload)
+
+
+func show_character_list_empty() -> void:
+	set_character_list([], character_id_input.text)
+	set_summary_text("characters=0 | 当前没有角色，请先创建。")
+	set_output_json({"characters": []})
+
+
+func set_recent_characters(records: Array, current_character_id: String) -> void:
+	render_character_list({"characters": records}, current_character_id)
 
 
 func show_character_summary(character: Dictionary) -> void:
@@ -96,9 +144,12 @@ func show_character_summary(character: Dictionary) -> void:
 	)
 
 
-func _on_recent_character_selected(_index: int) -> void:
-	var selected = get_selected_option(recent_character_selector)
-	var character_id = str(selected.get("value", ""))
+func _on_character_selected(index: int) -> void:
+	var metadata = character_list.get_item_metadata(index)
+	if typeof(metadata) != TYPE_DICTIONARY:
+		return
+
+	var character_id = str(metadata.get("character_id", ""))
 	if character_id.is_empty():
 		return
 

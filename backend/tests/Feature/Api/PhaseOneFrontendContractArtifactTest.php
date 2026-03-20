@@ -14,7 +14,7 @@ class PhaseOneFrontendContractArtifactTest extends TestCase
 
         $this->assertTrue((bool) data_get($report, 'ready'));
         $this->assertSame('ok', data_get($report, 'status'));
-        $this->assertCount(11, (array) data_get($report, 'actual_routes', []));
+        $this->assertCount(14, (array) data_get($report, 'actual_routes', []));
         $this->assertTrue((bool) data_get($report, 'checks.openapi_routes.ok'));
         $this->assertTrue((bool) data_get($report, 'checks.openapi_request_fields.ok'));
         $this->assertTrue((bool) data_get($report, 'checks.formal_doc_routes.ok'));

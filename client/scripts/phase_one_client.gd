@@ -32,16 +32,21 @@ var stage_page
 var prepare_page
 var settle_page
 
+var current_character_list: Dictionary = {}
 var current_character_detail: Dictionary = {}
 var current_inventory: Dictionary = {}
 var current_slots: Dictionary = {}
 var current_chapters: Dictionary = {}
+var current_stages: Dictionary = {}
 var current_difficulties: Dictionary = {}
 var current_reward_status: Dictionary = {}
 var current_prepare_result: Dictionary = {}
 var current_settle_result: Dictionary = {}
 var current_prepared_monster_ids: PackedStringArray = []
 var recent_battle_context_ids: Array = []
+var has_loaded_character_list := false
+var has_loaded_stages := false
+var has_loaded_difficulties := false
 var _is_applying_config := false
 
 
@@ -77,7 +82,7 @@ func _build_ui() -> void:
 	shell.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "第二轮联调优化：页面拆分、最近真实选择器、阶段上下文收口、/readyz 预检"
+	subtitle.text = "第二轮联调优化：真实角色列表、真实关卡列表、激活角色收口、/readyz 预检"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	shell.add_child(subtitle)
@@ -140,8 +145,8 @@ func _set_initial_states() -> void:
 	equipment_page.set_page_state("empty", "尚未读取穿戴槽。")
 	equipment_page.set_output_text("等待穿戴槽请求。")
 
-	stage_page.set_page_state("empty", "尚未读取章节与难度。")
-	stage_page.set_output_text("等待章节和难度请求。")
+	stage_page.set_page_state("empty", "尚未读取章节、关卡与难度。")
+	stage_page.set_output_text("等待章节、关卡和难度请求。")
 
 	prepare_page.set_page_state("empty", "尚未执行 battle prepare。")
 	prepare_page.set_output_text("等待 battle prepare 请求。")
@@ -172,16 +177,21 @@ func _persist_runtime_config() -> void:
 
 
 func _refresh_recent_selectors() -> void:
-	var recent_characters = _build_recent_character_records()
-	var recent_stage_ids: Array = _as_array(saved_config.get("recent_stage_ids", []))
-	var recent_stage_difficulty_ids: Array = _as_array(saved_config.get("recent_stage_difficulty_ids", []))
+	var recent_characters = _build_available_character_records()
+	var recent_stage_difficulty_ids: Array = _build_available_stage_difficulty_ids()
 
-	character_page.set_recent_characters(recent_characters, character_page.get_character_id_text())
+	if has_loaded_character_list:
+		character_page.set_character_list(
+			_as_array(current_character_list.get("characters", [])),
+			character_page.get_character_id_text()
+		)
+	else:
+		character_page.set_recent_characters(recent_characters, character_page.get_character_id_text())
+
 	equipment_page.set_recent_characters(recent_characters, equipment_page.get_character_id_text())
 	prepare_page.set_recent_characters(recent_characters, prepare_page.get_character_id_text())
 	settle_page.set_recent_characters(recent_characters, settle_page.get_character_id_text())
 
-	stage_page.set_recent_stage_ids(recent_stage_ids, stage_page.get_stage_id_text())
 	stage_page.set_selected_stage_difficulty(prepare_page.get_stage_difficulty_text())
 	prepare_page.set_recent_stage_difficulties(
 		recent_stage_difficulty_ids,
@@ -192,6 +202,27 @@ func _refresh_recent_selectors() -> void:
 		settle_page.get_stage_difficulty_text()
 	)
 	settle_page.set_recent_battle_contexts(recent_battle_context_ids, settle_page.get_battle_context_text())
+
+
+func _build_available_character_records() -> Array:
+	if has_loaded_character_list:
+		return _as_array(current_character_list.get("characters", []))
+
+	return _build_recent_character_records()
+
+
+func _build_available_stage_difficulty_ids() -> Array:
+	if has_loaded_difficulties:
+		var difficulty_ids: Array = []
+		for difficulty in _as_array(current_difficulties.get("difficulties", [])):
+			var entry := _as_dictionary(difficulty)
+			var stage_difficulty_id = str(entry.get("stage_difficulty_id", "")).strip_edges()
+			if stage_difficulty_id.is_empty():
+				continue
+			difficulty_ids.append(stage_difficulty_id)
+		return difficulty_ids
+
+	return _as_array(saved_config.get("recent_stage_difficulty_ids", []))
 
 
 func _build_recent_character_records() -> Array:
@@ -245,6 +276,94 @@ func _prepend_character_record(records: Array, character: Dictionary) -> Array:
 	return merged
 
 
+func _sync_recent_characters_from_records(records: Array) -> void:
+	var merged: Array = []
+	for record in records:
+		merged = ClientConfigStoreScript.upsert_recent_character(merged, _as_dictionary(record), 8)
+
+	saved_config["recent_characters"] = merged
+
+
+func _store_character_list(data: Dictionary) -> void:
+	has_loaded_character_list = true
+	current_character_list = {
+		"characters": _as_array(data.get("characters", [])),
+	}
+	_sync_recent_characters_from_records(_as_array(current_character_list.get("characters", [])))
+
+
+func _upsert_character_in_current_list(character: Dictionary) -> void:
+	if character.is_empty():
+		return
+
+	if not has_loaded_character_list:
+		_remember_character(character)
+		return
+
+	var character_id = str(character.get("character_id", "")).strip_edges()
+	var merged: Array = []
+	var found := false
+
+	for record in _as_array(current_character_list.get("characters", [])):
+		var entry := _as_dictionary(record)
+		if str(entry.get("character_id", "")).strip_edges() == character_id:
+			merged.append(character)
+			found = true
+		else:
+			merged.append(entry)
+
+	if not found:
+		merged.append(character)
+
+	current_character_list = {"characters": merged}
+	_sync_recent_characters_from_records(merged)
+
+
+func _apply_active_character(character: Dictionary) -> void:
+	var active_character_id = str(character.get("character_id", "")).strip_edges()
+	if active_character_id.is_empty():
+		return
+
+	var source_records: Array = []
+	if has_loaded_character_list:
+		source_records = _as_array(current_character_list.get("characters", []))
+	else:
+		source_records = _as_array(saved_config.get("recent_characters", []))
+
+	var merged: Array = []
+	var found := false
+	for record in source_records:
+		var entry := _as_dictionary(record).duplicate(true)
+		if str(entry.get("character_id", "")).strip_edges() == active_character_id:
+			var active_entry = character.duplicate(true)
+			active_entry["is_active"] = 1
+			merged.append(active_entry)
+			found = true
+		else:
+			entry["is_active"] = 0
+			merged.append(entry)
+
+	if not found:
+		var active_entry = character.duplicate(true)
+		active_entry["is_active"] = 1
+		merged.append(active_entry)
+
+	if has_loaded_character_list:
+		current_character_list = {"characters": merged}
+
+	_sync_recent_characters_from_records(merged)
+
+	var detail_character := _as_dictionary(current_character_detail.get("character", {})).duplicate(true)
+	if detail_character.is_empty():
+		return
+
+	if str(detail_character.get("character_id", "")).strip_edges() == active_character_id:
+		current_character_detail = {"character": character}
+	else:
+		detail_character["is_active"] = 0
+		current_character_detail = {"character": detail_character}
+
+
 func _refresh_flow_summary() -> void:
 	var detail_character = _describe_character(character_page.get_character_id_text())
 	var battle_character = _describe_character(prepare_page.get_character_id_text())
@@ -266,7 +385,7 @@ func _refresh_flow_summary() -> void:
 
 	var current_character = _as_dictionary(current_character_detail.get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
-		lines.append("提示：当前详情角色 is_active=0，battle 仍应使用可战斗角色。")
+		lines.append("提示：当前详情角色 is_active=0；可在角色页或 Prepare 页调用真实激活接口后再进入 battle。")
 
 	flow_summary_label.text = "\n".join(lines)
 
@@ -275,6 +394,11 @@ func _describe_character(character_id: String) -> String:
 	var normalized_id = character_id.strip_edges()
 	if normalized_id.is_empty():
 		return "(未选择)"
+
+	for record in _as_array(current_character_list.get("characters", [])):
+		var listed_entry := _as_dictionary(record)
+		if str(listed_entry.get("character_id", "")).strip_edges() == normalized_id:
+			return "%s #%s" % [str(listed_entry.get("character_name", "角色")), normalized_id]
 
 	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
 	if str(detail_character.get("character_id", "")) == normalized_id:
@@ -374,10 +498,14 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			await _on_run_readiness_check_pressed()
 		"probe_backend":
 			await _on_probe_backend_pressed()
+		"load_characters":
+			await _on_load_characters_pressed()
 		"create_character":
 			await _on_create_character_pressed()
 		"load_character":
 			await _on_load_character_pressed()
+		"activate_current_character":
+			await _on_activate_current_character_pressed()
 		"sync_current_character":
 			_on_sync_current_character_pressed()
 		"load_inventory":
@@ -392,12 +520,18 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			await _on_unequip_pressed()
 		"load_chapters":
 			await _on_load_chapters_pressed()
+		"load_stages":
+			await _on_load_stages_pressed()
+		"chapter_selected":
+			await _on_load_stages_pressed(str(payload.get("chapter_id", "")))
 		"load_difficulties":
 			await _on_load_difficulties_pressed()
 		"refresh_reward_status":
 			await _on_refresh_reward_status_pressed()
 		"difficulty_selected":
 			_on_difficulty_selected(payload)
+		"activate_battle_character":
+			await _on_activate_battle_character_pressed()
 		"prepare":
 			await _on_prepare_pressed()
 		"fill_prepared_monsters":
@@ -486,6 +620,30 @@ func _on_probe_backend_pressed() -> void:
 	config_page.set_output_json(result.get("raw"))
 
 
+func _on_load_characters_pressed() -> void:
+	_persist_runtime_config()
+	character_page.set_page_state("loading", "正在读取当前用户角色列表。")
+	var result: Dictionary = await api.request_json("GET", "/api/characters")
+
+	if not result.get("ok", false):
+		_handle_failure(character_page, result, "读取角色列表失败。")
+		return
+
+	var data: Dictionary = _as_dictionary(result.get("data", {}))
+	_store_character_list(data)
+	character_page.render_character_list(data, character_page.get_character_id_text())
+
+	if _as_array(data.get("characters", [])).is_empty():
+		character_page.show_character_list_empty()
+		character_page.set_page_state("empty", "当前用户还没有角色，请先创建角色。")
+	else:
+		character_page.set_page_state("success", "角色列表已加载，可继续查看详情或切换当前启用角色。")
+
+	_persist_runtime_config()
+	_refresh_recent_selectors()
+	_refresh_flow_summary()
+
+
 func _on_create_character_pressed() -> void:
 	_persist_runtime_config()
 	character_page.set_page_state("loading", "正在创建角色。")
@@ -510,7 +668,7 @@ func _on_create_character_pressed() -> void:
 	equipment_page.set_character_id(created_character_id)
 	character_page.show_character_summary(character)
 	equipment_page.render_slots(current_slots)
-	_remember_character(character)
+	_upsert_character_in_current_list(character)
 
 	if is_active:
 		prepare_page.set_character_id(created_character_id)
@@ -549,7 +707,7 @@ func _on_load_character_pressed() -> void:
 	current_character_detail = data
 	character_page.show_character_summary(character)
 	equipment_page.set_character_id(str(character_id_value))
-	_remember_character(character)
+	_upsert_character_in_current_list(character)
 
 	if is_active:
 		prepare_page.set_character_id(str(character_id_value))
@@ -559,6 +717,66 @@ func _on_load_character_pressed() -> void:
 		character_page.set_page_state("success", "角色详情已加载；当前角色 is_active=0，battle 页继续保留当前可战斗角色。")
 
 	character_page.set_output_json(data)
+	_persist_runtime_config()
+	_refresh_recent_selectors()
+	_refresh_flow_summary()
+
+
+func _on_activate_current_character_pressed() -> void:
+	var character_id_value = _parse_character_id(character_page.get_character_id_text())
+	if character_id_value <= 0:
+		character_page.set_page_state("error", "请先填写或选择有效的 character_id。")
+		return
+
+	await _activate_character(
+		character_page,
+		character_id_value,
+		"角色已切换为当前启用角色，并同步到 battle 页。"
+	)
+
+
+func _on_activate_battle_character_pressed() -> void:
+	var character_id_value = _parse_character_id(prepare_page.get_character_id_text())
+	if character_id_value <= 0:
+		prepare_page.set_page_state("error", "请先选择有效的 Battle character_id。")
+		return
+
+	await _activate_character(
+		prepare_page,
+		character_id_value,
+		"当前 Battle 角色已激活，可继续执行 battle prepare。"
+	)
+
+
+func _activate_character(page, character_id_value: int, success_message: String) -> void:
+	_persist_runtime_config()
+	page.set_page_state("loading", "正在切换当前启用角色。")
+	var result: Dictionary = await api.request_json(
+		"POST",
+		"/api/characters/%d/activate" % character_id_value,
+		{}
+	)
+
+	if not result.get("ok", false):
+		_handle_failure(page, result, "切换当前启用角色失败。")
+		return
+
+	var data: Dictionary = _as_dictionary(result.get("data", {}))
+	var character: Dictionary = _as_dictionary(data.get("character", {}))
+	var character_id_text = str(character.get("character_id", character_id_value))
+
+	_apply_active_character(character)
+	prepare_page.set_character_id(character_id_text)
+	settle_page.set_character_id(character_id_text)
+
+	if character_page.get_character_id_text() == character_id_text:
+		current_character_detail = data
+
+	if not current_character_detail.is_empty():
+		character_page.show_character_summary(_as_dictionary(current_character_detail.get("character", {})))
+
+	page.set_output_json(data)
+	page.set_page_state("success", success_message)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_flow_summary()
@@ -735,18 +953,63 @@ func _on_load_chapters_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_chapters = data
-	stage_page.render_chapters(data)
-	stage_page.render_reward_status(current_chapters, current_difficulties, current_reward_status)
+	stage_page.render_chapters(data, stage_page.get_selected_chapter_id())
+
+	if _as_array(data.get("chapters", [])).is_empty():
+		has_loaded_stages = false
+		has_loaded_difficulties = false
+		current_stages = {}
+		current_difficulties = {}
+		current_reward_status = {}
+		stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
+		stage_page.set_page_state("empty", "当前没有章节数据。")
+		stage_page.set_stage_summary(0, 0, 0, current_reward_status)
+		return
+
+	await _on_load_stages_pressed(stage_page.get_selected_chapter_id())
+
+
+func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
+	var chapter_id_value = chapter_id_override.strip_edges()
+	if chapter_id_value.is_empty():
+		chapter_id_value = stage_page.get_selected_chapter_id()
+
+	if chapter_id_value.is_empty():
+		stage_page.set_page_state("error", "请先选择 chapter_id。")
+		return
+
+	_persist_runtime_config()
+	stage_page.set_selected_chapter_id(chapter_id_value)
+	stage_page.set_page_state("loading", "正在读取章节关卡列表。")
+	var result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id_value)
+
+	if not result.get("ok", false):
+		_handle_failure(stage_page, result, "读取章节关卡列表失败。")
+		return
+
+	var data: Dictionary = _as_dictionary(result.get("data", {}))
+	current_stages = data
+	has_loaded_stages = true
+	has_loaded_difficulties = false
+	current_difficulties = {}
+	current_reward_status = {}
+	stage_page.render_stages(data)
+	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
-		_as_array(data.get("chapters", [])).size(),
-		_as_array(current_difficulties.get("difficulties", [])).size(),
+		_as_array(current_chapters.get("chapters", [])).size(),
+		_as_array(data.get("stages", [])).size(),
+		0,
 		current_reward_status
 	)
 
-	if _as_array(data.get("chapters", [])).is_empty():
-		stage_page.set_page_state("empty", "当前没有章节数据。")
+	if _as_array(data.get("stages", [])).is_empty():
+		stage_page.set_page_state("empty", "当前章节没有关卡数据。")
 	else:
-		stage_page.set_page_state("success", "章节列表已加载。")
+		stage_page.set_page_state("success", "关卡列表已加载，可继续读取难度列表。")
+
+	_persist_runtime_config()
+	_refresh_recent_selectors()
+	_refresh_flow_summary()
 
 
 func _on_load_difficulties_pressed() -> void:
@@ -765,10 +1028,12 @@ func _on_load_difficulties_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_difficulties = data
+	has_loaded_difficulties = true
 	current_reward_status = {}
 	stage_page.render_difficulties(data, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
+		_as_array(current_stages.get("stages", [])).size(),
 		_as_array(data.get("difficulties", [])).size(),
 		current_reward_status
 	)
@@ -806,9 +1071,10 @@ func _on_refresh_reward_status_pressed() -> void:
 		return
 
 	current_reward_status = _as_dictionary(result.get("data", {}))
-	stage_page.render_reward_status(current_chapters, current_difficulties, current_reward_status)
+	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
+		_as_array(current_stages.get("stages", [])).size(),
 		_as_array(current_difficulties.get("difficulties", [])).size(),
 		current_reward_status
 	)
@@ -948,9 +1214,10 @@ func _on_settle_pressed() -> void:
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
 	settle_page.show_settlement_summary(data)
 	settle_page.set_page_state("success", "battle settle 成功，已显示掉落、奖励、入包与首通奖励状态。")
-	stage_page.render_reward_status(current_chapters, current_difficulties, current_reward_status)
+	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
+		_as_array(current_stages.get("stages", [])).size(),
 		_as_array(current_difficulties.get("difficulties", [])).size(),
 		current_reward_status
 	)
