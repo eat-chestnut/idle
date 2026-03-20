@@ -16,6 +16,12 @@
 2. 再改测试与 OpenAPI
 3. 最后回写根目录文档
 
+其中主次关系固定为：
+
+1. backend 真实代码（`routes / ApiRequest / Resource / Feature Tests`）是第一真相
+2. `backend/docs/api/phase-one-frontend.openapi.json` 是随真实代码同步维护的机器契约产物
+3. `doc/codex/接口示例文档.md` 是只保留稳定正式接口的人读文档，不单独定义新规则
+
 ## 2. 最小联调前提
 
 从 `backend/` 目录执行：
@@ -66,6 +72,7 @@ php artisan serve
 - `GET /readyz`
 - `php artisan phase-one:diagnose --profile=interop`
 - `php artisan phase-one:diagnose --profile=interop --json`
+- `php artisan phase-one:contract-drift-check --json`
 
 检查项包括：
 
@@ -78,6 +85,13 @@ php artisan serve
 - phase-one 路由保护
 - 最小 seed 数据
 - OpenAPI 契约文件
+
+其中 `phase-one:contract-drift-check` 额外用于发版守门，会同时检查：
+
+- 真实前台路由与 OpenAPI 是否同步
+- `ApiRequest` 字段与 OpenAPI path / query / body 是否同步
+- 根目录正式接口文档是否仍只保留真实存在的 phase-one 接口
+- Bearer Token 与 `code/message/data` 统一响应外壳是否漂移
 
 ### phase-one 可验收
 
@@ -108,11 +122,12 @@ php artisan serve
 
 1. `php artisan phase-one:diagnose --profile=service --json`
 2. `php artisan phase-one:diagnose --profile=interop --json`
-3. `php artisan workflow-lock:check --json`
-4. `POST /api/characters`
-5. `POST /api/characters/{character_id}/equip`
-6. `POST /api/battles/prepare`
-7. `POST /api/battles/settle`
+3. `php artisan phase-one:contract-drift-check --json`
+4. `php artisan workflow-lock:check --json`
+5. `POST /api/characters`
+6. `POST /api/characters/{character_id}/equip`
+7. `POST /api/battles/prepare`
+8. `POST /api/battles/settle`
 
 完整闭环基线可直接参考：
 

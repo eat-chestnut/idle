@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Admin\AdminEnvironmentDiagnosisService;
+use App\Services\Admin\PhaseOneContractDriftGuardService;
 use App\Support\Lock\WorkflowLockService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -101,3 +102,46 @@ Artisan::command('phase-one:diagnose
 
     return 1;
 })->purpose('Diagnose phase-one frontend API interop readiness');
+
+Artisan::command('phase-one:contract-drift-check
+    {--json : 以 JSON 输出 phase-one API 契约防漂移检查结果}', function (): int {
+    $report = app(PhaseOneContractDriftGuardService::class)->check();
+
+    if ((bool) $this->option('json')) {
+        $this->line(json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return (bool) data_get($report, 'ready', false) ? 0 : 1;
+    }
+
+    $this->line(sprintf('actual_route_count: %d', (int) data_get($report, 'actual_route_count', 0)));
+    $this->line(sprintf('openapi: %s', (string) data_get($report, 'contract_sources.openapi')));
+    $this->line(sprintf('formal_doc: %s', (string) data_get($report, 'contract_sources.formal_doc')));
+
+    $rows = [];
+
+    foreach ((array) data_get($report, 'checks', []) as $name => $check) {
+        $rows[] = [
+            $name,
+            (bool) data_get($check, 'ok', false) ? 'ok' : 'failed',
+            (string) data_get($check, 'message', ''),
+        ];
+    }
+
+    $this->table(['check', 'status', 'message'], $rows);
+
+    $failures = (array) data_get($report, 'summary.failures', []);
+
+    if ($failures === []) {
+        $this->info('phase-one contract drift check passed');
+
+        return 0;
+    }
+
+    foreach ($failures as $failure) {
+        $this->error((string) $failure);
+    }
+
+    $this->error('phase-one contract drift check failed');
+
+    return 1;
+})->purpose('Guard phase-one frontend API contract against route/request/doc drift');

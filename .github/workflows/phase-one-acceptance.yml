@@ -77,5 +77,8 @@ jobs:
       - name: Diagnose phase-one acceptance readiness
         run: php artisan phase-one:diagnose --profile=acceptance --json
 
+      - name: Run phase-one contract drift guard
+        run: php artisan phase-one:contract-drift-check --json
+
       - name: Run phase-one acceptance suite
         run: composer phase-one:acceptance
