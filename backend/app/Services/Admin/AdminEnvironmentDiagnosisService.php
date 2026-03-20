@@ -10,6 +10,8 @@ use Throwable;
 
 class AdminEnvironmentDiagnosisService
 {
+    private const DEFAULT_PROFILE = 'interop';
+
     private const CONTRACT_PATH = 'docs/api/phase-one-frontend.openapi.json';
 
     private const TEST_USER_ID = 2001;
@@ -31,45 +33,158 @@ class AdminEnvironmentDiagnosisService
     ) {
     }
 
-    public function diagnose(): array
+    public function diagnose(string $profile = self::DEFAULT_PROFILE): array
     {
+        $selectedProfile = $this->resolveProfile($profile);
+        $appKey = $this->diagnoseAppKey();
+        $database = $this->diagnoseDatabase();
+        $runtimeDependencies = $this->diagnoseRuntimeDependencies();
         $workflowLock = $this->diagnoseWorkflowLock();
         $apiAuth = $this->diagnoseApiAuth();
+        $apiCors = $this->diagnoseApiCors();
         $routes = $this->diagnoseRoutes();
         $seedData = $this->diagnoseSeedData();
+        $adminBootstrap = $this->diagnoseAdminBootstrap();
         $contract = $this->diagnoseContractArtifact();
 
         $checks = [
+            'app_key' => $appKey,
+            'database' => $database,
+            'runtime_dependencies' => $runtimeDependencies,
             'workflow_lock' => $workflowLock,
             'api_auth' => $apiAuth,
+            'api_cors' => $apiCors,
             'routes' => $routes,
             'seed_data' => $seedData,
+            'admin_bootstrap' => $adminBootstrap,
             'contract' => $contract,
         ];
 
-        $failures = [];
-        $warnings = [];
+        $profiles = [
+            'service' => $this->buildProfile(
+                $checks,
+                'service',
+                ['app_key', 'database'],
+                '基础运行环境已就绪'
+            ),
+            'interop' => $this->buildProfile(
+                $checks,
+                'interop',
+                ['app_key', 'database', 'workflow_lock', 'api_auth', 'api_cors', 'routes', 'seed_data', 'contract'],
+                '第一阶段联调前提已就绪'
+            ),
+            'acceptance' => $this->buildProfile(
+                $checks,
+                'acceptance',
+                ['app_key', 'database', 'workflow_lock', 'api_auth', 'api_cors', 'routes', 'seed_data', 'contract', 'admin_bootstrap'],
+                '第一阶段验收前提已就绪'
+            ),
+        ];
 
-        foreach ($checks as $checkName => $check) {
-            if (! (bool) ($check['ready'] ?? false)) {
-                $failures[] = sprintf('%s: %s', $checkName, (string) ($check['message'] ?? '检查失败'));
+        $runtimeWarning = $this->buildNonBlockingWarning('runtime_dependencies', $runtimeDependencies);
+
+        if ($runtimeWarning !== null) {
+            foreach ($profiles as &$profileReport) {
+                $profileReport['warnings'][] = $runtimeWarning;
             }
+
+            unset($profileReport);
         }
 
-        if ((bool) ($workflowLock['ready'] ?? false) && str_contains((string) $workflowLock['message'], 'array store')) {
-            $warnings[] = (string) $workflowLock['message'];
-        }
+        $selectedReport = $profiles[$selectedProfile];
 
         return [
-            'status' => $failures === [] ? 'ok' : 'failed',
-            'ready' => $failures === [],
+            'status' => (string) $selectedReport['status'],
+            'ready' => (bool) $selectedReport['ready'],
+            'selected_profile' => $selectedProfile,
             'app_env' => app()->environment(),
             'timestamp' => now()->format('Y-m-d H:i:s'),
             'checks' => $checks,
+            'profiles' => $profiles,
             'summary' => [
-                'failures' => $failures,
-                'warnings' => $warnings,
+                'failures' => (array) $selectedReport['failures'],
+                'warnings' => (array) $selectedReport['warnings'],
+                'commands' => [
+                    'service' => 'php artisan phase-one:diagnose --profile=service --json',
+                    'interop' => 'php artisan phase-one:diagnose --profile=interop --json',
+                    'acceptance' => 'php artisan phase-one:diagnose --profile=acceptance --json',
+                ],
+                'endpoints' => [
+                    'liveness' => '/up',
+                    'readiness' => '/readyz',
+                ],
             ],
+        ];
+    }
+
+    private function diagnoseAppKey(): array
+    {
+        $key = (string) config('app.key', '');
+        $ready = $key !== '';
+
+        return [
+            'status' => $ready ? 'ok' : 'failed',
+            'ready' => $ready,
+            'message' => $ready
+                ? 'APP_KEY 已配置'
+                : 'APP_KEY 缺失，请先执行 php artisan key:generate',
+        ];
+    }
+
+    private function diagnoseDatabase(): array
+    {
+        $connection = (string) config('database.default', '');
+        $driver = (string) config(sprintf('database.connections.%s.driver', $connection), '');
+
+        try {
+            $database = (string) DB::connection($connection)->getDatabaseName();
+            DB::connection($connection)->getPdo();
+        } catch (Throwable $throwable) {
+            return [
+                'status' => 'failed',
+                'ready' => false,
+                'connection' => $connection,
+                'driver' => $driver,
+                'database' => null,
+                'message' => sprintf('数据库连接不可用：%s', $throwable->getMessage()),
+            ];
+        }
+
+        return [
+            'status' => 'ok',
+            'ready' => true,
+            'connection' => $connection,
+            'driver' => $driver,
+            'database' => $database,
+            'message' => sprintf('数据库连接已就绪（%s/%s）', $connection, $driver),
+        ];
+    }
+
+    private function diagnoseRuntimeDependencies(): array
+    {
+        $sessionDriver = (string) config('session.driver', '');
+        $queueConnection = (string) config('queue.default', '');
+        $mailMailer = (string) config('mail.default', '');
+        $cacheStore = (string) config('cache.default', '');
+        $workflowLockStore = (string) config('workflow_lock.store', $cacheStore);
+
+        $checks = [
+            $this->checkResult('session_driver', ...$this->sessionDriverStatus($sessionDriver)),
+            $this->checkResult('queue_connection', ...$this->queueConnectionStatus($queueConnection)),
+            $this->checkResult('mail_mailer', $mailMailer !== '', sprintf('MAIL_MAILER=%s', $mailMailer !== '' ? $mailMailer : '(empty)')),
+            $this->checkResult('cache_store', ...$this->cacheStoreStatus('CACHE_STORE', $cacheStore)),
+            $this->checkResult('workflow_lock_store', ...$this->cacheStoreStatus('WORKFLOW_LOCK_STORE', $workflowLockStore)),
+        ];
+
+        $ready = ! collect($checks)->contains(static fn (array $check): bool => ! $check['ok']);
+
+        return [
+            'status' => $ready ? 'ok' : 'failed',
+            'ready' => $ready,
+            'checks' => $checks,
+            'message' => $ready
+                ? 'session / queue / mail / cache 已具备最小运行配置'
+                : 'session / queue / mail / cache 存在缺失或未完成的前置配置',
         ];
     }
 
@@ -80,6 +195,7 @@ class AdminEnvironmentDiagnosisService
         return [
             ...$report,
             'ready' => (bool) data_get($report, 'available', false),
+            'warning' => $this->workflowLockWarning((string) data_get($report, 'store', '')),
         ];
     }
 
@@ -100,6 +216,33 @@ class AdminEnvironmentDiagnosisService
             'message' => $ready
                 ? 'api guard 已按 bearer token 方式配置'
                 : 'api guard 未按当前联调要求配置为 hash token guard',
+        ];
+    }
+
+    private function diagnoseApiCors(): array
+    {
+        $paths = array_values((array) config('cors.paths', []));
+        $allowedOrigins = array_values((array) config('cors.allowed_origins', []));
+        $allowedPatterns = array_values((array) config('cors.allowed_origins_patterns', []));
+        $allowedHeaders = array_map(static fn (string $header): string => strtolower($header), (array) config('cors.allowed_headers', []));
+        $allowedMethods = array_map(static fn (string $method): string => strtoupper($method), (array) config('cors.allowed_methods', []));
+
+        $pathReady = in_array('api/*', $paths, true);
+        $originsReady = $allowedOrigins !== [] || $allowedPatterns !== [];
+        $headersReady = in_array('*', $allowedHeaders, true) || in_array('authorization', $allowedHeaders, true);
+        $methodsReady = in_array('*', $allowedMethods, true) || collect(['GET', 'POST', 'OPTIONS'])->diff($allowedMethods)->isEmpty();
+        $ready = $pathReady && $originsReady && $headersReady && $methodsReady;
+
+        return [
+            'status' => $ready ? 'ok' : 'failed',
+            'ready' => $ready,
+            'paths' => $paths,
+            'allowed_origins' => $allowedOrigins,
+            'allowed_origins_patterns' => $allowedPatterns,
+            'message' => $ready
+                ? 'phase-one API CORS 已配置'
+                : 'phase-one API CORS 未完成最小联调配置，请检查 config/cors.php 与 CORS_ALLOWED_ORIGINS',
+            'warning' => $this->corsWarning($allowedOrigins),
         ];
     }
 
@@ -298,6 +441,45 @@ class AdminEnvironmentDiagnosisService
         ];
     }
 
+    private function diagnoseAdminBootstrap(): array
+    {
+        if (! Schema::hasTable('admin_users')) {
+            return [
+                'status' => 'failed',
+                'ready' => false,
+                'enabled_admin_count' => 0,
+                'session_driver' => (string) config('session.driver', ''),
+                'message' => 'admin_users 表缺失，请先完成 migrate',
+            ];
+        }
+
+        $sessionDriver = (string) config('session.driver', '');
+        $sessionReady = $this->isSessionDriverUsable($sessionDriver);
+        $enabledAdminCount = (int) DB::table('admin_users')
+            ->where('is_enabled', true)
+            ->count();
+        $ready = $sessionReady && $enabledAdminCount > 0;
+        $problems = [];
+
+        if (! $sessionReady) {
+            $problems[] = sprintf('SESSION_DRIVER=%s 无法支撑后台登录', $sessionDriver !== '' ? $sessionDriver : '(empty)');
+        }
+
+        if ($enabledAdminCount === 0) {
+            $problems[] = '后台管理员未初始化，请先执行 DatabaseSeeder 或 AdminUserSeeder';
+        }
+
+        return [
+            'status' => $ready ? 'ok' : 'failed',
+            'ready' => $ready,
+            'enabled_admin_count' => $enabledAdminCount,
+            'session_driver' => $sessionDriver,
+            'message' => $ready
+                ? '后台管理员与后台登录 session 已就绪'
+                : implode('；', $problems),
+        ];
+    }
+
     private function diagnoseContractArtifact(): array
     {
         $relativePath = self::CONTRACT_PATH;
@@ -334,6 +516,50 @@ class AdminEnvironmentDiagnosisService
         ];
     }
 
+    private function buildProfile(array $checks, string $profile, array $requiredChecks, string $successMessage): array
+    {
+        $failures = [];
+        $warnings = [];
+
+        foreach ($requiredChecks as $checkName) {
+            $check = (array) ($checks[$checkName] ?? []);
+
+            if (! (bool) ($check['ready'] ?? false)) {
+                $failures[] = sprintf('%s: %s', $checkName, (string) ($check['message'] ?? '检查失败'));
+            }
+
+            $warning = $this->buildNonBlockingWarning($checkName, $check);
+
+            if ($warning !== null) {
+                $warnings[] = $warning;
+            }
+        }
+
+        return [
+            'status' => $failures === [] ? 'ok' : 'failed',
+            'ready' => $failures === [],
+            'required_checks' => $requiredChecks,
+            'message' => $failures === [] ? $successMessage : sprintf('%s检查未通过', $this->profileLabel($profile)),
+            'failures' => $failures,
+            'warnings' => $warnings,
+        ];
+    }
+
+    private function buildNonBlockingWarning(string $checkName, array $check): ?string
+    {
+        $warning = trim((string) ($check['warning'] ?? ''));
+
+        if ($warning === '') {
+            if ((bool) ($check['ready'] ?? false)) {
+                return null;
+            }
+
+            return null;
+        }
+
+        return sprintf('%s: %s', $checkName, $warning);
+    }
+
     private function checkResult(string $key, bool $ok, string $detail): array
     {
         return [
@@ -341,6 +567,116 @@ class AdminEnvironmentDiagnosisService
             'ok' => $ok,
             'detail' => $detail,
         ];
+    }
+
+    private function resolveProfile(string $profile): string
+    {
+        return match ($profile) {
+            'service', 'interop', 'acceptance' => $profile,
+            default => self::DEFAULT_PROFILE,
+        };
+    }
+
+    private function sessionDriverStatus(string $driver): array
+    {
+        $driver = trim($driver);
+
+        if ($driver === '') {
+            return [false, 'SESSION_DRIVER=(empty)'];
+        }
+
+        if (! $this->isSessionDriverUsable($driver)) {
+            return [false, sprintf('SESSION_DRIVER=%s，仅允许 testing 环境使用 array', $driver)];
+        }
+
+        if ($driver === 'database' && ! $this->schemaTableExists((string) config('session.table', 'sessions'))) {
+            return [false, sprintf('SESSION_DRIVER=database 但缺少 %s 表', (string) config('session.table', 'sessions'))];
+        }
+
+        return [true, sprintf('SESSION_DRIVER=%s', $driver)];
+    }
+
+    private function queueConnectionStatus(string $connection): array
+    {
+        $connection = trim($connection);
+
+        if ($connection === '' || $connection === 'null') {
+            return [false, sprintf('QUEUE_CONNECTION=%s', $connection === '' ? '(empty)' : $connection)];
+        }
+
+        if ($connection === 'database' && ! $this->schemaTableExists((string) config('queue.connections.database.table', 'jobs'))) {
+            return [false, sprintf('QUEUE_CONNECTION=database 但缺少 %s 表', (string) config('queue.connections.database.table', 'jobs'))];
+        }
+
+        return [true, sprintf('QUEUE_CONNECTION=%s', $connection)];
+    }
+
+    private function cacheStoreStatus(string $label, string $store): array
+    {
+        $store = trim($store);
+
+        if ($store === '' || $store === 'null') {
+            return [false, sprintf('%s=%s', $label, $store === '' ? '(empty)' : $store)];
+        }
+
+        if ($store === 'array' && ! app()->environment('testing')) {
+            return [false, sprintf('%s=array，仅允许 testing 环境使用', $label)];
+        }
+
+        if ($store === 'database' && ! $this->schemaTableExists((string) config('cache.stores.database.table', 'cache'))) {
+            return [false, sprintf('%s=database 但缺少 %s 表', $label, (string) config('cache.stores.database.table', 'cache'))];
+        }
+
+        return [true, sprintf('%s=%s', $label, $store)];
+    }
+
+    private function isSessionDriverUsable(string $driver): bool
+    {
+        if ($driver === 'array' && ! app()->environment('testing')) {
+            return false;
+        }
+
+        return $driver !== '';
+    }
+
+    private function schemaTableExists(string $table): bool
+    {
+        try {
+            return Schema::hasTable($table);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function workflowLockWarning(string $store): ?string
+    {
+        if ($store === 'array' && app()->environment('testing')) {
+            return 'testing 环境允许 array；真实联调或部署请改为 file / redis / database 等正式 store';
+        }
+
+        if ($store === 'file' && ! app()->environment('testing')) {
+            return 'file lock 只适合单机部署；多实例部署请改为 redis 等共享 store';
+        }
+
+        return null;
+    }
+
+    private function corsWarning(array $allowedOrigins): ?string
+    {
+        if (in_array('*', $allowedOrigins, true) && ! app()->environment(['local', 'testing'])) {
+            return '当前允许所有来源，部署前建议收口为明确的前端域名列表';
+        }
+
+        return null;
+    }
+
+    private function profileLabel(string $profile): string
+    {
+        return match ($profile) {
+            'service' => '服务存活',
+            'acceptance' => '验收前提',
+            default => '联调前提',
+        };
     }
 
     private function findRoute(string $method, string $uri): ?LaravelRoute

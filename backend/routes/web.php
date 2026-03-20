@@ -4,11 +4,14 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminResourceController;
 use App\Http\Controllers\Admin\AdminToolController;
 use App\Http\Controllers\Admin\Auth\AdminAuthController;
+use App\Http\Controllers\Operations\PhaseOneReadinessController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::get('readyz', PhaseOneReadinessController::class)->name('readyz');
 
 Route::prefix('admin')->name('admin.')->group(function (): void {
     Route::middleware('guest:admin')->group(function (): void {

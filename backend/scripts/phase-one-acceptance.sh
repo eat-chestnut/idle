@@ -8,7 +8,7 @@ BACKEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${BACKEND_DIR}"
 
 echo "[phase-one] diagnose"
-php artisan phase-one:diagnose
+php artisan phase-one:diagnose --profile=acceptance
 
 echo "[phase-one] targeted acceptance tests"
 php artisan test \
@@ -20,5 +20,6 @@ php artisan test \
   tests/Feature/Api/PhaseOnePlayerJourneySmokeTest.php \
   tests/Feature/Admin/PhaseOneAdminPagesTest.php \
   tests/Feature/Console/PhaseOneEnvironmentDiagnoseCommandTest.php \
+  tests/Feature/Http/PhaseOneReadinessEndpointTest.php \
   tests/Feature/Console/WorkflowLockCheckCommandTest.php \
   tests/Unit/Support/WorkflowLockServiceTest.php

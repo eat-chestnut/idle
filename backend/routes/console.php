@@ -42,14 +42,31 @@ Artisan::command('workflow-lock:check {--json : 以 JSON 输出诊断结果}', f
     return 1;
 })->purpose('Check workflow lock capability for critical battle/reward flows');
 
-Artisan::command('phase-one:diagnose {--json : 以 JSON 输出第一阶段联调诊断结果}', function (): int {
-    $report = app(AdminEnvironmentDiagnosisService::class)->diagnose();
+Artisan::command('phase-one:diagnose
+    {--json : 以 JSON 输出第一阶段联调诊断结果}
+    {--profile=interop : 诊断维度，可选 service / interop / acceptance}', function (): int {
+    $profile = (string) $this->option('profile');
+    $report = app(AdminEnvironmentDiagnosisService::class)->diagnose($profile);
 
     if ((bool) $this->option('json')) {
         $this->line(json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         return (bool) data_get($report, 'ready', false) ? 0 : 1;
     }
+
+    $this->line(sprintf('selected_profile: %s', (string) data_get($report, 'selected_profile', $profile)));
+
+    $profileRows = [];
+
+    foreach ((array) data_get($report, 'profiles', []) as $name => $profileReport) {
+        $profileRows[] = [
+            $name,
+            (bool) data_get($profileReport, 'ready', false) ? 'ok' : 'failed',
+            (string) data_get($profileReport, 'message', ''),
+        ];
+    }
+
+    $this->table(['profile', 'status', 'message'], $profileRows);
 
     $rows = [];
 
@@ -71,7 +88,7 @@ Artisan::command('phase-one:diagnose {--json : 以 JSON 输出第一阶段联调
     }
 
     if ($failures === []) {
-        $this->info('phase-one interop diagnosis passed');
+        $this->info('phase-one diagnosis passed');
 
         return 0;
     }
@@ -80,7 +97,7 @@ Artisan::command('phase-one:diagnose {--json : 以 JSON 输出第一阶段联调
         $this->error((string) $failure);
     }
 
-    $this->error('phase-one interop diagnosis failed');
+    $this->error('phase-one diagnosis failed');
 
     return 1;
 })->purpose('Diagnose phase-one frontend API interop readiness');
