@@ -280,6 +280,58 @@ class PhaseOneAdminPagesTest extends TestCase
         );
     }
 
+    public function test_reward_retry_tool_can_lookup_failed_grant_by_business_source(): void
+    {
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+        $rewardGrantId = $this->createNaturallyFailedRewardGrant();
+
+        $beforeCoinQuantity = (int) DB::table('inventory_stack_items')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'mat_coin_001')
+            ->value('quantity');
+        $beforeMarkQuantity = (int) DB::table('inventory_stack_items')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'mat_mark_001')
+            ->value('quantity');
+        $beforeEquipmentCount = (int) DB::table('inventory_equipment_instances')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'eq_armor_001')
+            ->count();
+
+        $this->post('/admin/tools/reward-retry', [
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'source_type' => 'first_clear',
+            'source_id' => 'stage_nanshan_001_normal',
+        ])->assertRedirect('/admin/tools');
+
+        $this->assertDatabaseHas('user_reward_grants', [
+            'reward_grant_id' => $rewardGrantId,
+            'grant_status' => 'success',
+        ]);
+
+        $this->assertSame(
+            $beforeCoinQuantity + 100,
+            (int) DB::table('inventory_stack_items')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'mat_coin_001')
+                ->value('quantity')
+        );
+        $this->assertSame(
+            $beforeMarkQuantity + 2,
+            (int) DB::table('inventory_stack_items')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'mat_mark_001')
+                ->value('quantity')
+        );
+        $this->assertSame(
+            $beforeEquipmentCount + 1,
+            (int) DB::table('inventory_equipment_instances')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'eq_armor_001')
+                ->count()
+        );
+    }
+
     public function test_reward_retry_tool_rejects_non_failed_record(): void
     {
         $battleContextId = $this->prepareBattleContextId();

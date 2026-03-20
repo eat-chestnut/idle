@@ -1,10 +1,19 @@
 # 第一阶段前台 API 联调入口
 
-## 1. 正式契约文件
+## 1. 正式契约文件与文档分工
 
 - 契约产物：`backend/docs/api/phase-one-frontend.openapi.json`
 - 口径来源：`backend/routes/api.php`、各 `ApiRequest`、各 `Resource`、现有 Feature Tests
 - 认证方式：所有前台业务接口统一使用 `Authorization: Bearer <api_token>`
+- 根目录人读示例：`doc/codex/接口示例文档.md`
+- 根目录公共规则：`doc/codex/认证与接口公共规则.md`
+- 根目录测试矩阵与验收入口说明：`doc/codex/第一阶段测试与验收说明.md`
+
+维护分工：
+
+- `backend/docs/api/phase-one-frontend.openapi.json` 负责机器可读正式契约
+- 根目录 `doc/codex/*.md` 负责人读说明、示例和验收口径
+- 若出现漂移，先修 backend 真实代码 / 测试 / OpenAPI，再回写根目录文档
 
 当前本地最小联调用测试 token：
 
@@ -12,7 +21,24 @@
 
 该 token 对应 `DatabaseSeeder` 写入的测试用户 `users.id = 2001`。
 
-## 2. 一键诊断
+## 2. 统一验收入口
+
+从 `backend/` 目录执行：
+
+```bash
+composer phase-one:acceptance
+```
+
+该入口会顺序执行：
+
+1. `php artisan phase-one:diagnose`
+2. 第一阶段定向验收测试集
+
+聚合脚本位置：
+
+- `backend/scripts/phase-one-acceptance.sh`
+
+## 3. 一键诊断
 
 用于快速判断“现在是否可联调”：
 
@@ -29,7 +55,7 @@ php artisan phase-one:diagnose --json
 - 最小联调 seed 数据是否完整
 - OpenAPI 契约文件是否存在且可解析
 
-## 3. 当前收口后的强相关口径
+## 4. 当前收口后的强相关口径
 
 以下以真实 backend 代码为准，已在 OpenAPI 示例中修正：
 
@@ -41,7 +67,7 @@ php artisan phase-one:diagnose --json
 - 错误码必须以当前 `App\\Support\\ErrorCode` 与《错误码总表》为准：例如角色不存在是 `10101`，无权限访问角色是 `10102`，装备相关是 `102xx`，关卡相关是 `103xx`，结算相关是 `105xx`。
 - 战斗示例中的怪物、属性和奖励示例值已切到当前最小 seed 数据口径，不再沿用旧示例中的历史占位值。
 
-## 4. 最小联调建议顺序
+## 5. 最小联调建议顺序
 
 1. `php artisan migrate:fresh --seed`
 2. `php artisan phase-one:diagnose --json`
