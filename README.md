@@ -9,6 +9,7 @@
 - phase-one API 联调与契约：[`backend/docs/api/README.md`](/Users/mumu/game/idle/backend/docs/api/README.md)
 - 第一阶段测试与验收说明：[`doc/codex/第一阶段测试与验收说明.md`](/Users/mumu/game/idle/doc/codex/第一阶段测试与验收说明.md)
 - 认证与接口公共规则：[`doc/codex/认证与接口公共规则.md`](/Users/mumu/game/idle/doc/codex/认证与接口公共规则.md)
+- 仓库自动验收 workflow：[`/.github/workflows/phase-one-acceptance.yml`](/Users/mumu/game/idle/.github/workflows/phase-one-acceptance.yml)
 
 ## 仓库说明
 

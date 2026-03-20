@@ -118,6 +118,34 @@ php artisan test tests/Feature/Api/PhaseOnePlayerJourneySmokeTest.php
 composer phase-one:acceptance
 ```
 
+## GitHub Actions CI
+
+仓库最小自动验收 workflow 位于 [`/.github/workflows/phase-one-acceptance.yml`](/Users/mumu/game/idle/.github/workflows/phase-one-acceptance.yml)。
+
+当前 CI 只复用现有 phase-one 入口，不单独发明新脚本，触发时会顺序执行：
+
+1. `cp .env.example .env`
+2. `touch database/database.sqlite`
+3. `composer install`
+4. `php artisan key:generate --force`
+5. `php artisan migrate:fresh --seed --force`
+6. `php artisan phase-one:diagnose --profile=acceptance --json`
+7. `composer phase-one:acceptance`
+
+CI 内额外包含两项轻量前置检查：
+
+- `composer validate --strict`
+- PHP lint（`artisan` + `app/config/database/routes/tests`）
+
+如果 workflow 失败，建议优先按步骤名排查：
+
+- `Migrate and seed database`
+  优先检查 migration、seed 数据、SQLite 文件与 `.env` 是否一致。
+- `Diagnose phase-one acceptance readiness`
+  直接看 `APP_KEY / database / workflow_lock / seed_data / admin_bootstrap / contract` 哪项失败。
+- `Run phase-one acceptance suite`
+  直接按失败的定向测试文件定位对应链路，不需要另找一套 CI 专用入口。
+
 ## 说明边界
 
 - `/readyz` 是部署与联调诊断入口，不属于 phase-one 前台业务 OpenAPI 契约。

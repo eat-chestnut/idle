@@ -1,0 +1,81 @@
+name: phase-one acceptance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: phase-one-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-acceptance:
+    name: backend acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        id: setup-php
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+          extensions: mbstring, sqlite3, pdo_sqlite
+
+      - name: Prepare backend environment
+        run: |
+          cp .env.example .env
+          mkdir -p database
+          touch database/database.sqlite
+
+      - name: Determine Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php-${{ steps.setup-php.outputs.php-version }}-composer-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ steps.setup-php.outputs.php-version }}-composer-
+            ${{ runner.os }}-composer-
+
+      - name: Validate Composer manifest
+        run: composer validate --strict
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Generate APP_KEY
+        run: php artisan key:generate --force
+
+      - name: Lint PHP source
+        run: |
+          php -l artisan
+          find app config database routes tests -type f -name '*.php' -print0 | xargs -0 -n 1 -P 4 php -l
+
+      - name: Migrate and seed database
+        run: php artisan migrate:fresh --seed --force
+
+      - name: Diagnose phase-one acceptance readiness
+        run: php artisan phase-one:diagnose --profile=acceptance --json
+
+      - name: Run phase-one acceptance suite
+        run: composer phase-one:acceptance
