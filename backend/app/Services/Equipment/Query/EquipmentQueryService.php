@@ -88,6 +88,41 @@ class EquipmentQueryService
         );
     }
 
+    public function getEquippedInstancesByCharacter(array $slotMap): array
+    {
+        $equippedInstances = [];
+
+        foreach ($slotMap as $slotRow) {
+            if ($slotRow->equippedInstance === null) {
+                continue;
+            }
+
+            $equippedInstances[(int) $slotRow->equippedInstance->equipment_instance_id] = $slotRow->equippedInstance;
+        }
+
+        return $equippedInstances;
+    }
+
+    public function buildOrderedSlotSnapshotFromSlotMap(array $slotMap, ?array $slotKeys = null): array
+    {
+        $orderedSlotKeys = $slotKeys === null
+            ? EquipmentSlotKey::orderedValues()
+            : array_values(array_intersect(EquipmentSlotKey::orderedValues(), $slotKeys));
+
+        return array_map(
+            fn (string $slotKey): array => $this->normalizeSlotSnapshot(
+                $slotMap[$slotKey] ?? null,
+                $slotKey
+            ),
+            $orderedSlotKeys
+        );
+    }
+
+    public function buildEquipmentInstanceSnapshot(InventoryEquipmentInstance $instance): array
+    {
+        return $this->normalizeEquipmentInstance($instance);
+    }
+
     private function normalizeSlotSnapshot(?CharacterEquipmentSlot $slotRow, string $slotKey): array
     {
         if ($slotRow === null) {

@@ -23,7 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $isApiRequest = static fn (Request $request): bool => $request->is('api/*') || $request->expectsJson();
 
-        $exceptions->render(function (BusinessException $exception, Request $request) {
+        $exceptions->render(function (BusinessException $exception, Request $request) use ($isApiRequest) {
             if (! $isApiRequest($request)) {
                 return null;
             }

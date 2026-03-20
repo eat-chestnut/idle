@@ -43,6 +43,21 @@ class EquipmentTemplateConfigService
             ->first();
     }
 
+    public function getEquipmentTemplateMapByItemIds(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        return Equipment::query()
+            ->with('item')
+            ->whereIn('item_id', array_values(array_unique($itemIds)))
+            ->where('is_enabled', true)
+            ->get()
+            ->keyBy('item_id')
+            ->all();
+    }
+
     public function getAllowedSubWeaponCategories(?WeaponCategory $weaponCategory): array
     {
         if ($weaponCategory === null) {

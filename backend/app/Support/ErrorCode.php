@@ -45,10 +45,15 @@ final class ErrorCode
     public const EQUIPMENT_UNEQUIP_FAILED = self::EQUIPMENT_CHANGE_FAILED;
     public const EQUIPMENT_EQUIP_FAILED = self::EQUIPMENT_CHANGE_FAILED;
 
-    public const STAGE_NOT_FOUND = 10301;
-    public const STAGE_DISABLED = 10302;
+    public const CHAPTER_NOT_FOUND = 10301;
+    public const STAGE_NOT_FOUND = 10302;
     public const STAGE_DIFFICULTY_NOT_FOUND = 10303;
-    public const FIRST_CLEAR_REWARD_STATUS_QUERY_FAILED = 10304;
+    public const STAGE_NOT_UNLOCKED = 10304;
+    public const STAGE_DIFFICULTY_NOT_UNLOCKED = 10305;
+    public const STAGE_MONSTER_BINDING_EMPTY = 10306;
+    public const FIRST_CLEAR_REWARD_STATUS_QUERY_FAILED = 10307;
+
+    public const STAGE_DISABLED = self::STAGE_NOT_UNLOCKED;
 
     public const BATTLE_PREPARE_FAILED = 10401;
     public const BATTLE_CHARACTER_INVALID = 10402;
@@ -135,9 +140,12 @@ final class ErrorCode
             self::EQUIPMENT_CHANGE_FAILED => '换装失败',
             self::EQUIPMENT_MAIN_SUB_LINKAGE_FAILED => '主副武器联动处理失败',
             self::EQUIPMENT_INSTANCE_STATE_INVALID => '装备实例状态异常',
+            self::CHAPTER_NOT_FOUND => '章节不存在',
             self::STAGE_NOT_FOUND => '关卡不存在',
-            self::STAGE_DISABLED => '关卡未启用',
             self::STAGE_DIFFICULTY_NOT_FOUND => '关卡难度不存在',
+            self::STAGE_NOT_UNLOCKED => '关卡未解锁或未启用',
+            self::STAGE_DIFFICULTY_NOT_UNLOCKED => '关卡难度未解锁或未启用',
+            self::STAGE_MONSTER_BINDING_EMPTY => '关卡未绑定怪物',
             self::FIRST_CLEAR_REWARD_STATUS_QUERY_FAILED => '首通奖励状态查询失败',
             self::BATTLE_PREPARE_FAILED => '战斗准备失败',
             self::BATTLE_CHARACTER_INVALID => '战斗角色无效',
