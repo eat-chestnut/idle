@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Admin\AdminEnvironmentDiagnosisService;
 use App\Support\Lock\WorkflowLockService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -40,3 +41,46 @@ Artisan::command('workflow-lock:check {--json : 以 JSON 输出诊断结果}', f
 
     return 1;
 })->purpose('Check workflow lock capability for critical battle/reward flows');
+
+Artisan::command('phase-one:diagnose {--json : 以 JSON 输出第一阶段联调诊断结果}', function (): int {
+    $report = app(AdminEnvironmentDiagnosisService::class)->diagnose();
+
+    if ((bool) $this->option('json')) {
+        $this->line(json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        return (bool) data_get($report, 'ready', false) ? 0 : 1;
+    }
+
+    $rows = [];
+
+    foreach ((array) data_get($report, 'checks', []) as $name => $check) {
+        $rows[] = [
+            $name,
+            (bool) data_get($check, 'ready', false) ? 'ok' : 'failed',
+            (string) data_get($check, 'message', ''),
+        ];
+    }
+
+    $this->table(['check', 'status', 'message'], $rows);
+
+    $failures = (array) data_get($report, 'summary.failures', []);
+    $warnings = (array) data_get($report, 'summary.warnings', []);
+
+    foreach ($warnings as $warning) {
+        $this->warn((string) $warning);
+    }
+
+    if ($failures === []) {
+        $this->info('phase-one interop diagnosis passed');
+
+        return 0;
+    }
+
+    foreach ($failures as $failure) {
+        $this->error((string) $failure);
+    }
+
+    $this->error('phase-one interop diagnosis failed');
+
+    return 1;
+})->purpose('Diagnose phase-one frontend API interop readiness');

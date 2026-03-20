@@ -1,0 +1,2276 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "山海巡厄录第一阶段前台 API 契约",
+    "version": "1.0.0",
+    "description": "基于 backend/routes/api.php、ApiRequest、Resource 与现有 Feature Tests 收口的第一阶段前台 API 正式契约。所有业务失败当前仍返回 HTTP 200，并通过 code/message/data=null 表达业务错误。"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Character"
+    },
+    {
+      "name": "Equipment"
+    },
+    {
+      "name": "Inventory"
+    },
+    {
+      "name": "Stage"
+    },
+    {
+      "name": "Battle"
+    }
+  ],
+  "paths": {
+    "/api/characters": {
+      "post": {
+        "tags": [
+          "Character"
+        ],
+        "summary": "创建角色",
+        "operationId": "createCharacter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "class_id",
+                  "character_name"
+                ],
+                "properties": {
+                  "class_id": {
+                    "type": "string",
+                    "description": "职业 ID"
+                  },
+                  "character_name": {
+                    "type": "string",
+                    "description": "角色名称"
+                  }
+                }
+              },
+              "example": {
+                "class_id": "class_jingang",
+                "character_name": "联调烟测角"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功返回角色与初始化后的固定 12 槽位；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CharacterCreateSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character": {
+                          "character_id": 1002,
+                          "character_name": "联调烟测角",
+                          "class_id": "class_jingang",
+                          "class_name": "金刚",
+                          "level": 1,
+                          "exp": 0,
+                          "is_active": 0,
+                          "unspent_stat_points": 0,
+                          "added_strength": 0,
+                          "added_mana": 0,
+                          "added_constitution": 0,
+                          "added_dexterity": 0,
+                          "long_term_growth_stage": null
+                        },
+                        "equipment_slots": [
+                          {
+                            "slot_key": "main_weapon",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          },
+                          {
+                            "slot_key": "sub_weapon",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          },
+                          {
+                            "slot_key": "armor",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "invalid_params": {
+                    "value": {
+                      "code": 10001,
+                      "message": "请求参数不合法",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{character_id}": {
+      "get": {
+        "tags": [
+          "Character"
+        ],
+        "summary": "获取角色详情",
+        "operationId": "getCharacterDetail",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/character_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回角色摘要；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CharacterDetailSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character": {
+                          "character_id": 1001,
+                          "character_name": "青山",
+                          "class_id": "class_jingang",
+                          "class_name": "金刚",
+                          "level": 1,
+                          "exp": 0,
+                          "is_active": 1,
+                          "unspent_stat_points": 0,
+                          "added_strength": 0,
+                          "added_mana": 0,
+                          "added_constitution": 0,
+                          "added_dexterity": 0,
+                          "long_term_growth_stage": null
+                        }
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10101,
+                      "message": "角色不存在",
+                      "data": null
+                    }
+                  },
+                  "forbidden": {
+                    "value": {
+                      "code": 10102,
+                      "message": "无权访问该角色",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{character_id}/equipment-slots": {
+      "get": {
+        "tags": [
+          "Equipment"
+        ],
+        "summary": "获取角色穿戴槽位快照",
+        "operationId": "getCharacterEquipmentSlots",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/character_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "固定返回角色当前 12 个正式槽位；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EquipmentSlotListSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character_id": 1001,
+                        "slots": [
+                          {
+                            "slot_key": "main_weapon",
+                            "equipped_instance_id": 5001,
+                            "equipment": {
+                              "equipment_instance_id": 5001,
+                              "item_id": "eq_hammer_001",
+                              "item_name": "青石重锤",
+                              "equipment_slot": "main_weapon",
+                              "rarity": "common",
+                              "icon": "equipments/eq_hammer_001.png",
+                              "bind_type": "unbound",
+                              "enhance_level": 0,
+                              "durability": 100,
+                              "max_durability": 100
+                            }
+                          },
+                          {
+                            "slot_key": "sub_weapon",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          },
+                          {
+                            "slot_key": "armor",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10101,
+                      "message": "角色不存在",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{character_id}/equip": {
+      "post": {
+        "tags": [
+          "Equipment"
+        ],
+        "summary": "穿戴装备实例",
+        "operationId": "equipCharacterItem",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/character_id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "equipment_instance_id",
+                  "target_slot_key"
+                ],
+                "properties": {
+                  "equipment_instance_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "target_slot_key": {
+                    "type": "string"
+                  }
+                }
+              },
+              "example": {
+                "equipment_instance_id": 5001,
+                "target_slot_key": "main_weapon"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功返回正式写入后的槽位变化结果；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EquipmentChangeSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character_id": 1001,
+                        "equipped_instance_id": 5001,
+                        "unequipped_instance_ids": [],
+                        "changed_slots": [
+                          "main_weapon"
+                        ],
+                        "slot_snapshot": [
+                          {
+                            "slot_key": "main_weapon",
+                            "equipped_instance_id": 5001,
+                            "equipment": {
+                              "equipment_instance_id": 5001,
+                              "item_id": "eq_hammer_001",
+                              "item_name": "青石重锤",
+                              "equipment_slot": "main_weapon",
+                              "rarity": "common",
+                              "icon": "equipments/eq_hammer_001.png",
+                              "bind_type": "unbound",
+                              "enhance_level": 0,
+                              "durability": 100,
+                              "max_durability": 100
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10201,
+                      "message": "装备实例不存在",
+                      "data": null
+                    }
+                  },
+                  "slot_not_compatible": {
+                    "value": {
+                      "code": 10205,
+                      "message": "目标槽位与装备位不兼容",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{character_id}/unequip": {
+      "post": {
+        "tags": [
+          "Equipment"
+        ],
+        "summary": "卸下装备实例",
+        "operationId": "unequipCharacterItem",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/character_id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "target_slot_key"
+                ],
+                "properties": {
+                  "target_slot_key": {
+                    "type": "string"
+                  }
+                }
+              },
+              "example": {
+                "target_slot_key": "main_weapon"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功返回正式清空后的槽位变化结果；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EquipmentChangeSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character_id": 1001,
+                        "unequipped_instance_ids": [
+                          5001
+                        ],
+                        "changed_slots": [
+                          "main_weapon"
+                        ],
+                        "slot_snapshot": [
+                          {
+                            "slot_key": "main_weapon",
+                            "equipped_instance_id": null,
+                            "equipment": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "slot_empty": {
+                    "value": {
+                      "code": 10209,
+                      "message": "目标槽位当前没有已穿戴装备",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "获取背包摘要",
+        "operationId": "getInventory",
+        "description": "当前真实实现返回全量摘要列表。page/page_size 仍作为保留参数接收，但尚未启用正式分页结构。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/inventory_tab"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/page_size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回背包摘要；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/InventorySuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "stack_items": [
+                          {
+                            "item_id": "mat_wood_001",
+                            "item_name": "灵木",
+                            "item_type": "material",
+                            "rarity": "common",
+                            "icon": "items/mat_wood_001.png",
+                            "quantity": 10
+                          },
+                          {
+                            "item_id": "mat_coin_001",
+                            "item_name": "灵石",
+                            "item_type": "reward_item",
+                            "rarity": "rare",
+                            "icon": "items/mat_coin_001.png",
+                            "quantity": 20
+                          }
+                        ],
+                        "equipment_items": [
+                          {
+                            "equipment_instance_id": 5001,
+                            "item_id": "eq_hammer_001",
+                            "item_name": "青石重锤",
+                            "equipment_slot": "main_weapon",
+                            "rarity": "common",
+                            "icon": "equipments/eq_hammer_001.png",
+                            "bind_type": "unbound",
+                            "enhance_level": 0,
+                            "durability": 100,
+                            "max_durability": 100
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "unauthorized": {
+                    "value": {
+                      "code": 10002,
+                      "message": "未登录或登录失效",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chapters": {
+      "get": {
+        "tags": [
+          "Stage"
+        ],
+        "summary": "获取启用章节列表",
+        "operationId": "getChapters",
+        "responses": {
+          "200": {
+            "description": "成功返回当前启用章节；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ChapterListSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "chapters": [
+                          {
+                            "chapter_id": "chapter_nanshan_001",
+                            "chapter_name": "南山一经",
+                            "chapter_desc": null,
+                            "chapter_group": null,
+                            "sort_order": 1,
+                            "unlock_condition": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "unauthorized": {
+                    "value": {
+                      "code": 10002,
+                      "message": "未登录或登录失效",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stages/{stage_id}/difficulties": {
+      "get": {
+        "tags": [
+          "Stage"
+        ],
+        "summary": "获取关卡难度与首通奖励摘要",
+        "operationId": "getStageDifficulties",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/stage_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回当前关卡所有启用难度；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/StageDifficultyListSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "stage_id": "stage_nanshan_001",
+                        "difficulties": [
+                          {
+                            "stage_difficulty_id": "stage_nanshan_001_normal",
+                            "difficulty_key": "normal",
+                            "difficulty_name": "普通",
+                            "difficulty_order": 1,
+                            "recommended_power": 100,
+                            "first_clear_reward": {
+                              "has_reward": 1,
+                              "has_granted": 0,
+                              "reward_group_id": "reward_first_clear_001"
+                            }
+                          },
+                          {
+                            "stage_difficulty_id": "stage_nanshan_001_hard",
+                            "difficulty_key": "hard",
+                            "difficulty_name": "困难",
+                            "difficulty_order": 2,
+                            "recommended_power": 180,
+                            "first_clear_reward": {
+                              "has_reward": 1,
+                              "has_granted": 0,
+                              "reward_group_id": "reward_first_clear_001"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10302,
+                      "message": "关卡不存在",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stage-difficulties/{stage_difficulty_id}/first-clear-reward-status": {
+      "get": {
+        "tags": [
+          "Stage"
+        ],
+        "summary": "获取首通奖励状态",
+        "operationId": "getFirstClearRewardStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/stage_difficulty_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回指定难度的首通奖励状态；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FirstClearRewardStatusSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "source_type": "first_clear",
+                        "source_id": "stage_nanshan_001_normal",
+                        "has_reward": 1,
+                        "reward_group_id": "reward_first_clear_001",
+                        "has_granted": 0,
+                        "grant_status": null
+                      }
+                    }
+                  },
+                  "granted": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "source_type": "first_clear",
+                        "source_id": "stage_nanshan_001_normal",
+                        "has_reward": 1,
+                        "reward_group_id": "reward_first_clear_001",
+                        "has_granted": 1,
+                        "grant_status": "success"
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10303,
+                      "message": "关卡难度不存在",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/battles/prepare": {
+      "post": {
+        "tags": [
+          "Battle"
+        ],
+        "summary": "战斗准备",
+        "operationId": "prepareBattle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "character_id",
+                  "stage_difficulty_id"
+                ],
+                "properties": {
+                  "character_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "stage_difficulty_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              "example": {
+                "character_id": 1001,
+                "stage_difficulty_id": "stage_nanshan_001_normal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功返回 battle_context_id、角色快照、属性快照与怪物列表；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BattlePrepareSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "battle_context_id": "battle_ctx_20260320_120000_ab12cd",
+                        "stage_difficulty": {
+                          "stage_difficulty_id": "stage_nanshan_001_normal",
+                          "difficulty_key": "normal",
+                          "difficulty_name": "普通",
+                          "recommended_power": 100
+                        },
+                        "character": {
+                          "character_id": 1001,
+                          "character_name": "青山",
+                          "class_id": "class_jingang",
+                          "class_name": "金刚",
+                          "level": 1
+                        },
+                        "character_stats": {
+                          "attack": 12,
+                          "physical_defense": 20,
+                          "magic_defense": 6,
+                          "hp": 30,
+                          "mana": 0,
+                          "attack_speed": 10,
+                          "crit_rate": 2,
+                          "spell_power": 0
+                        },
+                        "slot_snapshot": [
+                          {
+                            "slot_key": "main_weapon",
+                            "equipped_instance_id": 5001,
+                            "equipment": {
+                              "equipment_instance_id": 5001,
+                              "item_id": "eq_hammer_001",
+                              "item_name": "青石重锤",
+                              "equipment_slot": "main_weapon",
+                              "rarity": "common",
+                              "icon": "equipments/eq_hammer_001.png",
+                              "bind_type": "unbound",
+                              "enhance_level": 0,
+                              "durability": 100,
+                              "max_durability": 100
+                            }
+                          },
+                          {
+                            "slot_key": "sub_weapon",
+                            "equipped_instance_id": 5002,
+                            "equipment": {
+                              "equipment_instance_id": 5002,
+                              "item_id": "eq_shield_001",
+                              "item_name": "山纹木盾",
+                              "equipment_slot": "sub_weapon",
+                              "rarity": "common",
+                              "icon": "equipments/eq_shield_001.png",
+                              "bind_type": "unbound",
+                              "enhance_level": 0,
+                              "durability": 100,
+                              "max_durability": 100
+                            }
+                          }
+                        ],
+                        "monster_list": [
+                          {
+                            "monster_id": "monster_spirit_001",
+                            "monster_name": "山灵",
+                            "monster_role": "normal_enemy",
+                            "wave_no": 1,
+                            "sort_order": 1,
+                            "base_hp": 40,
+                            "base_attack": 10,
+                            "base_physical_defense": 4,
+                            "base_magic_defense": 3,
+                            "attack_interval": null,
+                            "attack_range": null,
+                            "move_speed": null
+                          },
+                          {
+                            "monster_id": "monster_boss_001",
+                            "monster_name": "招摇山主",
+                            "monster_role": "boss_enemy",
+                            "wave_no": 2,
+                            "sort_order": 1,
+                            "base_hp": 180,
+                            "base_attack": 28,
+                            "base_physical_defense": 10,
+                            "base_magic_defense": 8,
+                            "attack_interval": null,
+                            "attack_range": null,
+                            "move_speed": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "invalid_stage": {
+                    "value": {
+                      "code": 10403,
+                      "message": "战斗目标关卡难度无效",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/battles/settle": {
+      "post": {
+        "tags": [
+          "Battle"
+        ],
+        "summary": "战斗结算",
+        "operationId": "settleBattle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "character_id",
+                  "stage_difficulty_id",
+                  "battle_context_id",
+                  "is_cleared",
+                  "killed_monsters"
+                ],
+                "properties": {
+                  "character_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "stage_difficulty_id": {
+                    "type": "string"
+                  },
+                  "battle_context_id": {
+                    "type": "string"
+                  },
+                  "is_cleared": {
+                    "type": "integer",
+                    "enum": [
+                      0,
+                      1
+                    ]
+                  },
+                  "killed_monsters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "example": {
+                "character_id": 1001,
+                "stage_difficulty_id": "stage_nanshan_001_normal",
+                "battle_context_id": "battle_ctx_20260320_120000_ab12cd",
+                "is_cleared": 1,
+                "killed_monsters": [
+                  "monster_boss_001"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功返回掉落、奖励、入包与首通奖励最终状态；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BattleSettlementSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "stage_difficulty": {
+                          "stage_difficulty_id": "stage_nanshan_001_normal",
+                          "difficulty_key": "normal",
+                          "difficulty_name": "普通"
+                        },
+                        "is_cleared": 1,
+                        "drop_results": [
+                          {
+                            "item_id": "mat_coin_001",
+                            "item_name": "灵石",
+                            "item_type": "reward_item",
+                            "rarity": "rare",
+                            "icon": "items/mat_coin_001.png",
+                            "quantity": 20
+                          }
+                        ],
+                        "reward_results": [
+                          {
+                            "reward_grant_id": 1,
+                            "reward_group_id": "reward_first_clear_001",
+                            "grant_status": "success",
+                            "reward_items": [
+                              {
+                                "item_id": "mat_coin_001",
+                                "item_name": "灵石",
+                                "item_type": "reward_item",
+                                "rarity": "rare",
+                                "icon": "items/mat_coin_001.png",
+                                "quantity": 100
+                              },
+                              {
+                                "item_id": "mat_mark_001",
+                                "item_name": "山魄印记",
+                                "item_type": "reward_item",
+                                "rarity": "rare",
+                                "icon": "items/mat_mark_001.png",
+                                "quantity": 2
+                              },
+                              {
+                                "item_id": "eq_armor_001",
+                                "item_name": "山皮护甲",
+                                "item_type": "equipment",
+                                "rarity": "common",
+                                "icon": "equipments/eq_armor_001.png",
+                                "quantity": 1
+                              }
+                            ]
+                          }
+                        ],
+                        "inventory_results": {
+                          "stack_results": [
+                            {
+                              "item_id": "mat_coin_001",
+                              "before_quantity": 20,
+                              "add_quantity": 20,
+                              "after_quantity": 40,
+                              "action": "increment"
+                            },
+                            {
+                              "item_id": "mat_coin_001",
+                              "before_quantity": 40,
+                              "add_quantity": 100,
+                              "after_quantity": 140,
+                              "action": "increment"
+                            },
+                            {
+                              "item_id": "mat_mark_001",
+                              "before_quantity": 0,
+                              "add_quantity": 2,
+                              "after_quantity": 2,
+                              "action": "create"
+                            }
+                          ],
+                          "equipment_instance_results": [
+                            {
+                              "equipment_instance_id": 5005,
+                              "item_id": "eq_armor_001",
+                              "bind_type": "unbound",
+                              "enhance_level": 0,
+                              "durability": 100,
+                              "max_durability": 100
+                            }
+                          ]
+                        },
+                        "created_equipment_instances": [
+                          {
+                            "equipment_instance_id": 5005,
+                            "item_id": "eq_armor_001",
+                            "item_name": "山皮护甲",
+                            "equipment_slot": "armor",
+                            "rarity": "common",
+                            "icon": "equipments/eq_armor_001.png",
+                            "bind_type": "unbound",
+                            "enhance_level": 0,
+                            "durability": 100,
+                            "max_durability": 100
+                          }
+                        ],
+                        "first_clear_reward_status": {
+                          "has_reward": 1,
+                          "has_granted": 1,
+                          "grant_status": "success"
+                        },
+                        "settlement_summary": {
+                          "drop_count": 1,
+                          "reward_count": 1,
+                          "created_equipment_instance_count": 1
+                        }
+                      }
+                    }
+                  },
+                  "battle_context_invalid": {
+                    "value": {
+                      "code": 10501,
+                      "message": "战斗上下文无效",
+                      "data": null
+                    }
+                  },
+                  "reward_failed": {
+                    "value": {
+                      "code": 10505,
+                      "message": "首通奖励发放失败",
+                      "data": null
+                    }
+                  },
+                  "lock_busy": {
+                    "value": {
+                      "code": 10006,
+                      "message": "战斗结算正在处理中，请勿重复提交",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "使用当前用户 api_token 作为 Bearer Token。"
+      }
+    },
+    "parameters": {
+      "character_id": {
+        "name": "character_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "stage_id": {
+        "name": "stage_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "stage_difficulty_id": {
+        "name": "stage_difficulty_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "inventory_tab": {
+        "name": "tab",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "stack",
+            "equipment",
+            "all"
+          ]
+        }
+      },
+      "page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "description": "保留参数，当前实现接受但不启用正式分页。",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "page_size": {
+        "name": "page_size",
+        "in": "query",
+        "required": false,
+        "description": "保留参数，当前实现接受但不启用正式分页。",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "schemas": {
+      "ApiSuccessEnvelope": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer",
+            "const": 0
+          },
+          "message": {
+            "type": "string",
+            "const": "ok"
+          },
+          "data": {}
+        }
+      },
+      "ApiErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "null"
+          }
+        }
+      },
+      "CharacterSummary": {
+        "type": "object",
+        "required": [
+          "character_id",
+          "character_name",
+          "class_id",
+          "class_name",
+          "level",
+          "exp",
+          "is_active",
+          "unspent_stat_points",
+          "added_strength",
+          "added_mana",
+          "added_constitution",
+          "added_dexterity",
+          "long_term_growth_stage"
+        ],
+        "properties": {
+          "character_id": {
+            "type": "integer"
+          },
+          "character_name": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string"
+          },
+          "class_name": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "exp": {
+            "type": "integer"
+          },
+          "is_active": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "unspent_stat_points": {
+            "type": "integer"
+          },
+          "added_strength": {
+            "type": "integer"
+          },
+          "added_mana": {
+            "type": "integer"
+          },
+          "added_constitution": {
+            "type": "integer"
+          },
+          "added_dexterity": {
+            "type": "integer"
+          },
+          "long_term_growth_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EquipmentInstanceSummary": {
+        "type": "object",
+        "required": [
+          "equipment_instance_id",
+          "item_id",
+          "item_name",
+          "equipment_slot",
+          "rarity",
+          "icon",
+          "bind_type",
+          "enhance_level",
+          "durability",
+          "max_durability"
+        ],
+        "properties": {
+          "equipment_instance_id": {
+            "type": "integer"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "equipment_slot": {
+            "type": "string"
+          },
+          "rarity": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bind_type": {
+            "type": "string"
+          },
+          "enhance_level": {
+            "type": "integer"
+          },
+          "durability": {
+            "type": "integer"
+          },
+          "max_durability": {
+            "type": "integer"
+          }
+        }
+      },
+      "EquipmentSlot": {
+        "type": "object",
+        "required": [
+          "slot_key",
+          "equipped_instance_id",
+          "equipment"
+        ],
+        "properties": {
+          "slot_key": {
+            "type": "string"
+          },
+          "equipped_instance_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "equipment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EquipmentInstanceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "EquipmentChangeData": {
+        "type": "object",
+        "required": [
+          "character_id",
+          "unequipped_instance_ids",
+          "changed_slots",
+          "slot_snapshot"
+        ],
+        "properties": {
+          "character_id": {
+            "type": "integer"
+          },
+          "equipped_instance_id": {
+            "type": "integer"
+          },
+          "unequipped_instance_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "changed_slots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slot_snapshot": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentSlot"
+            }
+          }
+        }
+      },
+      "InventoryStackItemSummary": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "item_name",
+          "item_type",
+          "rarity",
+          "icon",
+          "quantity"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "rarity": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": "integer"
+          }
+        }
+      },
+      "InventoryData": {
+        "type": "object",
+        "required": [
+          "stack_items",
+          "equipment_items"
+        ],
+        "properties": {
+          "stack_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryStackItemSummary"
+            }
+          },
+          "equipment_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentInstanceSummary"
+            }
+          }
+        }
+      },
+      "ChapterSummary": {
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "chapter_name",
+          "chapter_desc",
+          "chapter_group",
+          "sort_order",
+          "unlock_condition"
+        ],
+        "properties": {
+          "chapter_id": {
+            "type": "string"
+          },
+          "chapter_name": {
+            "type": "string"
+          },
+          "chapter_desc": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chapter_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sort_order": {
+            "type": "integer"
+          },
+          "unlock_condition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FirstClearRewardSummary": {
+        "type": "object",
+        "required": [
+          "has_reward",
+          "has_granted",
+          "reward_group_id"
+        ],
+        "properties": {
+          "has_reward": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "has_granted": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "reward_group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "StageDifficultySummary": {
+        "type": "object",
+        "required": [
+          "stage_difficulty_id",
+          "difficulty_key",
+          "difficulty_name",
+          "difficulty_order",
+          "recommended_power",
+          "first_clear_reward"
+        ],
+        "properties": {
+          "stage_difficulty_id": {
+            "type": "string"
+          },
+          "difficulty_key": {
+            "type": "string"
+          },
+          "difficulty_name": {
+            "type": "string"
+          },
+          "difficulty_order": {
+            "type": "integer"
+          },
+          "recommended_power": {
+            "type": "integer"
+          },
+          "first_clear_reward": {
+            "$ref": "#/components/schemas/FirstClearRewardSummary"
+          }
+        }
+      },
+      "FirstClearRewardStatusData": {
+        "type": "object",
+        "required": [
+          "source_type",
+          "source_id",
+          "has_reward",
+          "reward_group_id",
+          "has_granted",
+          "grant_status"
+        ],
+        "properties": {
+          "source_type": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "has_reward": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "reward_group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_granted": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "grant_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BattlePrepareCharacter": {
+        "type": "object",
+        "required": [
+          "character_id",
+          "character_name",
+          "class_id",
+          "class_name",
+          "level"
+        ],
+        "properties": {
+          "character_id": {
+            "type": "integer"
+          },
+          "character_name": {
+            "type": "string"
+          },
+          "class_id": {
+            "type": "string"
+          },
+          "class_name": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          }
+        }
+      },
+      "BattlePrepareStageDifficulty": {
+        "type": "object",
+        "required": [
+          "stage_difficulty_id",
+          "difficulty_key",
+          "difficulty_name",
+          "recommended_power"
+        ],
+        "properties": {
+          "stage_difficulty_id": {
+            "type": "string"
+          },
+          "difficulty_key": {
+            "type": "string"
+          },
+          "difficulty_name": {
+            "type": "string"
+          },
+          "recommended_power": {
+            "type": "integer"
+          }
+        }
+      },
+      "BattlePrepareMonster": {
+        "type": "object",
+        "required": [
+          "monster_id",
+          "monster_name",
+          "monster_role",
+          "wave_no",
+          "sort_order",
+          "base_hp",
+          "base_attack",
+          "base_physical_defense",
+          "base_magic_defense",
+          "attack_interval",
+          "attack_range",
+          "move_speed"
+        ],
+        "properties": {
+          "monster_id": {
+            "type": "string"
+          },
+          "monster_name": {
+            "type": "string"
+          },
+          "monster_role": {
+            "type": "string"
+          },
+          "wave_no": {
+            "type": "integer"
+          },
+          "sort_order": {
+            "type": "integer"
+          },
+          "base_hp": {
+            "type": "integer"
+          },
+          "base_attack": {
+            "type": "integer"
+          },
+          "base_physical_defense": {
+            "type": "integer"
+          },
+          "base_magic_defense": {
+            "type": "integer"
+          },
+          "attack_interval": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "attack_range": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "move_speed": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "BattlePrepareData": {
+        "type": "object",
+        "required": [
+          "battle_context_id",
+          "stage_difficulty",
+          "character",
+          "character_stats",
+          "slot_snapshot",
+          "monster_list"
+        ],
+        "properties": {
+          "battle_context_id": {
+            "type": "string"
+          },
+          "stage_difficulty": {
+            "$ref": "#/components/schemas/BattlePrepareStageDifficulty"
+          },
+          "character": {
+            "$ref": "#/components/schemas/BattlePrepareCharacter"
+          },
+          "character_stats": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "integer",
+                "number"
+              ]
+            }
+          },
+          "slot_snapshot": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentSlot"
+            }
+          },
+          "monster_list": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BattlePrepareMonster"
+            }
+          }
+        }
+      },
+      "BattleSettlementItem": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "item_name",
+          "item_type",
+          "rarity",
+          "icon",
+          "quantity"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "rarity": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": "integer"
+          }
+        }
+      },
+      "BattleSettlementRewardResult": {
+        "type": "object",
+        "required": [
+          "reward_grant_id",
+          "reward_group_id",
+          "grant_status",
+          "reward_items"
+        ],
+        "properties": {
+          "reward_grant_id": {
+            "type": "integer"
+          },
+          "reward_group_id": {
+            "type": "string"
+          },
+          "grant_status": {
+            "type": "string"
+          },
+          "reward_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BattleSettlementItem"
+            }
+          }
+        }
+      },
+      "BattleSettlementInventoryResults": {
+        "type": "object",
+        "required": [
+          "stack_results",
+          "equipment_instance_results"
+        ],
+        "properties": {
+          "stack_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "item_id",
+                "before_quantity",
+                "add_quantity",
+                "after_quantity",
+                "action"
+              ],
+              "properties": {
+                "item_id": {
+                  "type": "string"
+                },
+                "before_quantity": {
+                  "type": "integer"
+                },
+                "add_quantity": {
+                  "type": "integer"
+                },
+                "after_quantity": {
+                  "type": "integer"
+                },
+                "action": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "equipment_instance_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "equipment_instance_id",
+                "item_id",
+                "bind_type",
+                "enhance_level",
+                "durability",
+                "max_durability"
+              ],
+              "properties": {
+                "equipment_instance_id": {
+                  "type": "integer"
+                },
+                "item_id": {
+                  "type": "string"
+                },
+                "bind_type": {
+                  "type": "string"
+                },
+                "enhance_level": {
+                  "type": "integer"
+                },
+                "durability": {
+                  "type": "integer"
+                },
+                "max_durability": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "BattleSettlementData": {
+        "type": "object",
+        "required": [
+          "stage_difficulty",
+          "is_cleared",
+          "drop_results",
+          "reward_results",
+          "inventory_results",
+          "created_equipment_instances",
+          "first_clear_reward_status",
+          "settlement_summary"
+        ],
+        "properties": {
+          "stage_difficulty": {
+            "type": "object",
+            "required": [
+              "stage_difficulty_id",
+              "difficulty_key",
+              "difficulty_name"
+            ],
+            "properties": {
+              "stage_difficulty_id": {
+                "type": "string"
+              },
+              "difficulty_key": {
+                "type": "string"
+              },
+              "difficulty_name": {
+                "type": "string"
+              }
+            }
+          },
+          "is_cleared": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "drop_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BattleSettlementItem"
+            }
+          },
+          "reward_results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BattleSettlementRewardResult"
+            }
+          },
+          "inventory_results": {
+            "$ref": "#/components/schemas/BattleSettlementInventoryResults"
+          },
+          "created_equipment_instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentInstanceSummary"
+            }
+          },
+          "first_clear_reward_status": {
+            "type": "object",
+            "required": [
+              "has_reward",
+              "has_granted",
+              "grant_status"
+            ],
+            "properties": {
+              "has_reward": {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "has_granted": {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "grant_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "settlement_summary": {
+            "type": "object",
+            "required": [
+              "drop_count",
+              "reward_count",
+              "created_equipment_instance_count"
+            ],
+            "properties": {
+              "drop_count": {
+                "type": "integer"
+              },
+              "reward_count": {
+                "type": "integer"
+              },
+              "created_equipment_instance_count": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CharacterCreateData": {
+        "type": "object",
+        "required": [
+          "character",
+          "equipment_slots"
+        ],
+        "properties": {
+          "character": {
+            "$ref": "#/components/schemas/CharacterSummary"
+          },
+          "equipment_slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentSlot"
+            }
+          }
+        }
+      },
+      "CharacterDetailData": {
+        "type": "object",
+        "required": [
+          "character"
+        ],
+        "properties": {
+          "character": {
+            "$ref": "#/components/schemas/CharacterSummary"
+          }
+        }
+      },
+      "EquipmentSlotListData": {
+        "type": "object",
+        "required": [
+          "character_id",
+          "slots"
+        ],
+        "properties": {
+          "character_id": {
+            "type": "integer"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EquipmentSlot"
+            }
+          }
+        }
+      },
+      "ChapterListData": {
+        "type": "object",
+        "required": [
+          "chapters"
+        ],
+        "properties": {
+          "chapters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChapterSummary"
+            }
+          }
+        }
+      },
+      "StageDifficultyListData": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "difficulties"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string"
+          },
+          "difficulties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageDifficultySummary"
+            }
+          }
+        }
+      },
+      "CharacterCreateSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CharacterCreateData"
+              }
+            }
+          }
+        ]
+      },
+      "CharacterDetailSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CharacterDetailData"
+              }
+            }
+          }
+        ]
+      },
+      "EquipmentSlotListSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/EquipmentSlotListData"
+              }
+            }
+          }
+        ]
+      },
+      "EquipmentChangeSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/EquipmentChangeData"
+              }
+            }
+          }
+        ]
+      },
+      "InventorySuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/InventoryData"
+              }
+            }
+          }
+        ]
+      },
+      "ChapterListSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ChapterListData"
+              }
+            }
+          }
+        ]
+      },
+      "StageDifficultyListSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/StageDifficultyListData"
+              }
+            }
+          }
+        ]
+      },
+      "FirstClearRewardStatusSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/FirstClearRewardStatusData"
+              }
+            }
+          }
+        ]
+      },
+      "BattlePrepareSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BattlePrepareData"
+              }
+            }
+          }
+        ]
+      },
+      "BattleSettlementSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BattleSettlementData"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
