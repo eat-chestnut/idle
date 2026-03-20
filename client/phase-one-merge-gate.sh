@@ -2,9 +2,13 @@
 
 set -euo pipefail
 
+# Usage: run from the repository root with ./client/phase-one-merge-gate.sh
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
+MAIN_SCENE="res://client/scenes/PhaseOneClient.tscn"
+ONLINE_SMOKE_SCRIPT="./client/scripts/phase_one_online_smoke.gd"
 
 MERGE_GATE_HOST="${MERGE_GATE_HOST:-127.0.0.1}"
 MERGE_GATE_PORT="${MERGE_GATE_PORT:-8000}"
@@ -30,6 +34,20 @@ cleanup() {
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
+}
+
+run_backend_command() {
+  (
+    cd "${BACKEND_DIR}"
+    "$@"
+  )
+}
+
+run_godot_command() {
+  (
+    cd "${REPO_ROOT}"
+    "${GODOT_BIN}" --headless --path . "$@"
+  )
 }
 
 wait_for_backend() {
@@ -76,24 +94,22 @@ ensure_command "${COMPOSER_BIN}"
 echo "[client-merge-gate] repo=${REPO_ROOT}"
 echo "[client-merge-gate] backend_url=${BACKEND_URL}"
 
-cd "${BACKEND_DIR}"
-
 echo "[client-merge-gate] backend interop diagnose"
-"${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
+run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
 
 echo "[client-merge-gate] backend contract drift"
-"${PHP_BIN}" artisan phase-one:contract-drift-check --json
+run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
 
 echo "[client-merge-gate] client project boot smoke"
-"${GODOT_BIN}" --headless --path "${REPO_ROOT}" --quit
+run_godot_command --quit
 
 echo "[client-merge-gate] client main scene smoke"
-"${GODOT_BIN}" --headless --path "${REPO_ROOT}" --scene res://client/scenes/PhaseOneClient.tscn --quit-after 1
+run_godot_command --scene "${MAIN_SCENE}" --quit-after 1
 
 start_backend_if_needed
 
 echo "[client-merge-gate] client online smoke"
-"${GODOT_BIN}" --headless --path "${REPO_ROOT}" --script "${REPO_ROOT}/client/scripts/phase_one_online_smoke.gd" -- \
+run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
   --base-url="${BACKEND_URL}" \
   --bearer-token="${BEARER_TOKEN}"
 
@@ -102,6 +118,6 @@ STARTED_SERVER=0
 SERVER_PID=""
 
 echo "[client-merge-gate] backend acceptance"
-"${COMPOSER_BIN}" phase-one:acceptance
+run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
 
 echo "[client-merge-gate] success"
