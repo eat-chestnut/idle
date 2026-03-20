@@ -4,7 +4,8 @@
 
 这是根目录 Godot 工程下的 phase-one 正式主流程客户端。
 
-当前目标不是继续补“最小缺失接口”，而是把已经接上真实 backend 的客户端流程收口成一条更接近正式玩家路径的竖切：
+当前目标不是继续补“最小缺失接口”。
+而是把已经接上真实 backend 的客户端流程收口成一条更接近正式玩家路径的竖切：
 
 1. 环境与 Token
 2. 角色列表 / 角色创建
@@ -21,7 +22,7 @@
 当前 client 分支合并前统一先执行：
 
 ```bash
-bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
+./client/phase-one-merge-gate.sh
 ```
 
 默认使用：
@@ -32,7 +33,7 @@ bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
 如需覆盖，可临时传入：
 
 ```bash
-BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
+BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token ./client/phase-one-merge-gate.sh
 ```
 
 该 gate 固定串起：
@@ -48,28 +49,30 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token bash /Users/mumu/game/
 
 - 第 5 步属于“在线等价 smoke”，会真实走角色列表/激活/章节/关卡/难度/prepare/settle。
 - 它不是完整 GUI 人工联调，不能替代窗口内点击验证。
-- 完整合并判断仍以 [合并前检查清单](/Users/mumu/game/idle/client/合并前检查清单.md) 为准。
+- 完整合并判断仍以 [合并前检查清单](./合并前检查清单.md) 为准。
 
 ## 当前结构
 
-- 主场景：`res://client/scenes/PhaseOneClient.tscn`
-- 主协调器：`res://client/scripts/phase_one_client.gd`
-- API 封装：`res://client/scripts/backend_api.gd`
-- 配置存储：`res://client/scripts/client_config_store.gd`
+- Godot 工程入口：`project.godot`
+- 主场景：`client/scenes/PhaseOneClient.tscn`
+- 主协调器：`client/scripts/phase_one_client.gd`
+- API 封装：`client/scripts/backend_api.gd`
+- 配置存储：`client/scripts/client_config_store.gd`
 - 分页脚本：
-  - `res://client/scripts/pages/phase_one_config_page.gd`
-  - `res://client/scripts/pages/phase_one_character_page.gd`
-  - `res://client/scripts/pages/phase_one_inventory_page.gd`
-  - `res://client/scripts/pages/phase_one_equipment_page.gd`
-  - `res://client/scripts/pages/phase_one_stage_page.gd`
-  - `res://client/scripts/pages/phase_one_prepare_page.gd`
-  - `res://client/scripts/pages/phase_one_settle_page.gd`
+  - `client/scripts/pages/phase_one_config_page.gd`
+  - `client/scripts/pages/phase_one_character_page.gd`
+  - `client/scripts/pages/phase_one_inventory_page.gd`
+  - `client/scripts/pages/phase_one_equipment_page.gd`
+  - `client/scripts/pages/phase_one_stage_page.gd`
+  - `client/scripts/pages/phase_one_prepare_page.gd`
+  - `client/scripts/pages/phase_one_settle_page.gd`
 
 ## 当前真实口径
 
 - `GET /api/characters` 已作为角色选择主入口。
 - `POST /api/characters/{character_id}/activate` 已作为 battle 主路径的正式角色切换入口。
-- `GET /api/chapters` -> `GET /api/chapters/{chapter_id}/stages` -> `GET /api/stages/{stage_id}/difficulties` 是主线路径真相。
+- 主线路径真相：
+  `GET /api/chapters` -> `GET /api/chapters/{chapter_id}/stages` -> `GET /api/stages/{stage_id}/difficulties`
 - 选择难度后，客户端会刷新首通奖励状态，并把结果同步到 prepare / settle。
 - prepare 成功后，客户端会自动承接：
   - `battle_context_id`
@@ -145,11 +148,13 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token bash /Users/mumu/game/
 
 ## 运行方式
 
+以下命令默认都从仓库根目录执行。
+
 1. 启动 backend，并确保 phase-one 联调前提已满足。
 2. 打开根目录 Godot 工程：
-   - `/Users/mumu/game/idle/project.godot`
+   - `project.godot`
 3. 运行主场景：
-   - `res://client/scenes/PhaseOneClient.tscn`
+   - `client/scenes/PhaseOneClient.tscn`
 4. 在“环境与 Token”页确认：
    - `Backend Base URL`
    - `Bearer Token`
@@ -165,7 +170,7 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token bash /Users/mumu/game/
 backend 启动前建议先执行：
 
 ```bash
-cd /Users/mumu/game/idle/backend
+cd backend
 php artisan phase-one:diagnose --profile=interop --json
 php artisan phase-one:contract-drift-check --json
 ```
@@ -180,7 +185,7 @@ php artisan phase-one:contract-drift-check --json
 ### 自动化守门
 
 ```bash
-bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
+./client/phase-one-merge-gate.sh
 ```
 
 ### 真实 backend 在线等价 smoke
@@ -188,7 +193,10 @@ bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
 脚本内部会执行：
 
 ```bash
-godot --headless --path /Users/mumu/game/idle --script /Users/mumu/game/idle/client/scripts/phase_one_online_smoke.gd -- --base-url=http://127.0.0.1:8000 --bearer-token=test-token-2001
+godot --headless --path . \
+  --script ./client/scripts/phase_one_online_smoke.gd -- \
+  --base-url=http://127.0.0.1:8000 \
+  --bearer-token=test-token-2001
 ```
 
 覆盖目标：
@@ -216,11 +224,11 @@ godot --headless --path /Users/mumu/game/idle --script /Users/mumu/game/idle/cli
 
 合并前请再过一遍：
 
-- [合并前检查清单](/Users/mumu/game/idle/client/合并前检查清单.md)
+- [合并前检查清单](./合并前检查清单.md)
 
 ## 文档入口
 
-- 合并判断与验证记录：[client/合并前检查清单.md](/Users/mumu/game/idle/client/合并前检查清单.md)
-- backend 联调入口：[backend/docs/api/README.md](/Users/mumu/game/idle/backend/docs/api/README.md)
-- OpenAPI 契约：[backend/docs/api/phase-one-frontend.openapi.json](/Users/mumu/game/idle/backend/docs/api/phase-one-frontend.openapi.json)
-- 人读接口示例：[doc/codex/接口示例文档.md](/Users/mumu/game/idle/doc/codex/接口示例文档.md)
+- 合并判断与验证记录：[client/合并前检查清单.md](./合并前检查清单.md)
+- backend 联调入口：[backend/docs/api/README.md](../backend/docs/api/README.md)
+- OpenAPI 契约：[backend/docs/api/phase-one-frontend.openapi.json](../backend/docs/api/phase-one-frontend.openapi.json)
+- 人读接口示例：[doc/codex/接口示例文档.md](../doc/codex/接口示例文档.md)

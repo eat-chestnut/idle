@@ -18,11 +18,20 @@ func update_credentials(base_url: String, bearer_token: String) -> void:
 	_bearer_token = bearer_token.strip_edges()
 
 
-func request_json(method: String, path: String, payload: Variant = null, query: Dictionary = {}) -> Dictionary:
+func request_json(
+	method: String,
+	path: String,
+	payload: Variant = null,
+	query: Dictionary = {}
+) -> Dictionary:
 	return await _request_json(method, path, payload, query, true, true)
 
 
-func request_public_json(method: String, path: String, query: Dictionary = {}) -> Dictionary:
+func request_public_json(
+	method: String,
+	path: String,
+	query: Dictionary = {}
+) -> Dictionary:
 	return await _request_json(method, path, null, query, false, false)
 
 
@@ -58,7 +67,12 @@ func _request_json(
 		if payload != null:
 			request_body = JSON.stringify(payload)
 
-	var request_error := http_request.request(_build_url(path, query), headers, http_method, request_body)
+	var request_error := http_request.request(
+		_build_url(path, query),
+		headers,
+		http_method,
+		request_body
+	)
 
 	if request_error != OK:
 		http_request.queue_free()
