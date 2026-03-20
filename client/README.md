@@ -16,6 +16,40 @@
 
 客户端继续以后端真实接口为业务真相，不本地 mock 正式成功态，也不复制后端业务规则。
 
+## 合并前固定入口
+
+当前 client 分支合并前统一先执行：
+
+```bash
+bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
+```
+
+默认使用：
+
+- `BACKEND_URL=http://127.0.0.1:8000`
+- `BEARER_TOKEN=test-token-2001`
+
+如需覆盖，可临时传入：
+
+```bash
+BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
+```
+
+该 gate 固定串起：
+
+1. backend `phase-one:diagnose --profile=interop --json`
+2. backend `phase-one:contract-drift-check --json`
+3. Godot 项目启动 smoke
+4. `PhaseOneClient.tscn` headless smoke
+5. 基于 `client/scripts/backend_api.gd` 的真实 backend 在线 smoke
+6. backend `composer phase-one:acceptance`
+
+注意：
+
+- 第 5 步属于“在线等价 smoke”，会真实走角色列表/激活/章节/关卡/难度/prepare/settle。
+- 它不是完整 GUI 人工联调，不能替代窗口内点击验证。
+- 完整合并判断仍以 [合并前检查清单](/Users/mumu/game/idle/client/合并前检查清单.md) 为准。
+
 ## 当前结构
 
 - 主场景：`res://client/scenes/PhaseOneClient.tscn`
@@ -141,16 +175,35 @@ php artisan phase-one:contract-drift-check --json
 - Bearer Token：`test-token-2001`
 - 对应用户：`users.id = 2001`
 
-## 最小客户端回归验证
+## 验证分层
 
-### 命令级 smoke check
+### 自动化守门
 
 ```bash
-godot --headless --path /Users/mumu/game/idle --quit
-godot --headless --path /Users/mumu/game/idle --scene res://client/scenes/PhaseOneClient.tscn --quit-after 1
+bash /Users/mumu/game/idle/client/phase-one-merge-gate.sh
 ```
 
-### 人工最小回归
+### 真实 backend 在线等价 smoke
+
+脚本内部会执行：
+
+```bash
+godot --headless --path /Users/mumu/game/idle --script /Users/mumu/game/idle/client/scripts/phase_one_online_smoke.gd -- --base-url=http://127.0.0.1:8000 --bearer-token=test-token-2001
+```
+
+覆盖目标：
+
+- `/readyz?profile=interop`
+- `GET /api/characters`
+- `POST /api/characters/{character_id}/activate`
+- `GET /api/chapters`
+- `GET /api/chapters/{chapter_id}/stages`
+- `GET /api/stages/{stage_id}/difficulties`
+- `GET /api/stage-difficulties/{stage_difficulty_id}/first-clear-reward-status`
+- `POST /api/battles/prepare`
+- `POST /api/battles/settle`
+
+### GUI 人工最小回归
 
 1. 环境页 `/readyz` 成功，章节接口探测成功。
 2. 角色页读取真实角色列表；如为空，创建角色。
@@ -164,3 +217,10 @@ godot --headless --path /Users/mumu/game/idle --scene res://client/scenes/PhaseO
 合并前请再过一遍：
 
 - [合并前检查清单](/Users/mumu/game/idle/client/合并前检查清单.md)
+
+## 文档入口
+
+- 合并判断与验证记录：[client/合并前检查清单.md](/Users/mumu/game/idle/client/合并前检查清单.md)
+- backend 联调入口：[backend/docs/api/README.md](/Users/mumu/game/idle/backend/docs/api/README.md)
+- OpenAPI 契约：[backend/docs/api/phase-one-frontend.openapi.json](/Users/mumu/game/idle/backend/docs/api/phase-one-frontend.openapi.json)
+- 人读接口示例：[doc/codex/接口示例文档.md](/Users/mumu/game/idle/doc/codex/接口示例文档.md)
