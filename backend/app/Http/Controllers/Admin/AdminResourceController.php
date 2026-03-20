@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\BusinessException;
 use App\Services\Admin\AdminCrudService;
 use App\Services\Admin\AdminPageQueryService;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +29,13 @@ class AdminResourceController
 
     public function store(Request $request, string $resource): RedirectResponse
     {
-        $this->adminCrudService->store($resource, $request->all());
+        try {
+            $this->adminCrudService->store($resource, $request->all());
+        } catch (BusinessException $exception) {
+            return back()
+                ->withInput()
+                ->withErrors(['operation' => $exception->getMessage()]);
+        }
 
         return redirect()
             ->route('admin.resources.index', ['resource' => $resource])
@@ -42,10 +49,30 @@ class AdminResourceController
 
     public function update(Request $request, string $resource, string $record): RedirectResponse
     {
-        $this->adminCrudService->update($resource, $record, $request->all());
+        try {
+            $this->adminCrudService->update($resource, $record, $request->all());
+        } catch (BusinessException $exception) {
+            return back()
+                ->withInput()
+                ->withErrors(['operation' => $exception->getMessage()]);
+        }
 
         return redirect()
             ->route('admin.resources.index', ['resource' => $resource])
             ->with('status', '更新成功');
+    }
+
+    public function destroy(Request $request, string $resource, string $record): RedirectResponse
+    {
+        try {
+            $this->adminCrudService->delete($resource, $record);
+        } catch (BusinessException $exception) {
+            return back()
+                ->withErrors(['operation' => $exception->getMessage()]);
+        }
+
+        return redirect()
+            ->route('admin.resources.index', ['resource' => $resource])
+            ->with('status', '删除成功');
     }
 }

@@ -70,10 +70,35 @@ class AdminResourceRegistry
                 'resource' => $resource,
                 'title' => $definition['title'],
                 'mode' => $definition['mode'],
+                'nav_key' => $resource,
+                'url' => route('admin.resources.index', ['resource' => $resource]),
             ];
         }
 
+        $navigation['运维工具'][] = [
+            'resource' => null,
+            'title' => '引用检查 / 补发 / 修复',
+            'mode' => 'tool',
+            'nav_key' => 'tools',
+            'url' => route('admin.tools.index'),
+        ];
+
         return $navigation;
+    }
+
+    public function configResourceOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->resources() as $resource => $definition) {
+            if (($definition['mode'] ?? null) !== 'config') {
+                continue;
+            }
+
+            $options[$resource] = (string) $definition['title'];
+        }
+
+        return $options;
     }
 
     private function resources(): array

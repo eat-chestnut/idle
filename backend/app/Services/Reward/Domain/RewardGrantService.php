@@ -156,10 +156,30 @@ class RewardGrantService
 
     public function markRewardGrantFailed(int $rewardGrantId, array $errorMeta = []): void
     {
+        $grantRecord = UserRewardGrant::query()->find($rewardGrantId);
+
+        if ($grantRecord === null) {
+            throw new BusinessException(ErrorCode::REWARD_GRANT_MARK_FAILED);
+        }
+
+        $snapshot = $grantRecord->grant_payload_snapshot;
+
+        if (! is_array($snapshot)) {
+            $snapshot = [];
+        }
+
+        if ($errorMeta !== []) {
+            $snapshot['last_failure'] = $errorMeta + [
+                'failed_at' => now()->format('Y-m-d H:i:s'),
+            ];
+        }
+
         $updated = UserRewardGrant::query()
             ->where('reward_grant_id', $rewardGrantId)
             ->update([
                 'grant_status' => GrantStatus::FAILED->value,
+                'granted_at' => null,
+                'grant_payload_snapshot' => $snapshot,
                 'updated_at' => now(),
             ]);
 
@@ -181,13 +201,13 @@ class RewardGrantService
             'reward_group_id' => (string) $grantRecord->reward_group_id,
             'grant_status' => (string) data_get($grantRecord, 'grant_status.value', $grantRecord->grant_status),
             'reward_items' => array_map(
-                static fn (RewardGroupItem $rewardItem): array => [
-                    'item_id' => (string) $rewardItem->item_id,
+                static fn ($rewardItem): array => [
+                    'item_id' => (string) data_get($rewardItem, 'item_id'),
                     'item_name' => (string) data_get($rewardItem, 'item.item_name', ''),
                     'item_type' => (string) data_get($rewardItem, 'item.item_type.value', data_get($rewardItem, 'item.item_type', '')),
                     'rarity' => (string) data_get($rewardItem, 'item.rarity.value', data_get($rewardItem, 'item.rarity', '')),
                     'icon' => data_get($rewardItem, 'item.icon'),
-                    'quantity' => (int) $rewardItem->quantity,
+                    'quantity' => (int) data_get($rewardItem, 'quantity', 0),
                 ],
                 $rewardItems
             ),

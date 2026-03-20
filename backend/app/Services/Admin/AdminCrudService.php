@@ -11,6 +11,7 @@ class AdminCrudService
     public function __construct(
         private readonly AdminResourceRegistry $adminResourceRegistry,
         private readonly AdminConfigValidationService $adminConfigValidationService,
+        private readonly AdminReferenceCheckService $adminReferenceCheckService,
     ) {
     }
 
@@ -20,6 +21,7 @@ class AdminCrudService
         $validated = $this->adminConfigValidationService->validate($resource, $input);
         $payload = value($definition['payload'], $validated, null);
         $modelClass = $definition['model'];
+        $this->adminReferenceCheckService->assertBeforeSave($resource, null, $payload);
 
         return DB::transaction(static fn (): Model => $modelClass::query()->create($payload));
     }
@@ -30,6 +32,7 @@ class AdminCrudService
         $record = $this->findRecord($definition, $recordKey);
         $validated = $this->adminConfigValidationService->validate($resource, $input, $record);
         $payload = value($definition['payload'], $validated, $record);
+        $this->adminReferenceCheckService->assertBeforeSave($resource, $record, $payload);
 
         return DB::transaction(function () use ($record, $payload): Model {
             $record->fill($payload);
@@ -42,6 +45,15 @@ class AdminCrudService
     public function findRecordByResource(string $resource, string $recordKey): Model
     {
         return $this->findRecord($this->getConfigDefinition($resource), $recordKey);
+    }
+
+    public function delete(string $resource, string $recordKey): void
+    {
+        $definition = $this->getConfigDefinition($resource);
+        $record = $this->findRecord($definition, $recordKey);
+        $this->adminReferenceCheckService->assertBeforeDelete($resource, $record);
+
+        DB::transaction(static fn () => $record->delete());
     }
 
     private function getConfigDefinition(string $resource): array

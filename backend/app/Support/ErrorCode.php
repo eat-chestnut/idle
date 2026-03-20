@@ -99,10 +99,16 @@ final class ErrorCode
     public const INVENTORY_WRITE_FAILED = 10806;
     public const INVENTORY_RESULT_BUILD_FAILED = 10807;
 
-    public const ADMIN_CONFIG_INVALID = 10901;
-    public const ADMIN_REFERENCE_CONFLICT = 10902;
-    public const ADMIN_RETRY_FAILED = 10903;
-    public const ADMIN_REPAIR_FAILED = 10904;
+    public const ADMIN_CONFIG_VALIDATE_FAILED = 10901;
+    public const ADMIN_REFERENCE_CHECK_FAILED = 10902;
+    public const ADMIN_REWARD_RETRY_FAILED = 10903;
+    public const ADMIN_DATA_REPAIR_FAILED = 10904;
+    public const ADMIN_OPERATION_FORBIDDEN = 10905;
+
+    public const ADMIN_CONFIG_INVALID = self::ADMIN_CONFIG_VALIDATE_FAILED;
+    public const ADMIN_REFERENCE_CONFLICT = self::ADMIN_REFERENCE_CHECK_FAILED;
+    public const ADMIN_RETRY_FAILED = self::ADMIN_REWARD_RETRY_FAILED;
+    public const ADMIN_REPAIR_FAILED = self::ADMIN_DATA_REPAIR_FAILED;
 
     public static function message(int $code): string
     {
@@ -186,10 +192,11 @@ final class ErrorCode
             self::INVENTORY_EQUIPMENT_INSTANCE_CREATE_FAILED => '装备实例创建失败',
             self::INVENTORY_WRITE_FAILED => '入包失败',
             self::INVENTORY_RESULT_BUILD_FAILED => '入包结果组装失败',
-            self::ADMIN_CONFIG_INVALID => '后台配置不合法',
-            self::ADMIN_REFERENCE_CONFLICT => '后台引用冲突',
-            self::ADMIN_RETRY_FAILED => '后台重试失败',
-            self::ADMIN_REPAIR_FAILED => '后台修复失败',
+            self::ADMIN_CONFIG_VALIDATE_FAILED => '后台配置校验失败',
+            self::ADMIN_REFERENCE_CHECK_FAILED => '后台引用检查失败',
+            self::ADMIN_REWARD_RETRY_FAILED => '后台奖励补发失败',
+            self::ADMIN_DATA_REPAIR_FAILED => '后台数据修复失败',
+            self::ADMIN_OPERATION_FORBIDDEN => '当前后台操作不被允许',
             default => '系统错误',
         };
     }

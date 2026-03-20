@@ -13,6 +13,7 @@ class AdminPageQueryService
     public function __construct(
         private readonly AdminResourceRegistry $adminResourceRegistry,
         private readonly AdminCrudService $adminCrudService,
+        private readonly AdminReferenceCheckService $adminReferenceCheckService,
     ) {
     }
 
@@ -45,6 +46,7 @@ class AdminPageQueryService
             ),
             'filters' => $this->resolveInputs($definition['filters'] ?? [], $filters, null, false),
             'paginator' => $paginator,
+            'nav_key' => $resource,
         ];
     }
 
@@ -69,6 +71,17 @@ class AdminPageQueryService
                 : route('admin.resources.update', ['resource' => $resource, 'record' => $record->getAttribute($definition['primary_key'])]),
             'form_method' => $record === null ? 'POST' : 'PUT',
             'back_url' => route('admin.resources.index', ['resource' => $resource]),
+            'delete_action' => $record === null
+                ? null
+                : route('admin.resources.destroy', ['resource' => $resource, 'record' => $record->getAttribute($definition['primary_key'])]),
+            'reference_check_url' => $record === null
+                ? null
+                : route('admin.tools.index', [
+                    'reference_resource' => $resource,
+                    'reference_record' => $record->getAttribute($definition['primary_key']),
+                ]),
+            'reference_summary' => $record === null ? null : $this->adminReferenceCheckService->inspectRecord($resource, $record),
+            'nav_key' => $resource,
         ];
     }
 

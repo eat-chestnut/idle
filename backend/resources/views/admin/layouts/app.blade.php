@@ -208,6 +208,17 @@
         .pagination {
             margin-top: 18px;
         }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #f5ede1;
+            border: 1px solid rgba(103, 74, 41, 0.08);
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
         @media (max-width: 960px) {
             .admin-shell { grid-template-columns: 1fr; }
             .admin-sidebar { border-right: 0; border-bottom: 1px solid rgba(103, 74, 41, 0.12); }
@@ -226,8 +237,8 @@
                 <h2>{{ $section }}</h2>
                 @foreach($items as $item)
                     <a
-                        class="nav-link {{ ($resource ?? '') === $item['resource'] ? 'active' : '' }}"
-                        href="{{ route('admin.resources.index', ['resource' => $item['resource']]) }}"
+                        class="nav-link {{ (($nav_key ?? ($resource ?? '')) === ($item['nav_key'] ?? $item['resource'])) ? 'active' : '' }}"
+                        href="{{ $item['url'] }}"
                     >
                         {{ $item['title'] }}
                     </a>

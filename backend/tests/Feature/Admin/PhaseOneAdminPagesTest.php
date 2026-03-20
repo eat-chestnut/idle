@@ -7,6 +7,7 @@ use Database\Seeders\AdminUserSeeder;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\TestUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PhaseOneAdminPagesTest extends TestCase
@@ -26,6 +27,9 @@ class PhaseOneAdminPagesTest extends TestCase
             ->assertRedirect('/admin/login');
 
         $this->get('/admin/resources/battle-contexts')
+            ->assertRedirect('/admin/login');
+
+        $this->get('/admin/tools')
             ->assertRedirect('/admin/login');
     }
 
@@ -191,6 +195,139 @@ class PhaseOneAdminPagesTest extends TestCase
         foreach ($configResources as $resource) {
             $this->get('/admin/resources/'.$resource.'/create')->assertOk();
         }
+
+        $this->get('/admin/tools')->assertOk()->assertSee('后台运维工具');
+    }
+
+    public function test_reference_conflict_blocks_disable_and_delete(): void
+    {
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+
+        $this->put('/admin/resources/reward-groups/reward_first_clear_001', [
+            'reward_group_id' => 'reward_first_clear_001',
+            'reward_group_name' => '招摇山首通奖励',
+            'sort_order' => 1,
+        ])->assertSessionHasErrors(['operation']);
+
+        $this->assertDatabaseHas('reward_groups', [
+            'reward_group_id' => 'reward_first_clear_001',
+            'is_enabled' => true,
+        ]);
+
+        $this->delete('/admin/resources/reward-groups/reward_first_clear_001')
+            ->assertSessionHasErrors(['operation']);
+
+        $this->assertDatabaseHas('reward_groups', [
+            'reward_group_id' => 'reward_first_clear_001',
+        ]);
+    }
+
+    public function test_reward_retry_tool_can_retry_failed_grant(): void
+    {
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+
+        $rewardGrantId = $this->createFailedRewardGrant([
+            ['item_id' => 'mat_coin_001', 'quantity' => 100, 'sort_order' => 1],
+            ['item_id' => 'mat_mark_001', 'quantity' => 2, 'sort_order' => 2],
+            ['item_id' => 'eq_armor_001', 'quantity' => 1, 'sort_order' => 3],
+        ], [
+            'source_id' => 'stage_retry_failed_001',
+        ]);
+
+        $beforeCoinQuantity = (int) DB::table('inventory_stack_items')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'mat_coin_001')
+            ->value('quantity');
+        $beforeEquipmentCount = (int) DB::table('inventory_equipment_instances')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'eq_armor_001')
+            ->count();
+
+        $this->post('/admin/tools/reward-retry', [
+            'reward_grant_id' => $rewardGrantId,
+        ])->assertRedirect('/admin/tools');
+
+        $this->assertDatabaseHas('user_reward_grants', [
+            'reward_grant_id' => $rewardGrantId,
+            'grant_status' => 'success',
+        ]);
+
+        $this->assertSame(
+            $beforeCoinQuantity + 100,
+            (int) DB::table('inventory_stack_items')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'mat_coin_001')
+                ->value('quantity')
+        );
+
+        $this->assertSame(
+            $beforeEquipmentCount + 1,
+            (int) DB::table('inventory_equipment_instances')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'eq_armor_001')
+                ->count()
+        );
+    }
+
+    public function test_reward_retry_tool_rejects_non_failed_record(): void
+    {
+        $battleContextId = $this->prepareBattleContextId();
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 1,
+            'killed_monsters' => ['monster_boss_001'],
+        ], $this->apiHeaders())->assertOk()->assertJsonPath('code', 0);
+
+        $rewardGrantId = (int) DB::table('user_reward_grants')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('source_id', 'stage_nanshan_001_normal')
+            ->value('reward_grant_id');
+
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+
+        $this->post('/admin/tools/reward-retry', [
+            'reward_grant_id' => $rewardGrantId,
+        ])->assertSessionHasErrors(['reward_retry']);
+    }
+
+    public function test_repair_tool_repairs_minimal_safe_scenarios(): void
+    {
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+
+        DB::table('battle_contexts')->insert([
+            'battle_context_id' => 'battle_ctx_20260320_999999_abcdef',
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'status' => 'prepared',
+            'settled_at' => now(),
+            'created_at' => now()->subMinute(),
+            'updated_at' => now(),
+        ]);
+
+        $repairRewardGrantId = $this->createSuccessfulRewardGrantWithoutGrantedAt();
+
+        $this->post('/admin/tools/repair-battle-context', [
+            'battle_context_id' => 'battle_ctx_20260320_999999_abcdef',
+        ])->assertRedirect('/admin/tools');
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => 'battle_ctx_20260320_999999_abcdef',
+            'status' => 'settled',
+        ]);
+
+        $this->post('/admin/tools/repair-reward-grant', [
+            'reward_grant_id' => $repairRewardGrantId,
+        ])->assertRedirect('/admin/tools');
+
+        $this->assertNotNull(
+            DB::table('user_reward_grants')
+                ->where('reward_grant_id', $repairRewardGrantId)
+                ->value('granted_at')
+        );
     }
 
     private function prepareBattleContextId(): string
@@ -211,5 +348,67 @@ class PhaseOneAdminPagesTest extends TestCase
             'Accept' => 'application/json',
             'Authorization' => 'Bearer '.TestUserSeeder::TEST_USER_TOKEN,
         ];
+    }
+
+    private function createFailedRewardGrant(array $items, array $overrides = []): int
+    {
+        $rewardGrantId = (int) DB::table('user_reward_grants')->insertGetId([
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'source_type' => 'first_clear',
+            'source_id' => 'stage_retry_failed_default',
+            'reward_group_id' => 'reward_first_clear_001',
+            'idempotency_key' => 'retry-failed-'.uniqid('', true),
+            'grant_status' => 'failed',
+            'granted_at' => null,
+            'grant_payload_snapshot' => json_encode([
+                'battle_context_id' => 'battle_ctx_20260320_888888_retry01',
+                'reward_items' => $items,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+            'updated_at' => now(),
+            ...$overrides,
+        ], 'reward_grant_id');
+
+        foreach ($items as $item) {
+            DB::table('user_reward_grant_items')->insert([
+                'reward_grant_id' => $rewardGrantId,
+                'item_id' => $item['item_id'],
+                'quantity' => $item['quantity'],
+                'sort_order' => $item['sort_order'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $rewardGrantId;
+    }
+
+    private function createSuccessfulRewardGrantWithoutGrantedAt(): int
+    {
+        $rewardGrantId = (int) DB::table('user_reward_grants')->insertGetId([
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'source_type' => 'first_clear',
+            'source_id' => 'stage_repair_reward_001',
+            'reward_group_id' => 'reward_first_clear_001',
+            'idempotency_key' => 'repair-success-'.uniqid('', true),
+            'grant_status' => 'success',
+            'granted_at' => null,
+            'grant_payload_snapshot' => json_encode([
+                'battle_context_id' => 'battle_ctx_20260320_777777_repair1',
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now()->subMinute(),
+            'updated_at' => now(),
+        ], 'reward_grant_id');
+
+        DB::table('user_reward_grant_items')->insert([
+            'reward_grant_id' => $rewardGrantId,
+            'item_id' => 'mat_coin_001',
+            'quantity' => 10,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $rewardGrantId;
     }
 }
