@@ -12,11 +12,11 @@ func _init() -> void:
 		"Battle Prepare",
 		[
 			"Prepare 页真实接 POST /api/battles/prepare。",
-			"当前真实后端要求 battle 角色为 is_active=1；这里的选择器只展示真实成功记录或当前联调上下文。",
+			"当前真实后端要求 battle 角色为 is_active=1；若目标角色未启用，请先走真实激活接口。",
 		]
 	)
 
-	recent_character_selector = add_labeled_option_button("最近联调角色（Battle）")
+	recent_character_selector = add_labeled_option_button("Battle 角色（优先真实角色列表）")
 	recent_character_selector.item_selected.connect(_on_recent_character_selected)
 	character_id_input = add_labeled_input("character_id", "")
 	character_id_input.text_changed.connect(_on_character_id_changed)
@@ -27,6 +27,7 @@ func _init() -> void:
 	stage_difficulty_input.text_changed.connect(_on_stage_difficulty_changed)
 
 	var buttons := add_button_row()
+	add_action_button(buttons, "激活当前 Battle 角色", "activate_battle_character")
 	add_action_button(buttons, "执行 Prepare", "prepare")
 
 

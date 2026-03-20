@@ -6,6 +6,7 @@ use App\Models\Character\CharacterEquipmentSlot;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\TestUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PhaseOneCharacterEquipmentApiTest extends TestCase
@@ -80,6 +81,90 @@ class PhaseOneCharacterEquipmentApiTest extends TestCase
             ->assertJsonPath('code', 0)
             ->assertJsonCount(3, 'data.stack_items')
             ->assertJsonCount(4, 'data.equipment_items');
+    }
+
+    public function test_can_list_only_current_users_characters(): void
+    {
+        DB::table('users')->insert([
+            'id' => 3001,
+            'name' => 'Other User',
+            'email' => 'owner3001@example.com',
+            'password' => bcrypt('password'),
+            'api_token' => hash('sha256', 'owner-3001-token'),
+            'email_verified_at' => null,
+            'remember_token' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('characters')->insert([
+            'character_id' => 3001,
+            'user_id' => 3001,
+            'class_id' => 'class_fashi',
+            'character_name' => '他人角色',
+            'level' => 1,
+            'exp' => 0,
+            'unspent_stat_points' => 0,
+            'added_strength' => 0,
+            'added_mana' => 0,
+            'added_constitution' => 0,
+            'added_dexterity' => 0,
+            'long_term_growth_stage' => null,
+            'extra_context' => null,
+            'is_active' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->getJson('/api/characters', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonCount(1, 'data.characters')
+            ->assertJsonPath('data.characters.0.character_id', 1001)
+            ->assertJsonPath('data.characters.0.character_name', '青山')
+            ->assertJsonMissingPath('data.characters.1');
+    }
+
+    public function test_can_activate_owned_character_and_switch_single_active_character(): void
+    {
+        $createResponse = $this->postJson('/api/characters', [
+            'class_id' => 'class_fashi',
+            'character_name' => '白露',
+        ], $this->authHeaders());
+
+        $createResponse->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonPath('data.character.is_active', 0);
+
+        $characterId = (int) $createResponse->json('data.character.character_id');
+
+        $this->postJson("/api/characters/{$characterId}/activate", [], $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonPath('data.character.character_id', $characterId)
+            ->assertJsonPath('data.character.character_name', '白露')
+            ->assertJsonPath('data.character.is_active', 1);
+
+        $this->assertDatabaseHas('characters', [
+            'character_id' => 1001,
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'is_active' => false,
+        ]);
+
+        $this->assertDatabaseHas('characters', [
+            'character_id' => $characterId,
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'is_active' => true,
+        ]);
+
+        $this->getJson('/api/characters', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonCount(2, 'data.characters')
+            ->assertJsonPath('data.characters.0.character_id', $characterId)
+            ->assertJsonPath('data.characters.0.is_active', 1)
+            ->assertJsonPath('data.characters.1.character_id', 1001)
+            ->assertJsonPath('data.characters.1.is_active', 0);
     }
 
     public function test_equipping_two_handed_weapon_clears_sub_weapon(): void

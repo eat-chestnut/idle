@@ -5,6 +5,7 @@ namespace App\Services\Character\Query;
 use App\Exceptions\BusinessException;
 use App\Models\Character\Character;
 use App\Support\ErrorCode;
+use Illuminate\Database\Eloquent\Collection;
 
 class CharacterQueryService
 {
@@ -35,6 +36,16 @@ class CharacterQueryService
         return Character::query()
             ->where('user_id', $userId)
             ->count();
+    }
+
+    public function getOwnedCharacters(int $userId): Collection
+    {
+        return Character::query()
+            ->with('gameClass')
+            ->where('user_id', $userId)
+            ->orderByDesc('is_active')
+            ->orderBy('character_id')
+            ->get();
     }
 
     public function existsUserCharacterName(int $userId, string $characterName): bool

@@ -40,6 +40,19 @@ class PhaseOnePlayerJourneySmokeTest extends TestCase
             ->assertJsonPath('data.has_granted', 0)
             ->assertJsonPath('data.grant_status', null);
 
+        $this->getJson('/api/characters', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonCount(1, 'data.characters')
+            ->assertJsonPath('data.characters.0.character_id', 1001);
+
+        $this->getJson('/api/chapters/chapter_nanshan_001/stages', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonPath('data.chapter_id', 'chapter_nanshan_001')
+            ->assertJsonCount(2, 'data.stages')
+            ->assertJsonPath('data.stages.0.stage_id', 'stage_nanshan_001');
+
         $createResponse = $this->postJson('/api/characters', [
             'class_id' => 'class_jingang',
             'character_name' => '联调烟测角',
@@ -60,6 +73,13 @@ class PhaseOnePlayerJourneySmokeTest extends TestCase
             ->assertJsonPath('data.character.character_id', $createdCharacterId)
             ->assertJsonPath('data.character.character_name', '联调烟测角')
             ->assertJsonPath('data.character.is_active', 0);
+
+        $this->getJson('/api/characters', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonCount(2, 'data.characters')
+            ->assertJsonPath('data.characters.0.character_id', 1001)
+            ->assertJsonPath('data.characters.1.character_id', $createdCharacterId);
 
         $this->postJson("/api/characters/{$activeCharacterId}/equip", [
             'equipment_instance_id' => 5001,

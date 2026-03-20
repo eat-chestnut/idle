@@ -52,6 +52,21 @@ class PhaseOneBattlePrepareApiTest extends TestCase
             ->assertJsonPath('data.chapters.0.unlock_condition', null);
     }
 
+    public function test_can_read_stages_under_chapter(): void
+    {
+        $this->getJson('/api/chapters/chapter_nanshan_001/stages', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 0)
+            ->assertJsonPath('data.chapter_id', 'chapter_nanshan_001')
+            ->assertJsonCount(2, 'data.stages')
+            ->assertJsonPath('data.stages.0.stage_id', 'stage_nanshan_001')
+            ->assertJsonPath('data.stages.0.stage_name', '招摇山')
+            ->assertJsonPath('data.stages.0.stage_order', 1)
+            ->assertJsonPath('data.stages.1.stage_id', 'stage_nanshan_002')
+            ->assertJsonPath('data.stages.1.stage_name', '堂庭山')
+            ->assertJsonPath('data.stages.1.stage_order', 2);
+    }
+
     public function test_can_read_stage_difficulties_with_first_clear_reward_summary(): void
     {
         $this->getJson('/api/stages/stage_nanshan_001/difficulties', $this->authHeaders())
@@ -154,6 +169,11 @@ class PhaseOneBattlePrepareApiTest extends TestCase
 
     public function test_invalid_stage_or_difficulty_returns_formal_error_code(): void
     {
+        $this->getJson('/api/chapters/chapter_unknown/stages', $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 10301)
+            ->assertJsonPath('data', null);
+
         $this->getJson('/api/stages/stage_unknown/difficulties', $this->authHeaders())
             ->assertOk()
             ->assertJsonPath('code', 10302)

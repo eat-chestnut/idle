@@ -23,13 +23,16 @@ class PhaseOneAuthenticationApiTest extends TestCase
     {
         $cases = [
             ['method' => 'GET', 'uri' => '/api/chapters', 'payload' => []],
+            ['method' => 'GET', 'uri' => '/api/chapters/chapter_nanshan_001/stages', 'payload' => []],
             ['method' => 'GET', 'uri' => '/api/stages/stage_nanshan_001/difficulties', 'payload' => []],
             ['method' => 'GET', 'uri' => '/api/stage-difficulties/stage_nanshan_001_normal/first-clear-reward-status', 'payload' => []],
+            ['method' => 'GET', 'uri' => '/api/characters', 'payload' => []],
             ['method' => 'POST', 'uri' => '/api/characters', 'payload' => [
                 'class_id' => 'class_fashi',
                 'character_name' => '未鉴权角色',
             ]],
             ['method' => 'GET', 'uri' => '/api/characters/1001', 'payload' => []],
+            ['method' => 'POST', 'uri' => '/api/characters/1001/activate', 'payload' => []],
             ['method' => 'GET', 'uri' => '/api/characters/1001/equipment-slots', 'payload' => []],
             ['method' => 'POST', 'uri' => '/api/characters/1001/equip', 'payload' => [
                 'equipment_instance_id' => 5001,
@@ -136,6 +139,12 @@ class PhaseOneAuthenticationApiTest extends TestCase
         ], $this->authHeaders())->assertOk()
             ->assertJsonPath('code', 10402)
             ->assertJsonPath('message', '战斗角色无效')
+            ->assertJsonPath('data', null);
+
+        $this->postJson('/api/characters/3001/activate', [], $this->authHeaders())
+            ->assertOk()
+            ->assertJsonPath('code', 10102)
+            ->assertJsonPath('message', '无权访问该角色')
             ->assertJsonPath('data', null);
     }
 

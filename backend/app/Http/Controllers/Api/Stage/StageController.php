@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\Stage;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\Stage\ChapterStageListRequest;
 use App\Http\Requests\Api\Stage\ChapterListRequest;
 use App\Http\Requests\Api\Stage\FirstClearRewardStatusRequest;
 use App\Http\Requests\Api\Stage\StageDifficultyListRequest;
+use App\Http\Resources\Api\Stage\ChapterStageListResource;
 use App\Http\Resources\Api\Stage\ChapterListResource;
 use App\Http\Resources\Api\Stage\FirstClearRewardStatusResource;
 use App\Http\Resources\Api\Stage\StageDifficultyListResource;
@@ -34,6 +36,24 @@ class StageController extends Controller
             ApiResponse::success(
                 (new ChapterListResource([
                     'chapters' => $this->chapterConfigService->getEnabledChapters(),
+                ]))->resolve($request)
+            )
+        );
+    }
+
+    public function stages(ChapterStageListRequest $request, string $chapter_id): JsonResponse
+    {
+        $chapter = $this->stageConfigService->getEnabledChapterById($chapter_id);
+
+        if ($chapter === null) {
+            throw new BusinessException(ErrorCode::CHAPTER_NOT_FOUND);
+        }
+
+        return response()->json(
+            ApiResponse::success(
+                (new ChapterStageListResource([
+                    'chapter_id' => $chapter_id,
+                    'stages' => $this->stageConfigService->getEnabledStagesByChapterId($chapter_id),
                 ]))->resolve($request)
             )
         );
