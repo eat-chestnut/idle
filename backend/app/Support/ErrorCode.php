@@ -6,11 +6,17 @@ final class ErrorCode
 {
     public const OK = 0;
 
-    public const INVALID_ARGUMENT = 10001;
+    public const INVALID_PARAMS = 10001;
+    public const INVALID_ARGUMENT = self::INVALID_PARAMS;
     public const UNAUTHORIZED = 10002;
     public const FORBIDDEN = 10003;
     public const RESOURCE_NOT_FOUND = 10004;
     public const SYSTEM_ERROR = 10005;
+    public const TOO_MANY_REQUESTS = 10006;
+    public const DATA_CONFLICT = 10007;
+    public const STATE_INVALID = 10008;
+    public const FEATURE_NOT_AVAILABLE = 10009;
+    public const PAGINATION_PARAMS_INVALID = 10010;
 
     public const CHARACTER_NOT_FOUND = 10101;
     public const CHARACTER_FORBIDDEN = 10102;
@@ -20,16 +26,24 @@ final class ErrorCode
     public const CHARACTER_CLASS_INVALID = 10106;
     public const CHARACTER_CREATE_FAILED = 10107;
     public const CHARACTER_SLOT_INIT_FAILED = 10108;
+    public const CHARACTER_STATE_INVALID = 10109;
+    public const CHARACTER_NOT_ACTIVE = 10110;
 
     public const EQUIPMENT_INSTANCE_NOT_FOUND = 10201;
     public const EQUIPMENT_INSTANCE_FORBIDDEN = 10202;
     public const EQUIPMENT_TEMPLATE_INVALID = 10203;
     public const EQUIPMENT_SLOT_INVALID = 10204;
     public const EQUIPMENT_SLOT_NOT_COMPATIBLE = 10205;
-    public const EQUIPMENT_LEVEL_NOT_ENOUGH = 10206;
+    public const EQUIPMENT_LEVEL_REQUIREMENT_NOT_MET = 10206;
+    public const EQUIPMENT_LEVEL_NOT_ENOUGH = self::EQUIPMENT_LEVEL_REQUIREMENT_NOT_MET;
     public const EQUIPMENT_SUB_WEAPON_NOT_COMPATIBLE = 10207;
-    public const EQUIPMENT_UNEQUIP_FAILED = 10208;
-    public const EQUIPMENT_EQUIP_FAILED = 10209;
+    public const EQUIPMENT_INSTANCE_ALREADY_EQUIPPED = 10208;
+    public const EQUIPMENT_SLOT_EMPTY = 10209;
+    public const EQUIPMENT_CHANGE_FAILED = 10210;
+    public const EQUIPMENT_MAIN_SUB_LINKAGE_FAILED = 10211;
+    public const EQUIPMENT_INSTANCE_STATE_INVALID = 10212;
+    public const EQUIPMENT_UNEQUIP_FAILED = self::EQUIPMENT_CHANGE_FAILED;
+    public const EQUIPMENT_EQUIP_FAILED = self::EQUIPMENT_CHANGE_FAILED;
 
     public const STAGE_NOT_FOUND = 10301;
     public const STAGE_DISABLED = 10302;
@@ -89,28 +103,38 @@ final class ErrorCode
     {
         return match ($code) {
             self::OK => 'ok',
-            self::INVALID_ARGUMENT => '参数非法',
+            self::INVALID_PARAMS => '请求参数不合法',
             self::UNAUTHORIZED => '未登录或登录失效',
-            self::FORBIDDEN => '无权限访问',
+            self::FORBIDDEN => '无权限执行该操作',
             self::RESOURCE_NOT_FOUND => '资源不存在',
             self::SYSTEM_ERROR => '系统错误',
+            self::TOO_MANY_REQUESTS => '请求过于频繁',
+            self::DATA_CONFLICT => '数据冲突',
+            self::STATE_INVALID => '当前状态不允许执行该操作',
+            self::FEATURE_NOT_AVAILABLE => '当前功能暂未开放',
+            self::PAGINATION_PARAMS_INVALID => '分页参数不合法',
             self::CHARACTER_NOT_FOUND => '角色不存在',
-            self::CHARACTER_FORBIDDEN => '无权限访问他人角色',
+            self::CHARACTER_FORBIDDEN => '无权访问该角色',
             self::CHARACTER_NAME_INVALID => '角色名称不合法',
             self::CHARACTER_NAME_DUPLICATED => '角色名称重复',
             self::CHARACTER_CREATE_LIMIT_REACHED => '可创建角色数量已达上限',
             self::CHARACTER_CLASS_INVALID => '职业不存在或未启用',
             self::CHARACTER_CREATE_FAILED => '角色创建失败',
             self::CHARACTER_SLOT_INIT_FAILED => '角色槽位初始化失败',
+            self::CHARACTER_STATE_INVALID => '当前角色状态异常',
+            self::CHARACTER_NOT_ACTIVE => '当前角色未启用',
             self::EQUIPMENT_INSTANCE_NOT_FOUND => '装备实例不存在',
-            self::EQUIPMENT_INSTANCE_FORBIDDEN => '装备不属于当前用户',
+            self::EQUIPMENT_INSTANCE_FORBIDDEN => '装备不归属当前用户',
             self::EQUIPMENT_TEMPLATE_INVALID => '装备模板不存在或未启用',
             self::EQUIPMENT_SLOT_INVALID => '目标槽位不合法',
             self::EQUIPMENT_SLOT_NOT_COMPATIBLE => '目标槽位与装备位不兼容',
-            self::EQUIPMENT_LEVEL_NOT_ENOUGH => '角色等级不足',
+            self::EQUIPMENT_LEVEL_REQUIREMENT_NOT_MET => '角色等级不足，无法穿戴该装备',
             self::EQUIPMENT_SUB_WEAPON_NOT_COMPATIBLE => '主副武器不兼容',
-            self::EQUIPMENT_UNEQUIP_FAILED => '装备卸下失败',
-            self::EQUIPMENT_EQUIP_FAILED => '装备穿戴失败',
+            self::EQUIPMENT_INSTANCE_ALREADY_EQUIPPED => '该装备已被穿戴',
+            self::EQUIPMENT_SLOT_EMPTY => '目标槽位当前没有已穿戴装备',
+            self::EQUIPMENT_CHANGE_FAILED => '换装失败',
+            self::EQUIPMENT_MAIN_SUB_LINKAGE_FAILED => '主副武器联动处理失败',
+            self::EQUIPMENT_INSTANCE_STATE_INVALID => '装备实例状态异常',
             self::STAGE_NOT_FOUND => '关卡不存在',
             self::STAGE_DISABLED => '关卡未启用',
             self::STAGE_DIFFICULTY_NOT_FOUND => '关卡难度不存在',
