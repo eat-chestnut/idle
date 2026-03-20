@@ -19,22 +19,36 @@ func update_credentials(base_url: String, bearer_token: String) -> void:
 
 
 func request_json(method: String, path: String, payload: Variant = null, query: Dictionary = {}) -> Dictionary:
+	return await _request_json(method, path, payload, query, true, true)
+
+
+func request_public_json(method: String, path: String, query: Dictionary = {}) -> Dictionary:
+	return await _request_json(method, path, null, query, false, false)
+
+
+func _request_json(
+	method: String,
+	path: String,
+	payload: Variant,
+	query: Dictionary,
+	require_auth: bool,
+	expect_api_wrapper: bool
+) -> Dictionary:
 	if _owner == null:
 		return _build_failure("config", "客户端 HTTP 上下文未初始化。")
 
 	if _base_url.is_empty():
 		return _build_failure("config", "请先填写 backend 地址。")
 
-	if _bearer_token.is_empty():
+	if require_auth and _bearer_token.is_empty():
 		return _build_failure("config", "请先填写 Bearer Token。")
 
 	var http_request := HTTPRequest.new()
 	_owner.add_child(http_request)
 
-	var headers := PackedStringArray([
-		"Accept: application/json",
-		"Authorization: Bearer %s" % _bearer_token,
-	])
+	var headers := PackedStringArray(["Accept: application/json"])
+	if require_auth:
+		headers.append("Authorization: Bearer %s" % _bearer_token)
 	var request_body := ""
 	var normalized_method := method.to_upper()
 	var http_method := _resolve_http_method(normalized_method)
@@ -82,6 +96,27 @@ func request_json(method: String, path: String, payload: Variant = null, query: 
 			-1,
 			response_code,
 			{"raw_text": body_text}
+		)
+
+	if not expect_api_wrapper:
+		var public_payload: Dictionary = parsed
+		if response_code >= 200 and response_code < 300:
+			return {
+				"ok": true,
+				"kind": "success",
+				"http_status": response_code,
+				"code": response_code,
+				"message": "ok",
+				"data": public_payload,
+				"raw": public_payload,
+			}
+
+		return _build_failure(
+			"error",
+			_extract_public_message(public_payload, "服务预检失败。"),
+			response_code,
+			response_code,
+			public_payload
 		)
 
 	var response: Dictionary = parsed
@@ -141,6 +176,23 @@ func _extract_message(parsed: Variant, fallback: String) -> String:
 	if typeof(parsed) == TYPE_DICTIONARY:
 		var response: Dictionary = parsed
 		return str(response.get("message", fallback))
+
+	return fallback
+
+
+func _extract_public_message(parsed: Dictionary, fallback: String) -> String:
+	var summary = parsed.get("summary", {})
+	var failures: Array = []
+	if typeof(summary) == TYPE_DICTIONARY:
+		failures = summary.get("failures", [])
+
+	if typeof(failures) == TYPE_ARRAY and not failures.is_empty():
+		var first_failure = failures[0]
+		if typeof(first_failure) == TYPE_DICTIONARY:
+			return str(first_failure.get("message", fallback))
+
+	if parsed.has("message"):
+		return str(parsed.get("message"))
 
 	return fallback
 
