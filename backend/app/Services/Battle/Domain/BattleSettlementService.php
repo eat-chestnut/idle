@@ -4,6 +4,7 @@ namespace App\Services\Battle\Domain;
 
 use App\Enums\Reward\RewardSourceType;
 use App\Exceptions\BusinessException;
+use App\Models\Battle\BattleContext;
 use App\Models\Stage\StageDifficulty;
 use App\Support\ErrorCode;
 use Throwable;
@@ -15,13 +16,14 @@ class BattleSettlementService
         int $characterId,
         string $stageDifficultyId,
         array $battleResult,
+        ?BattleContext $battleContext = null,
         array $allowedMonsterIds = []
     ): void {
         if ($userId <= 0 || $characterId <= 0 || $stageDifficultyId === '') {
             throw new BusinessException(ErrorCode::BATTLE_RESULT_INVALID);
         }
 
-        $this->assertBattleContextValid($userId, $characterId, $stageDifficultyId, $battleResult);
+        $this->assertBattleContextValid($userId, $characterId, $stageDifficultyId, $battleResult, $battleContext);
         $this->assertBattleResultValid($battleResult, $allowedMonsterIds);
     }
 
@@ -30,11 +32,31 @@ class BattleSettlementService
         int $characterId,
         string $stageDifficultyId,
         array $battleResult,
-        ?array $battlePrepareContext = null
+        ?BattleContext $battlePrepareContext = null
     ): void {
         $battleContextId = data_get($battleResult, 'battle_context_id');
 
         if (! is_string($battleContextId) || ! preg_match('/^battle_ctx_\d{8}_\d{6}_[a-z0-9]{6}$/', $battleContextId)) {
+            throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+        }
+
+        if ($battlePrepareContext === null) {
+            throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+        }
+
+        if ((string) $battlePrepareContext->battle_context_id !== $battleContextId) {
+            throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+        }
+
+        if ((int) $battlePrepareContext->user_id !== $userId) {
+            throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+        }
+
+        if ((int) $battlePrepareContext->character_id !== $characterId) {
+            throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+        }
+
+        if ((string) $battlePrepareContext->stage_difficulty_id !== $stageDifficultyId) {
             throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
         }
     }

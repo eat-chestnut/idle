@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Enums\Battle\BattleContextStatus;
 use App\Enums\Reward\GrantStatus;
 use App\Enums\Reward\RewardSourceType;
 use Database\Seeders\DatabaseSeeder;
@@ -142,6 +143,13 @@ class PhaseOneBattlePrepareApiTest extends TestCase
             ->assertJsonPath('data.monster_list.0.attack_interval', null);
 
         $this->assertStringStartsWith('battle_ctx_', (string) $response->json('data.battle_context_id'));
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => (string) $response->json('data.battle_context_id'),
+            'user_id' => TestUserSeeder::TEST_USER_ID,
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'status' => BattleContextStatus::PREPARED->value,
+        ]);
     }
 
     public function test_invalid_stage_or_difficulty_returns_formal_error_code(): void

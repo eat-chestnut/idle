@@ -15,7 +15,6 @@ use App\Services\Equipment\Query\EquipmentQueryService;
 use App\Services\Stage\Config\StageConfigService;
 use App\Services\Stage\Query\StageMonsterQueryService;
 use App\Support\ErrorCode;
-use Illuminate\Support\Str;
 use Throwable;
 
 class BattlePrepareService
@@ -30,7 +29,12 @@ class BattlePrepareService
     ) {
     }
 
-    public function prepareBattle(int $userId, int $characterId, string $stageDifficultyId): array
+    public function prepareBattle(
+        int $userId,
+        int $characterId,
+        string $stageDifficultyId,
+        string $battleContextId
+    ): array
     {
         $stageDifficulty = $this->getBattleStageDifficulty($stageDifficultyId);
         $character = $this->getBattleCharacter($userId, $characterId);
@@ -51,7 +55,7 @@ class BattlePrepareService
             $characterStats
         );
 
-        return $this->buildBattlePreparePayload($stageDifficulty, $monsterList, $characterContext);
+        return $this->buildBattlePreparePayload($battleContextId, $stageDifficulty, $monsterList, $characterContext);
     }
 
     private function getBattleStageDifficulty(string $stageDifficultyId): StageDifficulty
@@ -193,13 +197,12 @@ class BattlePrepareService
     }
 
     private function buildBattlePreparePayload(
+        string $battleContextId,
         StageDifficulty $stageDifficulty,
         array $monsterList,
         array $characterContext
     ): array {
-        $battleContextId = 'battle_ctx_'.now()->format('Ymd_His').'_'.Str::lower(Str::random(6));
-
-        if ($battleContextId === 'battle_ctx_') {
+        if ($battleContextId === '') {
             throw new BusinessException(ErrorCode::BATTLE_CONTEXT_BUILD_FAILED);
         }
 

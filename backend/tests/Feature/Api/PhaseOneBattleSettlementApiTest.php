@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Api;
 
+use App\Enums\Battle\BattleContextStatus;
 use App\Enums\Drop\DropRollType;
+use App\Exceptions\BusinessException;
+use App\Services\Battle\Workflow\BattleSettlementWorkflow;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\TestUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -47,6 +50,19 @@ class PhaseOneBattleSettlementApiTest extends TestCase
             ->assertJsonPath('data', null);
     }
 
+    public function test_nonexistent_battle_context_returns_formal_error_code(): void
+    {
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => 'battle_ctx_20260320_120000_ab12cd',
+            'is_cleared' => 0,
+            'killed_monsters' => ['monster_spirit_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 10501)
+            ->assertJsonPath('data', null);
+    }
+
     public function test_can_settle_battle_with_formal_drop_results(): void
     {
         $this->forceDropGroupToSingleResult('drop_normal_001', 'mat_wood_001', 1);
@@ -79,6 +95,10 @@ class PhaseOneBattleSettlementApiTest extends TestCase
             'user_id' => TestUserSeeder::TEST_USER_ID,
             'item_id' => 'mat_wood_001',
             'quantity' => 11,
+        ]);
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::SETTLED->value,
         ]);
     }
 
@@ -131,6 +151,98 @@ class PhaseOneBattleSettlementApiTest extends TestCase
 
         $this->assertDatabaseCount('user_reward_grants', 1);
         $this->assertDatabaseCount('inventory_equipment_instances', 7);
+    }
+
+    public function test_battle_context_must_match_owner_and_cannot_be_replayed(): void
+    {
+        $battleContextId = $this->prepareBattleContextId();
+
+        DB::table('users')->insert([
+            'id' => 3001,
+            'name' => 'Other User',
+            'email' => 'other@example.com',
+            'password' => bcrypt('password'),
+            'api_token' => hash('sha256', 'other-test-token-2002'),
+            'email_verified_at' => null,
+            'remember_token' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('characters')->insert([
+            'character_id' => 3001,
+            'user_id' => 3001,
+            'class_id' => 'class_jingang',
+            'character_name' => '借用角色',
+            'level' => 1,
+            'exp' => 0,
+            'unspent_stat_points' => 0,
+            'added_strength' => 0,
+            'added_mana' => 0,
+            'added_constitution' => 0,
+            'added_dexterity' => 0,
+            'long_term_growth_stage' => null,
+            'extra_context' => null,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        try {
+            $this->app->make(BattleSettlementWorkflow::class)->settleBattle(3001, 3001, 'stage_nanshan_001_normal', [
+                'battle_context_id' => $battleContextId,
+                'is_cleared' => 0,
+                'killed_monsters' => ['monster_spirit_001'],
+            ]);
+
+            $this->fail('Expected battle settlement to reject cross-user battle context.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(10501, $exception->getErrorCode());
+        }
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::PREPARED->value,
+        ]);
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_hard',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 0,
+            'killed_monsters' => ['monster_spirit_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 10501)
+            ->assertJsonPath('data', null);
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::PREPARED->value,
+        ]);
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 0,
+            'killed_monsters' => ['monster_spirit_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 0);
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::SETTLED->value,
+        ]);
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 0,
+            'killed_monsters' => ['monster_spirit_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 10501)
+            ->assertJsonPath('data', null);
     }
 
     public function test_settlement_rolls_back_all_written_state_when_reward_chain_fails(): void
