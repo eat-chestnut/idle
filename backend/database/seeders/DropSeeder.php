@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\Drop\DropRollType;
+use App\Enums\Drop\DropSourceType;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -84,12 +85,12 @@ class DropSeeder extends Seeder
         }
 
         DB::table('drop_group_bindings')->upsert([
-            ['source_type' => 'monster', 'source_id' => 'monster_spirit_001', 'drop_group_id' => 'drop_normal_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['source_type' => 'monster', 'source_id' => 'monster_wolf_001', 'drop_group_id' => 'drop_normal_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['source_type' => 'monster', 'source_id' => 'monster_boar_001', 'drop_group_id' => 'drop_elite_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['source_type' => 'monster', 'source_id' => 'monster_bird_001', 'drop_group_id' => 'drop_elite_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['source_type' => 'monster', 'source_id' => 'monster_boss_001', 'drop_group_id' => 'drop_boss_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['source_type' => 'monster', 'source_id' => 'monster_boss_002', 'drop_group_id' => 'drop_boss_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_spirit_001', 'drop_group_id' => 'drop_normal_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_wolf_001', 'drop_group_id' => 'drop_normal_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_boar_001', 'drop_group_id' => 'drop_elite_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_bird_001', 'drop_group_id' => 'drop_elite_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_boss_001', 'drop_group_id' => 'drop_boss_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['source_type' => DropSourceType::MONSTER->value, 'source_id' => 'monster_boss_002', 'drop_group_id' => 'drop_boss_001', 'created_at' => $timestamp, 'updated_at' => $timestamp],
         ], ['source_type', 'source_id'], [
             'drop_group_id',
             'updated_at',

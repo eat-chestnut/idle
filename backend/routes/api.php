@@ -17,6 +17,7 @@ Route::middleware(['auth:api'])->group(function (): void {
 
     Route::prefix('battles')->group(function (): void {
         Route::post('prepare', [BattleController::class, 'prepare']);
+        Route::post('settle', [BattleController::class, 'settle']);
     });
 
     Route::prefix('characters')->group(function (): void {
