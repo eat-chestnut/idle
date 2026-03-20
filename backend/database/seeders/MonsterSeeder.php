@@ -1,0 +1,126 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+
+class MonsterSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $timestamp = now();
+
+        DB::table('monsters')->upsert([
+            [
+                'monster_id' => 'monster_spirit_001',
+                'monster_name' => '山灵',
+                'attack' => 10,
+                'physical_defense' => 4,
+                'magic_defense' => 3,
+                'hp' => 40,
+                'mana' => 0,
+                'attack_speed' => 10,
+                'crit_rate' => 1,
+                'spell_power' => 0,
+                'is_enabled' => true,
+                'sort_order' => 1,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+            [
+                'monster_id' => 'monster_wolf_001',
+                'monster_name' => '山狼',
+                'attack' => 12,
+                'physical_defense' => 3,
+                'magic_defense' => 2,
+                'hp' => 42,
+                'mana' => 0,
+                'attack_speed' => 12,
+                'crit_rate' => 2,
+                'spell_power' => 0,
+                'is_enabled' => true,
+                'sort_order' => 2,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+            [
+                'monster_id' => 'monster_boar_001',
+                'monster_name' => '山猪精',
+                'attack' => 18,
+                'physical_defense' => 8,
+                'magic_defense' => 4,
+                'hp' => 80,
+                'mana' => 0,
+                'attack_speed' => 8,
+                'crit_rate' => 2,
+                'spell_power' => 0,
+                'is_enabled' => true,
+                'sort_order' => 3,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+            [
+                'monster_id' => 'monster_bird_001',
+                'monster_name' => '赤羽妖鸟',
+                'attack' => 20,
+                'physical_defense' => 5,
+                'magic_defense' => 5,
+                'hp' => 72,
+                'mana' => 10,
+                'attack_speed' => 14,
+                'crit_rate' => 4,
+                'spell_power' => 6,
+                'is_enabled' => true,
+                'sort_order' => 4,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+            [
+                'monster_id' => 'monster_boss_001',
+                'monster_name' => '招摇山主',
+                'attack' => 28,
+                'physical_defense' => 10,
+                'magic_defense' => 8,
+                'hp' => 180,
+                'mana' => 20,
+                'attack_speed' => 10,
+                'crit_rate' => 5,
+                'spell_power' => 8,
+                'is_enabled' => true,
+                'sort_order' => 5,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+            [
+                'monster_id' => 'monster_boss_002',
+                'monster_name' => '堂庭山主',
+                'attack' => 34,
+                'physical_defense' => 12,
+                'magic_defense' => 10,
+                'hp' => 220,
+                'mana' => 30,
+                'attack_speed' => 11,
+                'crit_rate' => 6,
+                'spell_power' => 10,
+                'is_enabled' => true,
+                'sort_order' => 6,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ],
+        ], ['monster_id'], [
+            'monster_name',
+            'attack',
+            'physical_defense',
+            'magic_defense',
+            'hp',
+            'mana',
+            'attack_speed',
+            'crit_rate',
+            'spell_power',
+            'is_enabled',
+            'sort_order',
+            'updated_at',
+        ]);
+    }
+}
