@@ -9,6 +9,7 @@ use App\Services\Admin\AdminDataRepairService;
 use App\Services\Admin\AdminReferenceCheckService;
 use App\Services\Admin\AdminResourceRegistry;
 use App\Services\Admin\AdminRewardRetryService;
+use App\Support\Lock\WorkflowLockService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -22,8 +23,8 @@ class AdminToolController extends Controller
         private readonly AdminReferenceCheckService $adminReferenceCheckService,
         private readonly AdminRewardRetryService $adminRewardRetryService,
         private readonly AdminDataRepairService $adminDataRepairService,
-    ) {
-    }
+        private readonly WorkflowLockService $workflowLockService,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -35,6 +36,7 @@ class AdminToolController extends Controller
             'tool_result' => session('tool_result'),
             'config_resources' => $this->adminResourceRegistry->configResourceOptions(),
             'reward_source_types' => $this->enumOptions(RewardSourceType::class, true),
+            'lock_diagnostic' => $this->workflowLockService->diagnose(),
             'reference_defaults' => [
                 'resource' => (string) $request->query('reference_resource', ''),
                 'record_key' => (string) $request->query('reference_record', ''),

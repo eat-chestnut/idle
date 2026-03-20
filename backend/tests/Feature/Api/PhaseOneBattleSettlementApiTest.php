@@ -6,9 +6,11 @@ use App\Enums\Battle\BattleContextStatus;
 use App\Enums\Drop\DropRollType;
 use App\Exceptions\BusinessException;
 use App\Services\Battle\Workflow\BattleSettlementWorkflow;
+use App\Support\Lock\WorkflowLockService;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\TestUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -322,6 +324,58 @@ class PhaseOneBattleSettlementApiTest extends TestCase
         ], $this->authHeaders())->assertOk()
             ->assertJsonPath('code', 10501)
             ->assertJsonPath('data', null);
+    }
+
+    public function test_battle_settlement_returns_clear_error_when_workflow_lock_is_busy(): void
+    {
+        $battleContextId = $this->prepareBattleContextId();
+        $workflowLockService = $this->app->make(WorkflowLockService::class);
+        $lock = Cache::store((string) config('workflow_lock.store'))
+            ->lock($workflowLockService->battleSettlementKey($battleContextId), 30);
+
+        $this->assertTrue($lock->get());
+
+        try {
+            $this->postJson('/api/battles/settle', [
+                'character_id' => 1001,
+                'stage_difficulty_id' => 'stage_nanshan_001_normal',
+                'battle_context_id' => $battleContextId,
+                'is_cleared' => 0,
+                'killed_monsters' => ['monster_spirit_001'],
+            ], $this->authHeaders())->assertOk()
+                ->assertJsonPath('code', 10006)
+                ->assertJsonPath('message', '战斗结算正在处理中，请勿重复提交')
+                ->assertJsonPath('data', null);
+
+            $this->assertDatabaseHas('battle_contexts', [
+                'battle_context_id' => $battleContextId,
+                'status' => BattleContextStatus::PREPARED->value,
+            ]);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    public function test_battle_settlement_returns_formal_error_when_lock_capability_is_unavailable(): void
+    {
+        $battleContextId = $this->prepareBattleContextId();
+        config(['workflow_lock.store' => 'null']);
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 0,
+            'killed_monsters' => ['monster_spirit_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 10011)
+            ->assertJsonPath('message', 'workflow lock store [null] 返回 NoLock，无法提供正式互斥能力')
+            ->assertJsonPath('data', null);
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::PREPARED->value,
+        ]);
     }
 
     private function prepareBattleContextId(): string

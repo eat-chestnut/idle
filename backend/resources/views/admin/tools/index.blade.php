@@ -10,6 +10,33 @@
         </div>
 
         <div class="grid">
+            <div class="panel" style="margin: 0;">
+                <strong>锁能力诊断</strong>
+                <div class="hint" style="margin: 8px 0 14px;">关键链使用 `WORKFLOW_LOCK_STORE`；部署前后可用 `php artisan workflow-lock:check` 复核。</div>
+                <div class="grid">
+                    <div>
+                        <label>状态</label>
+                        <div>{{ ($lock_diagnostic['available'] ?? false) ? '可用' : '不可用' }}</div>
+                    </div>
+                    <div>
+                        <label>store</label>
+                        <div>{{ $lock_diagnostic['store'] ?? '' }}</div>
+                    </div>
+                    <div>
+                        <label>store_class</label>
+                        <div>{{ $lock_diagnostic['store_class'] ?? '' }}</div>
+                    </div>
+                    <div>
+                        <label>lock_class</label>
+                        <div>{{ $lock_diagnostic['lock_class'] ?? '' }}</div>
+                    </div>
+                    <div>
+                        <label>message</label>
+                        <div>{{ $lock_diagnostic['message'] ?? '' }}</div>
+                    </div>
+                </div>
+            </div>
+
             <form method="POST" action="{{ route('admin.tools.reference-check') }}" class="panel" style="margin: 0;">
                 @csrf
                 <strong>配置引用检查</strong>

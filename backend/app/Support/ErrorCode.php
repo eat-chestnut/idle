@@ -17,6 +17,7 @@ final class ErrorCode
     public const STATE_INVALID = 10008;
     public const FEATURE_NOT_AVAILABLE = 10009;
     public const PAGINATION_PARAMS_INVALID = 10010;
+    public const LOCK_CAPABILITY_UNAVAILABLE = 10011;
 
     public const CHARACTER_NOT_FOUND = 10101;
     public const CHARACTER_FORBIDDEN = 10102;
@@ -124,6 +125,7 @@ final class ErrorCode
             self::STATE_INVALID => '当前状态不允许执行该操作',
             self::FEATURE_NOT_AVAILABLE => '当前功能暂未开放',
             self::PAGINATION_PARAMS_INVALID => '分页参数不合法',
+            self::LOCK_CAPABILITY_UNAVAILABLE => '当前环境未配置可用锁能力',
             self::CHARACTER_NOT_FOUND => '角色不存在',
             self::CHARACTER_FORBIDDEN => '无权访问该角色',
             self::CHARACTER_NAME_INVALID => '角色名称不合法',

@@ -4,6 +4,7 @@ namespace App\Services\Battle\Workflow;
 
 use App\Enums\Battle\BattleContextStatus;
 use App\Enums\Reward\GrantStatus;
+use App\Enums\Reward\RewardSourceType;
 use App\Exceptions\BusinessException;
 use App\Models\Battle\BattleContext;
 use App\Services\Battle\Domain\BattleContextService;
@@ -18,8 +19,7 @@ use App\Services\Reward\Workflow\RewardGrantWorkflow;
 use App\Services\Stage\Config\StageConfigService;
 use App\Services\Stage\Query\StageMonsterQueryService;
 use App\Support\ErrorCode;
-use Illuminate\Contracts\Cache\Lock;
-use Illuminate\Support\Facades\Cache;
+use App\Support\Lock\WorkflowLockService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -37,146 +37,16 @@ class BattleSettlementWorkflow
         private readonly InventoryWriteService $inventoryWriteService,
         private readonly RewardGrantWorkflow $rewardGrantWorkflow,
         private readonly BattleSettlementService $battleSettlementService,
-    ) {
-    }
+        private readonly WorkflowLockService $workflowLockService,
+    ) {}
 
     public function settleBattle(int $userId, int $characterId, string $stageDifficultyId, array $battleResult): array
     {
-        /** @var Lock|null $battleContextLock */
-        $battleContextLock = null;
-
         try {
-            $battleContextLock = Cache::lock(
-                sprintf('battle_settlement:%s', (string) data_get($battleResult, 'battle_context_id')),
-                10
+            return $this->workflowLockService->withBattleSettlementLock(
+                (string) data_get($battleResult, 'battle_context_id'),
+                fn (): array => $this->executeSettlement($userId, $characterId, $stageDifficultyId, $battleResult)
             );
-
-            if (! $battleContextLock->get()) {
-                throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
-            }
-
-            $stageDifficulty = $this->stageConfigService->getEnabledStageDifficultyById($stageDifficultyId);
-
-            if ($stageDifficulty === null) {
-                throw new BusinessException(ErrorCode::STAGE_DIFFICULTY_NOT_FOUND);
-            }
-
-            $character = $this->characterQueryService->getOwnedCharacterById($userId, $characterId);
-
-            if (! $character->is_active) {
-                throw new BusinessException(ErrorCode::CHARACTER_NOT_ACTIVE);
-            }
-
-            $allowedMonsterIds = $this->stageMonsterQueryService->getStageMonsterBindings($stageDifficultyId)
-                ->pluck('monster_id')
-                ->map(static fn (mixed $monsterId): string => (string) $monsterId)
-                ->all();
-
-            if ($allowedMonsterIds === []) {
-                throw new BusinessException(ErrorCode::STAGE_MONSTER_BINDING_EMPTY);
-            }
-
-            $battleContext = $this->battleContextQueryService->getBattleContextById(
-                (string) data_get($battleResult, 'battle_context_id')
-            );
-
-            $this->battleSettlementService->validateBattleSettlementRequest(
-                $userId,
-                $characterId,
-                $stageDifficultyId,
-                $battleResult,
-                $battleContext,
-                $allowedMonsterIds
-            );
-            $this->battleContextService->assertSettleAllowed($userId, $characterId, $stageDifficultyId, $battleContext);
-
-            $killedMonsterIds = $this->battleSettlementService->extractKilledMonsterIds($battleResult);
-            $rewardBinding = $this->firstClearRewardConfigService->getEnabledBindingBySourceId($stageDifficultyId);
-            $rewardStatusBefore = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
-            $dropResults = $this->resolveDropResults($stageDifficultyId, $battleResult, $killedMonsterIds);
-            $shouldGrantReward = (int) data_get($battleResult, 'is_cleared', 0) === 1
-                && (int) data_get($rewardStatusBefore, 'has_reward', 0) === 1
-                && (int) data_get($rewardStatusBefore, 'has_granted', 0) === 0
-                && data_get($rewardStatusBefore, 'grant_status') === null;
-
-            try {
-                $dropInventoryResults = $dropResults === []
-                    ? $this->inventoryWriteService->emptyResult()
-                    : $this->inventoryWriteService->writeDrops(
-                        $userId,
-                        array_map(
-                            static fn (array $dropResult): array => [
-                                'item_id' => (string) $dropResult['item_id'],
-                                'quantity' => (int) $dropResult['quantity'],
-                            ],
-                            $dropResults
-                        ),
-                        [
-                            'source' => 'drop',
-                            'source_type' => 'stage_difficulty',
-                            'source_id' => $stageDifficultyId,
-                            'battle_context_id' => (string) data_get($battleResult, 'battle_context_id'),
-                        ]
-                    );
-            } catch (BusinessException $exception) {
-                throw $this->isInventoryError($exception->getErrorCode())
-                    ? new BusinessException(ErrorCode::BATTLE_SETTLEMENT_INVENTORY_FAILED, previous: $exception)
-                    : $exception;
-            }
-
-            $rewardGrantResult = null;
-
-            if ($shouldGrantReward) {
-                try {
-                    $rewardGrantResult = $this->rewardGrantWorkflow->grant(
-                        $this->battleSettlementService->buildRewardSettlementContext(
-                            $userId,
-                            $stageDifficultyId,
-                            $battleResult,
-                            $rewardStatusBefore
-                        )
-                    );
-                } catch (BusinessException $exception) {
-                    $rewardStatusAfterFailure = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
-
-                    if (data_get($rewardStatusAfterFailure, 'grant_status') === GrantStatus::FAILED->value) {
-                        $this->markBattleContextSettled($battleContext, ErrorCode::BATTLE_SETTLEMENT_FAILED);
-                    }
-
-                    throw new BusinessException(ErrorCode::BATTLE_SETTLEMENT_REWARD_FAILED, previous: $exception);
-                }
-            }
-
-            $this->markBattleContextSettled($battleContext, ErrorCode::BATTLE_SETTLEMENT_FAILED);
-
-            $finalRewardStatus = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
-
-            $payload = $this->battleSettlementService->buildBattleSettlementPayload(
-                $stageDifficulty,
-                $battleResult,
-                $dropResults,
-                $rewardGrantResult === null ? [] : [[
-                    'reward_grant_id' => (int) $rewardGrantResult['reward_grant_id'],
-                    'reward_group_id' => (string) $rewardGrantResult['reward_group_id'],
-                    'grant_status' => (string) $rewardGrantResult['grant_status'],
-                    'reward_items' => $rewardGrantResult['reward_items'],
-                ]],
-                $this->mergeInventoryResults(
-                    $dropInventoryResults,
-                    $rewardGrantResult['inventory_results'] ?? $this->inventoryWriteService->emptyResult()
-                ),
-                array_merge(
-                    $dropInventoryResults['created_equipment_instances'],
-                    $rewardGrantResult['created_equipment_instances'] ?? []
-                ),
-                [
-                    'has_reward' => (int) data_get($finalRewardStatus, 'has_reward', 0),
-                    'has_granted' => (int) data_get($finalRewardStatus, 'has_granted', 0),
-                    'grant_status' => data_get($finalRewardStatus, 'grant_status'),
-                ]
-            );
-
-            return $payload;
         } catch (BusinessException $exception) {
             Log::warning('battle settlement failed', [
                 'user_id' => $userId,
@@ -197,9 +67,160 @@ class BattleSettlementWorkflow
             ]);
 
             throw new BusinessException(ErrorCode::BATTLE_SETTLEMENT_FAILED, previous: $throwable);
-        } finally {
-            $battleContextLock?->release();
         }
+    }
+
+    private function executeSettlement(int $userId, int $characterId, string $stageDifficultyId, array $battleResult): array
+    {
+        $stageDifficulty = $this->stageConfigService->getEnabledStageDifficultyById($stageDifficultyId);
+
+        if ($stageDifficulty === null) {
+            throw new BusinessException(ErrorCode::STAGE_DIFFICULTY_NOT_FOUND);
+        }
+
+        $character = $this->characterQueryService->getOwnedCharacterById($userId, $characterId);
+
+        if (! $character->is_active) {
+            throw new BusinessException(ErrorCode::CHARACTER_NOT_ACTIVE);
+        }
+
+        $allowedMonsterIds = $this->stageMonsterQueryService->getStageMonsterBindings($stageDifficultyId)
+            ->pluck('monster_id')
+            ->map(static fn (mixed $monsterId): string => (string) $monsterId)
+            ->all();
+
+        if ($allowedMonsterIds === []) {
+            throw new BusinessException(ErrorCode::STAGE_MONSTER_BINDING_EMPTY);
+        }
+
+        $battleContext = $this->battleContextQueryService->getBattleContextById(
+            (string) data_get($battleResult, 'battle_context_id')
+        );
+
+        $this->battleSettlementService->validateBattleSettlementRequest(
+            $userId,
+            $characterId,
+            $stageDifficultyId,
+            $battleResult,
+            $battleContext,
+            $allowedMonsterIds
+        );
+        $this->battleContextService->assertSettleAllowed($userId, $characterId, $stageDifficultyId, $battleContext);
+
+        $rewardBinding = $this->firstClearRewardConfigService->getEnabledBindingBySourceId($stageDifficultyId);
+        $settlement = fn (): array => $this->executeSettlementFlow(
+            $userId,
+            $stageDifficultyId,
+            $battleResult,
+            $battleContext,
+            $stageDifficulty,
+            $rewardBinding
+        );
+
+        if ($this->shouldGuardRewardGrant($battleResult, $rewardBinding)) {
+            return $this->workflowLockService->withRewardGrantLock(
+                $userId,
+                RewardSourceType::FIRST_CLEAR->value,
+                $stageDifficultyId,
+                $settlement
+            );
+        }
+
+        return $settlement();
+    }
+
+    private function executeSettlementFlow(
+        int $userId,
+        string $stageDifficultyId,
+        array $battleResult,
+        BattleContext $battleContext,
+        mixed $stageDifficulty,
+        mixed $rewardBinding
+    ): array {
+        $killedMonsterIds = $this->battleSettlementService->extractKilledMonsterIds($battleResult);
+        $rewardStatusBefore = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
+        $dropResults = $this->resolveDropResults($stageDifficultyId, $battleResult, $killedMonsterIds);
+        $shouldGrantReward = (int) data_get($battleResult, 'is_cleared', 0) === 1
+            && (int) data_get($rewardStatusBefore, 'has_reward', 0) === 1
+            && (int) data_get($rewardStatusBefore, 'has_granted', 0) === 0
+            && data_get($rewardStatusBefore, 'grant_status') === null;
+
+        try {
+            $dropInventoryResults = $dropResults === []
+                ? $this->inventoryWriteService->emptyResult()
+                : $this->inventoryWriteService->writeDrops(
+                    $userId,
+                    array_map(
+                        static fn (array $dropResult): array => [
+                            'item_id' => (string) $dropResult['item_id'],
+                            'quantity' => (int) $dropResult['quantity'],
+                        ],
+                        $dropResults
+                    ),
+                    [
+                        'source' => 'drop',
+                        'source_type' => 'stage_difficulty',
+                        'source_id' => $stageDifficultyId,
+                        'battle_context_id' => (string) data_get($battleResult, 'battle_context_id'),
+                    ]
+                );
+        } catch (BusinessException $exception) {
+            throw $this->isInventoryError($exception->getErrorCode())
+                ? new BusinessException(ErrorCode::BATTLE_SETTLEMENT_INVENTORY_FAILED, previous: $exception)
+                : $exception;
+        }
+
+        $rewardGrantResult = null;
+
+        if ($shouldGrantReward) {
+            try {
+                $rewardGrantResult = $this->rewardGrantWorkflow->grant(
+                    $this->battleSettlementService->buildRewardSettlementContext(
+                        $userId,
+                        $stageDifficultyId,
+                        $battleResult,
+                        $rewardStatusBefore
+                    )
+                );
+            } catch (BusinessException $exception) {
+                $rewardStatusAfterFailure = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
+
+                if (data_get($rewardStatusAfterFailure, 'grant_status') === GrantStatus::FAILED->value) {
+                    $this->markBattleContextSettled($battleContext, ErrorCode::BATTLE_SETTLEMENT_FAILED);
+                }
+
+                throw new BusinessException(ErrorCode::BATTLE_SETTLEMENT_REWARD_FAILED, previous: $exception);
+            }
+        }
+
+        $this->markBattleContextSettled($battleContext, ErrorCode::BATTLE_SETTLEMENT_FAILED);
+
+        $finalRewardStatus = $this->firstClearRewardStatusQueryService->getStatus($userId, $stageDifficultyId, $rewardBinding);
+
+        return $this->battleSettlementService->buildBattleSettlementPayload(
+            $stageDifficulty,
+            $battleResult,
+            $dropResults,
+            $rewardGrantResult === null ? [] : [[
+                'reward_grant_id' => (int) $rewardGrantResult['reward_grant_id'],
+                'reward_group_id' => (string) $rewardGrantResult['reward_group_id'],
+                'grant_status' => (string) $rewardGrantResult['grant_status'],
+                'reward_items' => $rewardGrantResult['reward_items'],
+            ]],
+            $this->mergeInventoryResults(
+                $dropInventoryResults,
+                $rewardGrantResult['inventory_results'] ?? $this->inventoryWriteService->emptyResult()
+            ),
+            array_merge(
+                $dropInventoryResults['created_equipment_instances'],
+                $rewardGrantResult['created_equipment_instances'] ?? []
+            ),
+            [
+                'has_reward' => (int) data_get($finalRewardStatus, 'has_reward', 0),
+                'has_granted' => (int) data_get($finalRewardStatus, 'has_granted', 0),
+                'grant_status' => data_get($finalRewardStatus, 'grant_status'),
+            ]
+        );
     }
 
     private function resolveDropResults(string $stageDifficultyId, array $battleResult, array $killedMonsterIds): array
@@ -249,6 +270,11 @@ class BattleSettlementWorkflow
     private function isInventoryError(int $errorCode): bool
     {
         return $errorCode >= ErrorCode::INVENTORY_WRITE_CONTEXT_INVALID && $errorCode <= ErrorCode::INVENTORY_RESULT_BUILD_FAILED;
+    }
+
+    private function shouldGuardRewardGrant(array $battleResult, mixed $rewardBinding): bool
+    {
+        return (int) data_get($battleResult, 'is_cleared', 0) === 1 && $rewardBinding !== null;
     }
 
     private function markBattleContextSettled(BattleContext $battleContext, int $errorCodeOnFailure): void

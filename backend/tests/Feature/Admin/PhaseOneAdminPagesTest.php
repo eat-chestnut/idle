@@ -3,10 +3,12 @@
 namespace Tests\Feature\Admin;
 
 use App\Models\Admin\AdminUser;
+use App\Support\Lock\WorkflowLockService;
 use Database\Seeders\AdminUserSeeder;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\TestUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -80,6 +82,11 @@ class PhaseOneAdminPagesTest extends TestCase
             ->assertOk()
             ->assertSee('装备实例查询页')
             ->assertSee('eq_armor_001');
+
+        $this->get('/admin/tools')
+            ->assertOk()
+            ->assertSee('锁能力诊断')
+            ->assertSee('workflow-lock:check');
     }
 
     public function test_admin_can_maintain_drop_and_reward_configuration_pages(): void
@@ -295,6 +302,30 @@ class PhaseOneAdminPagesTest extends TestCase
         $this->post('/admin/tools/reward-retry', [
             'reward_grant_id' => $rewardGrantId,
         ])->assertSessionHasErrors(['reward_retry']);
+    }
+
+    public function test_reward_retry_tool_returns_clear_error_when_retry_lock_is_busy(): void
+    {
+        $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
+        $rewardGrantId = $this->createNaturallyFailedRewardGrant();
+        $workflowLockService = $this->app->make(WorkflowLockService::class);
+        $lock = Cache::store((string) config('workflow_lock.store'))
+            ->lock($workflowLockService->rewardRetryKey($rewardGrantId), 30);
+
+        $this->assertTrue($lock->get());
+
+        try {
+            $this->post('/admin/tools/reward-retry', [
+                'reward_grant_id' => $rewardGrantId,
+            ])->assertSessionHasErrors(['reward_retry']);
+
+            $this->assertDatabaseHas('user_reward_grants', [
+                'reward_grant_id' => $rewardGrantId,
+                'grant_status' => 'failed',
+            ]);
+        } finally {
+            $lock->release();
+        }
     }
 
     public function test_repair_tool_repairs_minimal_safe_scenarios(): void
