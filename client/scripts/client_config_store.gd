@@ -12,6 +12,9 @@ const DEFAULTS := {
 	"battle_character_id": "1001",
 	"stage_id": "stage_nanshan_001",
 	"stage_difficulty_id": "stage_nanshan_001_normal",
+	"recent_characters": [],
+	"recent_stage_ids": ["stage_nanshan_001"],
+	"recent_stage_difficulty_ids": ["stage_nanshan_001_normal"],
 }
 
 
@@ -23,8 +26,31 @@ static func load_config() -> Dictionary:
 	if load_error != OK:
 		return resolved
 
-	for key in DEFAULTS.keys():
+	for key in [
+		"base_url",
+		"bearer_token",
+		"class_id",
+		"character_name",
+		"character_id",
+		"battle_character_id",
+		"stage_id",
+		"stage_difficulty_id",
+	]:
 		resolved[key] = String(config.get_value(CONFIG_SECTION, key, DEFAULTS[key]))
+
+	resolved["recent_characters"] = _normalize_recent_characters(
+		config.get_value(CONFIG_SECTION, "recent_characters", DEFAULTS["recent_characters"])
+	)
+	resolved["recent_stage_ids"] = _normalize_string_list(
+		config.get_value(CONFIG_SECTION, "recent_stage_ids", DEFAULTS["recent_stage_ids"])
+	)
+	resolved["recent_stage_difficulty_ids"] = _normalize_string_list(
+		config.get_value(
+			CONFIG_SECTION,
+			"recent_stage_difficulty_ids",
+			DEFAULTS["recent_stage_difficulty_ids"]
+		)
+	)
 
 	return resolved
 
@@ -32,7 +58,125 @@ static func load_config() -> Dictionary:
 static func save_config(values: Dictionary) -> int:
 	var config := ConfigFile.new()
 
-	for key in DEFAULTS.keys():
+	for key in [
+		"base_url",
+		"bearer_token",
+		"class_id",
+		"character_name",
+		"character_id",
+		"battle_character_id",
+		"stage_id",
+		"stage_difficulty_id",
+	]:
 		config.set_value(CONFIG_SECTION, key, String(values.get(key, DEFAULTS[key])))
 
+	config.set_value(
+		CONFIG_SECTION,
+		"recent_characters",
+		_normalize_recent_characters(values.get("recent_characters", DEFAULTS["recent_characters"]))
+	)
+	config.set_value(
+		CONFIG_SECTION,
+		"recent_stage_ids",
+		_normalize_string_list(values.get("recent_stage_ids", DEFAULTS["recent_stage_ids"]))
+	)
+	config.set_value(
+		CONFIG_SECTION,
+		"recent_stage_difficulty_ids",
+		_normalize_string_list(
+			values.get("recent_stage_difficulty_ids", DEFAULTS["recent_stage_difficulty_ids"])
+		)
+	)
+
 	return config.save(CONFIG_PATH)
+
+
+static func upsert_recent_character(records: Array, character: Dictionary, max_items: int = 8) -> Array:
+	var character_id := str(character.get("character_id", "")).strip_edges()
+	if character_id.is_empty():
+		return _normalize_recent_characters(records)
+
+	var normalized_record := {
+		"character_id": character_id,
+		"character_name": str(character.get("character_name", "角色")),
+		"class_id": str(character.get("class_id", "")),
+		"class_name": str(character.get("class_name", character.get("class_id", ""))),
+		"is_active": 1 if int(character.get("is_active", 0)) == 1 else 0,
+	}
+
+	var normalized_records := _normalize_recent_characters(records)
+	var merged: Array = [normalized_record]
+
+	for record in normalized_records:
+		var entry = record if typeof(record) == TYPE_DICTIONARY else {}
+		if str(entry.get("character_id", "")) == character_id:
+			continue
+		merged.append(entry)
+		if merged.size() >= max_items:
+			break
+
+	return merged
+
+
+static func upsert_recent_string(values: Array, raw_value: String, max_items: int = 8) -> Array:
+	var normalized_value := raw_value.strip_edges()
+	if normalized_value.is_empty():
+		return _normalize_string_list(values)
+
+	var merged: Array = [normalized_value]
+	for item in _normalize_string_list(values):
+		if str(item) == normalized_value:
+			continue
+		merged.append(str(item))
+		if merged.size() >= max_items:
+			break
+
+	return merged
+
+
+static func _normalize_recent_characters(value: Variant) -> Array:
+	var normalized: Array = []
+	if typeof(value) != TYPE_ARRAY:
+		return normalized
+
+	for raw_record in value:
+		if typeof(raw_record) != TYPE_DICTIONARY:
+			continue
+
+		var record: Dictionary = raw_record
+		var character_id := str(record.get("character_id", "")).strip_edges()
+		if character_id.is_empty():
+			continue
+
+		normalized.append({
+			"character_id": character_id,
+			"character_name": str(record.get("character_name", "角色")),
+			"class_id": str(record.get("class_id", "")),
+			"class_name": str(record.get("class_name", record.get("class_id", ""))),
+			"is_active": 1 if int(record.get("is_active", 0)) == 1 else 0,
+		})
+
+	return normalized
+
+
+static func _normalize_string_list(value: Variant) -> Array:
+	var normalized: Array = []
+
+	if typeof(value) == TYPE_STRING:
+		var raw_string := str(value).strip_edges()
+		if raw_string.is_empty():
+			return normalized
+		return [raw_string]
+
+	if typeof(value) != TYPE_ARRAY:
+		return normalized
+
+	for item in value:
+		var normalized_item := str(item).strip_edges()
+		if normalized_item.is_empty():
+			continue
+		if normalized.has(normalized_item):
+			continue
+		normalized.append(normalized_item)
+
+	return normalized
