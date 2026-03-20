@@ -7,7 +7,6 @@ use App\Enums\Reward\RewardSourceType;
 use App\Exceptions\BusinessException;
 use App\Models\Reward\RewardGroup;
 use App\Models\Reward\RewardGroupBinding;
-use App\Models\Reward\RewardGroupItem;
 use App\Models\Reward\UserRewardGrant;
 use App\Models\Reward\UserRewardGrantItem;
 use App\Support\ErrorCode;
@@ -39,10 +38,8 @@ class RewardGrantService
     }
 
     public function assertRewardSourceValid(
-        array $context,
         ?RewardGroupBinding $binding,
-        ?RewardGroup $rewardGroup,
-        array $rewardItems
+        ?RewardGroup $rewardGroup
     ): void {
         if ($binding === null) {
             throw new BusinessException(ErrorCode::REWARD_SOURCE_BINDING_NOT_FOUND);
@@ -51,7 +48,10 @@ class RewardGrantService
         if ($rewardGroup === null || ! $rewardGroup->is_enabled) {
             throw new BusinessException(ErrorCode::REWARD_GROUP_INVALID);
         }
+    }
 
+    public function assertRewardItemsNotEmpty(array $rewardItems): void
+    {
         if ($rewardItems === []) {
             throw new BusinessException(ErrorCode::REWARD_GROUP_ITEMS_EMPTY);
         }
@@ -95,10 +95,10 @@ class RewardGrantService
             'grant_payload_snapshot' => [
                 'battle_context_id' => (string) data_get($context, 'battle_context_id'),
                 'reward_items' => array_map(
-                    static fn (RewardGroupItem $rewardItem): array => [
-                        'item_id' => (string) $rewardItem->item_id,
-                        'quantity' => (int) $rewardItem->quantity,
-                        'sort_order' => (int) $rewardItem->sort_order,
+                    static fn (mixed $rewardItem): array => [
+                        'item_id' => (string) data_get($rewardItem, 'item_id'),
+                        'quantity' => (int) data_get($rewardItem, 'quantity', 0),
+                        'sort_order' => (int) data_get($rewardItem, 'sort_order', 0),
                     ],
                     $rewardItems
                 ),
@@ -118,16 +118,41 @@ class RewardGrantService
     public function buildRewardGrantItemRows(int $rewardGrantId, array $rewardGroupItems): array
     {
         return array_map(
-            static fn (RewardGroupItem $rewardGroupItem): array => [
+            static fn (mixed $rewardGroupItem): array => [
                 'reward_grant_id' => $rewardGrantId,
-                'item_id' => (string) $rewardGroupItem->item_id,
-                'quantity' => (int) $rewardGroupItem->quantity,
-                'sort_order' => (int) $rewardGroupItem->sort_order,
+                'item_id' => (string) data_get($rewardGroupItem, 'item_id'),
+                'quantity' => (int) data_get($rewardGroupItem, 'quantity', 0),
+                'sort_order' => (int) data_get($rewardGroupItem, 'sort_order', 0),
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
             $rewardGroupItems
         );
+    }
+
+    public function extractRewardItemsFromSnapshot(UserRewardGrant $grantRecord): array
+    {
+        $snapshotRewardItems = data_get($grantRecord->grant_payload_snapshot, 'reward_items', []);
+
+        if (! is_array($snapshotRewardItems)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map(
+                static fn (mixed $rewardItem): ?array => is_array($rewardItem)
+                    && is_string(data_get($rewardItem, 'item_id'))
+                    && data_get($rewardItem, 'item_id') !== ''
+                    && (int) data_get($rewardItem, 'quantity', 0) > 0
+                    ? [
+                        'item_id' => (string) data_get($rewardItem, 'item_id'),
+                        'quantity' => (int) data_get($rewardItem, 'quantity', 0),
+                        'sort_order' => (int) data_get($rewardItem, 'sort_order', 0),
+                    ]
+                    : null,
+                $snapshotRewardItems
+            )
+        ));
     }
 
     public function insertRewardGrantItems(array $rows): void
@@ -169,6 +194,7 @@ class RewardGrantService
         }
 
         if ($errorMeta !== []) {
+            $snapshot['failure_count'] = max(0, (int) data_get($snapshot, 'failure_count', 0)) + 1;
             $snapshot['last_failure'] = $errorMeta + [
                 'failed_at' => now()->format('Y-m-d H:i:s'),
             ];

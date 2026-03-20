@@ -222,21 +222,18 @@ class PhaseOneAdminPagesTest extends TestCase
         ]);
     }
 
-    public function test_reward_retry_tool_can_retry_failed_grant(): void
+    public function test_reward_retry_tool_can_retry_runtime_failed_grant(): void
     {
         $this->actingAs(AdminUser::query()->firstOrFail(), 'admin');
-
-        $rewardGrantId = $this->createFailedRewardGrant([
-            ['item_id' => 'mat_coin_001', 'quantity' => 100, 'sort_order' => 1],
-            ['item_id' => 'mat_mark_001', 'quantity' => 2, 'sort_order' => 2],
-            ['item_id' => 'eq_armor_001', 'quantity' => 1, 'sort_order' => 3],
-        ], [
-            'source_id' => 'stage_retry_failed_001',
-        ]);
+        $rewardGrantId = $this->createNaturallyFailedRewardGrant();
 
         $beforeCoinQuantity = (int) DB::table('inventory_stack_items')
             ->where('user_id', TestUserSeeder::TEST_USER_ID)
             ->where('item_id', 'mat_coin_001')
+            ->value('quantity');
+        $beforeMarkQuantity = (int) DB::table('inventory_stack_items')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'mat_mark_001')
             ->value('quantity');
         $beforeEquipmentCount = (int) DB::table('inventory_equipment_instances')
             ->where('user_id', TestUserSeeder::TEST_USER_ID)
@@ -257,6 +254,13 @@ class PhaseOneAdminPagesTest extends TestCase
             (int) DB::table('inventory_stack_items')
                 ->where('user_id', TestUserSeeder::TEST_USER_ID)
                 ->where('item_id', 'mat_coin_001')
+                ->value('quantity')
+        );
+        $this->assertSame(
+            $beforeMarkQuantity + 2,
+            (int) DB::table('inventory_stack_items')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'mat_mark_001')
                 ->value('quantity')
         );
 
@@ -350,35 +354,40 @@ class PhaseOneAdminPagesTest extends TestCase
         ];
     }
 
-    private function createFailedRewardGrant(array $items, array $overrides = []): int
+    private function createNaturallyFailedRewardGrant(): int
     {
-        $rewardGrantId = (int) DB::table('user_reward_grants')->insertGetId([
-            'user_id' => TestUserSeeder::TEST_USER_ID,
-            'source_type' => 'first_clear',
-            'source_id' => 'stage_retry_failed_default',
-            'reward_group_id' => 'reward_first_clear_001',
-            'idempotency_key' => 'retry-failed-'.uniqid('', true),
-            'grant_status' => 'failed',
-            'granted_at' => null,
-            'grant_payload_snapshot' => json_encode([
-                'battle_context_id' => 'battle_ctx_20260320_888888_retry01',
-                'reward_items' => $items,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'created_at' => now(),
-            'updated_at' => now(),
-            ...$overrides,
-        ], 'reward_grant_id');
+        $this->forceDropGroupToSingleResult('drop_boss_001', 'mat_coin_001', 10);
 
-        foreach ($items as $item) {
-            DB::table('user_reward_grant_items')->insert([
-                'reward_grant_id' => $rewardGrantId,
-                'item_id' => $item['item_id'],
-                'quantity' => $item['quantity'],
-                'sort_order' => $item['sort_order'],
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
+        DB::table('items')
+            ->where('item_id', 'eq_armor_001')
+            ->update(['is_enabled' => false]);
+
+        $battleContextId = $this->prepareBattleContextId();
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 1,
+            'killed_monsters' => ['monster_boss_001'],
+        ], $this->apiHeaders())->assertOk()
+            ->assertJsonPath('code', 10505);
+
+        DB::table('items')
+            ->where('item_id', 'eq_armor_001')
+            ->update(['is_enabled' => true]);
+
+        $rewardGrantId = (int) DB::table('user_reward_grants')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('source_type', 'first_clear')
+            ->where('source_id', 'stage_nanshan_001_normal')
+            ->value('reward_grant_id');
+
+        $this->assertGreaterThan(0, $rewardGrantId);
+        $this->assertDatabaseHas('user_reward_grants', [
+            'reward_grant_id' => $rewardGrantId,
+            'grant_status' => 'failed',
+        ]);
 
         return $rewardGrantId;
     }
@@ -410,5 +419,32 @@ class PhaseOneAdminPagesTest extends TestCase
         ]);
 
         return $rewardGrantId;
+    }
+
+    private function forceDropGroupToSingleResult(string $dropGroupId, string $itemId, int $quantity): void
+    {
+        DB::table('drop_groups')
+            ->where('drop_group_id', $dropGroupId)
+            ->update([
+                'roll_type' => 'weighted_repeat',
+                'roll_times' => 1,
+            ]);
+
+        DB::table('drop_group_items')
+            ->where('drop_group_id', $dropGroupId)
+            ->update([
+                'weight' => 0,
+                'min_quantity' => 1,
+                'max_quantity' => 1,
+            ]);
+
+        DB::table('drop_group_items')
+            ->where('drop_group_id', $dropGroupId)
+            ->where('item_id', $itemId)
+            ->update([
+                'weight' => 100,
+                'min_quantity' => $quantity,
+                'max_quantity' => $quantity,
+            ]);
     }
 }

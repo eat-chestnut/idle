@@ -245,9 +245,17 @@ class PhaseOneBattleSettlementApiTest extends TestCase
             ->assertJsonPath('data', null);
     }
 
-    public function test_settlement_rolls_back_all_written_state_when_reward_chain_fails(): void
+    public function test_reward_failure_persists_failed_grant_record_and_prevents_battle_context_replay(): void
     {
         $this->forceDropGroupToSingleResult('drop_boss_001', 'mat_coin_001', 10);
+        $beforeCoinQuantity = (int) DB::table('inventory_stack_items')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('item_id', 'mat_coin_001')
+            ->value('quantity');
+        $beforeEquipmentCount = (int) DB::table('inventory_equipment_instances')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->count();
+
         DB::table('items')
             ->where('item_id', 'eq_armor_001')
             ->update(['is_enabled' => false]);
@@ -264,15 +272,56 @@ class PhaseOneBattleSettlementApiTest extends TestCase
             ->assertJsonPath('code', 10505)
             ->assertJsonPath('data', null);
 
-        $this->assertDatabaseHas('inventory_stack_items', [
-            'user_id' => TestUserSeeder::TEST_USER_ID,
-            'item_id' => 'mat_coin_001',
-            'quantity' => 20,
-        ]);
+        $rewardGrantId = (int) DB::table('user_reward_grants')
+            ->where('user_id', TestUserSeeder::TEST_USER_ID)
+            ->where('source_type', 'first_clear')
+            ->where('source_id', 'stage_nanshan_001_normal')
+            ->value('reward_grant_id');
 
-        $this->assertDatabaseCount('user_reward_grants', 0);
-        $this->assertDatabaseCount('user_reward_grant_items', 0);
-        $this->assertDatabaseCount('inventory_equipment_instances', 4);
+        $this->assertGreaterThan(0, $rewardGrantId);
+        $this->assertSame(
+            $beforeCoinQuantity + 10,
+            (int) DB::table('inventory_stack_items')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->where('item_id', 'mat_coin_001')
+                ->value('quantity')
+        );
+        $this->assertSame(
+            $beforeEquipmentCount,
+            (int) DB::table('inventory_equipment_instances')
+                ->where('user_id', TestUserSeeder::TEST_USER_ID)
+                ->count()
+        );
+
+        $this->assertDatabaseHas('battle_contexts', [
+            'battle_context_id' => $battleContextId,
+            'status' => BattleContextStatus::SETTLED->value,
+        ]);
+        $this->assertDatabaseHas('user_reward_grants', [
+            'reward_grant_id' => $rewardGrantId,
+            'grant_status' => 'failed',
+            'granted_at' => null,
+        ]);
+        $this->assertDatabaseCount('user_reward_grants', 1);
+        $this->assertDatabaseCount('user_reward_grant_items', 3);
+
+        $failureSnapshot = json_decode((string) DB::table('user_reward_grants')
+            ->where('reward_grant_id', $rewardGrantId)
+            ->value('grant_payload_snapshot'), true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame(10802, data_get($failureSnapshot, 'last_failure.error_code'));
+        $this->assertSame($battleContextId, data_get($failureSnapshot, 'battle_context_id'));
+        $this->assertCount(3, data_get($failureSnapshot, 'reward_items', []));
+
+        $this->postJson('/api/battles/settle', [
+            'character_id' => 1001,
+            'stage_difficulty_id' => 'stage_nanshan_001_normal',
+            'battle_context_id' => $battleContextId,
+            'is_cleared' => 1,
+            'killed_monsters' => ['monster_boss_001'],
+        ], $this->authHeaders())->assertOk()
+            ->assertJsonPath('code', 10501)
+            ->assertJsonPath('data', null);
     }
 
     private function prepareBattleContextId(): string

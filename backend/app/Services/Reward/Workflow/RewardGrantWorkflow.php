@@ -3,6 +3,7 @@
 namespace App\Services\Reward\Workflow;
 
 use App\Exceptions\BusinessException;
+use App\Enums\Reward\GrantStatus;
 use App\Models\Reward\UserRewardGrant;
 use App\Services\Inventory\Domain\InventoryWriteService;
 use App\Services\Reward\Config\RewardConfigService;
@@ -26,6 +27,7 @@ class RewardGrantWorkflow
     public function grant(array $context): array
     {
         $rewardGrantId = null;
+        $idempotencyKey = null;
 
         try {
             $this->rewardGrantService->validateRewardGrantContext($context);
@@ -40,7 +42,7 @@ class RewardGrantWorkflow
                 ? []
                 : $this->rewardConfigService->getRewardGroupItemsByGroupId((string) $binding->reward_group_id);
 
-            $this->rewardGrantService->assertRewardSourceValid($context, $binding, $rewardGroup, $rewardItems);
+            $this->rewardGrantService->assertRewardSourceValid($binding, $rewardGroup);
 
             $idempotencyKey = $this->rewardGrantService->buildRewardIdempotencyKey($context);
 
@@ -57,59 +59,56 @@ class RewardGrantWorkflow
                 )
             );
 
-            return DB::transaction(function () use ($context, $binding, $rewardItems, $idempotencyKey, &$rewardGrantId): array {
-                $grantRecord = $this->rewardGrantService->createRewardGrantRecord(
-                    $this->rewardGrantService->buildRewardGrantRecordPayload(
-                        $context,
-                        (string) $binding->reward_group_id,
-                        $idempotencyKey,
-                        $rewardItems
-                    )
-                );
-                $rewardGrantId = (int) $grantRecord->reward_grant_id;
+            $grantRecord = $this->rewardGrantService->createRewardGrantRecord(
+                $this->rewardGrantService->buildRewardGrantRecordPayload(
+                    $context,
+                    (string) $binding->reward_group_id,
+                    $idempotencyKey,
+                    $rewardItems
+                )
+            );
+            $rewardGrantId = (int) $grantRecord->reward_grant_id;
 
-                $this->rewardGrantService->insertRewardGrantItems(
-                    $this->rewardGrantService->buildRewardGrantItemRows($rewardGrantId, $rewardItems)
-                );
+            $this->rewardGrantService->assertRewardItemsNotEmpty($rewardItems);
+            $this->rewardGrantService->insertRewardGrantItems(
+                $this->rewardGrantService->buildRewardGrantItemRows($rewardGrantId, $rewardItems)
+            );
 
-                $inventoryResults = $this->inventoryWriteService->writeRewards(
-                    (int) data_get($context, 'user_id'),
-                    $this->buildGrantInventoryObjects($rewardItems),
-                    $this->buildRewardInventoryContext($context, $rewardGrantId)
-                );
-
-                $this->rewardGrantService->markRewardGrantSuccess($rewardGrantId);
-                $grantRecord->refresh();
-
-                return $this->rewardGrantService->buildRewardGrantResult(
-                    $grantRecord,
-                    $rewardItems,
-                    $inventoryResults,
-                    $inventoryResults['created_equipment_instances']
-                );
-            });
+            return $this->executeInventoryGrant(
+                $rewardGrantId,
+                (int) data_get($context, 'user_id'),
+                $rewardItems,
+                $this->buildRewardInventoryContext($context, $rewardGrantId)
+            );
         } catch (BusinessException $exception) {
+            $this->markGrantFailed($rewardGrantId, $exception);
+
             Log::warning('reward grant failed', [
                 'user_id' => data_get($context, 'user_id'),
                 'source_type' => data_get($context, 'source_type'),
                 'source_id' => data_get($context, 'source_id'),
                 'battle_context_id' => data_get($context, 'battle_context_id'),
                 'reward_grant_id' => $rewardGrantId,
+                'idempotency_key' => $idempotencyKey,
                 'error_code' => $exception->getErrorCode(),
             ]);
 
             throw $exception;
         } catch (Throwable $throwable) {
+            $exception = new BusinessException(ErrorCode::REWARD_GRANT_FAILED, previous: $throwable);
+            $this->markGrantFailed($rewardGrantId, $exception);
+
             Log::error('reward grant crashed', [
                 'user_id' => data_get($context, 'user_id'),
                 'source_type' => data_get($context, 'source_type'),
                 'source_id' => data_get($context, 'source_id'),
                 'battle_context_id' => data_get($context, 'battle_context_id'),
                 'reward_grant_id' => $rewardGrantId,
+                'idempotency_key' => $idempotencyKey,
                 'message' => $throwable->getMessage(),
             ]);
 
-            throw new BusinessException(ErrorCode::REWARD_GRANT_FAILED, previous: $throwable);
+            throw $exception;
         }
     }
 
@@ -119,12 +118,6 @@ class RewardGrantWorkflow
 
         if ($grantRecord === null) {
             throw new BusinessException(ErrorCode::RESOURCE_NOT_FOUND, '发奖记录不存在');
-        }
-
-        $grantItems = $grantRecord->items->all();
-
-        if ($grantItems === []) {
-            throw new BusinessException(ErrorCode::REWARD_GROUP_ITEMS_EMPTY);
         }
 
         $grantStatus = (string) data_get($grantRecord, 'grant_status.value', $grantRecord->grant_status);
@@ -145,7 +138,7 @@ class RewardGrantWorkflow
         }
 
         try {
-            return DB::transaction(function () use ($grantRecord, $grantItems): array {
+            return DB::transaction(function () use ($grantRecord): array {
                 $lockedGrantRecord = $this->rewardGrantQueryService->getRewardGrantById((int) $grantRecord->reward_grant_id, true);
 
                 if ($lockedGrantRecord === null) {
@@ -158,6 +151,7 @@ class RewardGrantWorkflow
                     throw new BusinessException(ErrorCode::ADMIN_OPERATION_FORBIDDEN, '仅允许对 failed 发奖记录执行补发');
                 }
 
+                $grantItems = $this->restoreGrantItemsFromSnapshotIfMissing($lockedGrantRecord);
                 $inventoryResults = $this->inventoryWriteService->writeRewards(
                     (int) $lockedGrantRecord->user_id,
                     $this->buildGrantInventoryObjects($grantItems),
@@ -186,6 +180,7 @@ class RewardGrantWorkflow
                 'user_id' => $grantRecord->user_id,
                 'source_type' => data_get($grantRecord, 'source_type.value', $grantRecord->source_type),
                 'source_id' => $grantRecord->source_id,
+                'idempotency_key' => $grantRecord->idempotency_key,
                 'error_code' => $exception->getErrorCode(),
             ]);
 
@@ -201,11 +196,49 @@ class RewardGrantWorkflow
                 'user_id' => $grantRecord->user_id,
                 'source_type' => data_get($grantRecord, 'source_type.value', $grantRecord->source_type),
                 'source_id' => $grantRecord->source_id,
+                'idempotency_key' => $grantRecord->idempotency_key,
                 'message' => $throwable->getMessage(),
             ]);
 
             throw new BusinessException(ErrorCode::REWARD_GRANT_FAILED, previous: $throwable);
         }
+    }
+
+    private function executeInventoryGrant(
+        int $rewardGrantId,
+        int $userId,
+        array $grantItems,
+        array $inventoryContext
+    ): array {
+        return DB::transaction(function () use ($rewardGrantId, $userId, $grantItems, $inventoryContext): array {
+            $lockedGrantRecord = $this->rewardGrantQueryService->getRewardGrantById($rewardGrantId, true);
+
+            if ($lockedGrantRecord === null) {
+                throw new BusinessException(ErrorCode::RESOURCE_NOT_FOUND, '发奖记录不存在');
+            }
+
+            $grantStatus = (string) data_get($lockedGrantRecord, 'grant_status.value', $lockedGrantRecord->grant_status);
+
+            if ($grantStatus !== GrantStatus::PENDING->value) {
+                throw new BusinessException(ErrorCode::REWARD_GRANT_FAILED, '当前发奖记录状态不可继续执行正式发奖');
+            }
+
+            $inventoryResults = $this->inventoryWriteService->writeRewards(
+                $userId,
+                $this->buildGrantInventoryObjects($grantItems),
+                $inventoryContext
+            );
+
+            $this->rewardGrantService->markRewardGrantSuccess($rewardGrantId);
+            $lockedGrantRecord->refresh()->loadMissing(['items.item', 'rewardGroup']);
+
+            return $this->rewardGrantService->buildRewardGrantResult(
+                $lockedGrantRecord,
+                $lockedGrantRecord->items->all(),
+                $inventoryResults,
+                $inventoryResults['created_equipment_instances']
+            );
+        });
     }
 
     private function buildGrantInventoryObjects(array $grantItems): array
@@ -230,15 +263,46 @@ class RewardGrantWorkflow
         ];
     }
 
-    private function markRetryGrantFailed(int $rewardGrantId, BusinessException $exception): void
+    private function restoreGrantItemsFromSnapshotIfMissing(UserRewardGrant $grantRecord): array
     {
+        $grantItems = $grantRecord->items->all();
+
+        if ($grantItems !== []) {
+            return $grantItems;
+        }
+
+        $snapshotRewardItems = $this->rewardGrantService->extractRewardItemsFromSnapshot($grantRecord);
+        $this->rewardGrantService->assertRewardItemsNotEmpty($snapshotRewardItems);
+        $this->rewardGrantService->insertRewardGrantItems(
+            $this->rewardGrantService->buildRewardGrantItemRows(
+                (int) $grantRecord->reward_grant_id,
+                $snapshotRewardItems
+            )
+        );
+
+        $grantRecord->refresh()->loadMissing(['items.item', 'rewardGroup']);
+
+        return $grantRecord->items->all();
+    }
+
+    private function markGrantFailed(?int $rewardGrantId, BusinessException $exception): void
+    {
+        if ($rewardGrantId === null) {
+            return;
+        }
+
         try {
             $this->rewardGrantService->markRewardGrantFailed($rewardGrantId, [
                 'error_code' => $exception->getErrorCode(),
                 'message' => $exception->getMessage(),
             ]);
         } catch (Throwable) {
-            // 后台补发失败时，主错误优先，状态修正失败只写日志。
+            // 自然发奖失败时，以原始业务错误为主，失败状态补写失败只记日志。
         }
+    }
+
+    private function markRetryGrantFailed(int $rewardGrantId, BusinessException $exception): void
+    {
+        $this->markGrantFailed($rewardGrantId, $exception);
     }
 }
