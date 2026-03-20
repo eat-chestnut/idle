@@ -13,7 +13,13 @@ config_version=5
 config/name="山海"
 config/features=PackedStringArray("4.5", "Mobile")
 config/icon="res://icon.svg"
+run/main_scene="res://client/scenes/PhaseOneClient.tscn"
 
 [rendering]
 
 renderer/rendering_method="mobile"
+
+[display]
+
+window/size/viewport_width=1440
+window/size/viewport_height=960
