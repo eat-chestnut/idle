@@ -18,6 +18,8 @@ use App\Services\Reward\Workflow\RewardGrantWorkflow;
 use App\Services\Stage\Config\StageConfigService;
 use App\Services\Stage\Query\StageMonsterQueryService;
 use App\Support\ErrorCode;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -40,7 +42,19 @@ class BattleSettlementWorkflow
 
     public function settleBattle(int $userId, int $characterId, string $stageDifficultyId, array $battleResult): array
     {
+        /** @var Lock|null $battleContextLock */
+        $battleContextLock = null;
+
         try {
+            $battleContextLock = Cache::lock(
+                sprintf('battle_settlement:%s', (string) data_get($battleResult, 'battle_context_id')),
+                10
+            );
+
+            if (! $battleContextLock->get()) {
+                throw new BusinessException(ErrorCode::BATTLE_CONTEXT_INVALID);
+            }
+
             $stageDifficulty = $this->stageConfigService->getEnabledStageDifficultyById($stageDifficultyId);
 
             if ($stageDifficulty === null) {
@@ -183,6 +197,8 @@ class BattleSettlementWorkflow
             ]);
 
             throw new BusinessException(ErrorCode::BATTLE_SETTLEMENT_FAILED, previous: $throwable);
+        } finally {
+            $battleContextLock?->release();
         }
     }
 
