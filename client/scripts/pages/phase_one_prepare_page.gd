@@ -2,6 +2,8 @@ extends "res://client/scripts/pages/phase_one_page_base.gd"
 class_name PhaseOnePreparePage
 
 var recent_character_selector: OptionButton
+var override_toggle: CheckBox
+var override_box: VBoxContainer
 var character_id_input: LineEdit
 var recent_stage_difficulty_selector: OptionButton
 var stage_difficulty_input: LineEdit
@@ -9,26 +11,39 @@ var stage_difficulty_input: LineEdit
 
 func _init() -> void:
 	setup_page(
-		"Battle Prepare",
+		"战斗准备",
 		[
-			"Prepare 页真实接 POST /api/battles/prepare。",
+			"主路径使用当前启用角色 + 当前选中难度执行真实 battle prepare。",
 			"当前真实后端要求 battle 角色为 is_active=1；若目标角色未启用，请先走真实激活接口。",
 		]
 	)
 
-	recent_character_selector = add_labeled_option_button("Battle 角色（优先真实角色列表）")
+	recent_character_selector = add_labeled_option_button("出战角色（优先真实角色列表）")
 	recent_character_selector.item_selected.connect(_on_recent_character_selected)
-	character_id_input = add_labeled_input("character_id", "")
+
+	recent_stage_difficulty_selector = add_labeled_option_button("当前已选难度 / 最近难度")
+	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
+
+	override_toggle = add_check_box("显示 Battle Prepare 联调覆盖输入", false)
+	override_toggle.toggled.connect(_on_override_toggled)
+	override_box = VBoxContainer.new()
+	override_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	override_box.visible = false
+	get_body().add_child(override_box)
+
+	character_id_input = add_labeled_input("character_id（联调覆盖）", "", override_box)
 	character_id_input.text_changed.connect(_on_character_id_changed)
 
-	recent_stage_difficulty_selector = add_labeled_option_button("最近成功难度 / 当前已选难度")
-	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
-	stage_difficulty_input = add_labeled_input("stage_difficulty_id", "stage_nanshan_001_normal")
+	stage_difficulty_input = add_labeled_input(
+		"stage_difficulty_id（联调覆盖）",
+		"stage_nanshan_001_normal",
+		override_box
+	)
 	stage_difficulty_input.text_changed.connect(_on_stage_difficulty_changed)
 
 	var buttons := add_button_row()
-	add_action_button(buttons, "激活当前 Battle 角色", "activate_battle_character")
-	add_action_button(buttons, "执行 Prepare", "prepare")
+	add_action_button(buttons, "设为当前出战角色", "activate_battle_character")
+	add_action_button(buttons, "开始战斗准备", "prepare")
 
 
 func apply_config(values: Dictionary) -> void:
@@ -104,6 +119,10 @@ func show_prepare_summary(payload: Dictionary) -> void:
 		str(stage_difficulty_data.get("stage_difficulty_id", "")),
 	])
 	set_output_json(payload)
+
+
+func _on_override_toggled(pressed: bool) -> void:
+	override_box.visible = pressed
 
 
 func _on_recent_character_selected(_index: int) -> void:

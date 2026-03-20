@@ -76,13 +76,13 @@ func _build_ui() -> void:
 	root.add_child(shell)
 
 	var title := Label.new()
-	title.text = "《山海巡厄录》Phase-one Backend Client"
+	title.text = "《山海巡厄录》Phase-one 正式主流程客户端"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 24)
 	shell.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "第二轮联调优化：真实角色列表、真实关卡列表、激活角色收口、/readyz 预检"
+	subtitle.text = "真实角色、真实主线、真实战斗承接：从角色创建到 battle settle 的 phase-one 玩家路径"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	shell.add_child(subtitle)
@@ -136,22 +136,22 @@ func _set_initial_states() -> void:
 	config_page.set_page_state("empty", "请先确认 backend 地址与 Bearer Token。")
 	config_page.set_output_text("尚未保存配置。")
 
-	character_page.set_page_state("empty", "尚未创建或读取角色。")
-	character_page.set_output_text("等待角色创建或详情读取。")
+	character_page.set_page_state("empty", "请先读取角色列表；若为空，再创建角色。")
+	character_page.set_output_text("等待角色列表、角色创建或详情读取。")
 
-	inventory_page.set_page_state("empty", "尚未读取背包。")
+	inventory_page.set_page_state("empty", "请先进入角色，再读取背包。")
 	inventory_page.set_output_text("等待背包请求。")
 
-	equipment_page.set_page_state("empty", "尚未读取穿戴槽。")
+	equipment_page.set_page_state("empty", "请先确认当前角色，再读取穿戴槽。")
 	equipment_page.set_output_text("等待穿戴槽请求。")
 
-	stage_page.set_page_state("empty", "尚未读取章节、关卡与难度。")
+	stage_page.set_page_state("empty", "请先进入主线页读取章节。")
 	stage_page.set_output_text("等待章节、关卡和难度请求。")
 
-	prepare_page.set_page_state("empty", "尚未执行 battle prepare。")
+	prepare_page.set_page_state("empty", "请先确认出战角色与难度，再开始战斗准备。")
 	prepare_page.set_output_text("等待 battle prepare 请求。")
 
-	settle_page.set_page_state("empty", "尚未执行 battle settle。")
+	settle_page.set_page_state("empty", "请先完成 battle prepare，再进入结算。")
 	settle_page.set_output_text("等待 battle settle 请求。")
 
 
@@ -238,6 +238,47 @@ func _build_recent_character_records() -> Array:
 	recent = _prepend_character_record(recent, _runtime_character_stub(character_page.get_character_id_text(), "当前角色输入"))
 	recent = _prepend_character_record(recent, _runtime_character_stub(prepare_page.get_character_id_text(), "当前 Battle 角色"))
 	return recent
+
+
+func _find_active_character(records: Array) -> Dictionary:
+	for record in records:
+		var entry := _as_dictionary(record)
+		if int(entry.get("is_active", 0)) == 1:
+			return entry
+
+	return {}
+
+
+func _records_contain_character(records: Array, character_id: String) -> bool:
+	var normalized_id = character_id.strip_edges()
+	if normalized_id.is_empty():
+		return false
+
+	for record in records:
+		var entry := _as_dictionary(record)
+		if str(entry.get("character_id", "")).strip_edges() == normalized_id:
+			return true
+
+	return false
+
+
+func _sync_primary_character_from_list(records: Array) -> void:
+	var active_character := _find_active_character(records)
+	if active_character.is_empty():
+		return
+
+	var active_character_id = str(active_character.get("character_id", "")).strip_edges()
+	if active_character_id.is_empty():
+		return
+
+	prepare_page.set_character_id(active_character_id)
+	settle_page.set_character_id(active_character_id)
+	_remember_character(active_character)
+
+	var current_detail_character_id = character_page.get_character_id_text()
+	if current_character_detail.is_empty() or not _records_contain_character(records, current_detail_character_id):
+		character_page.set_character_id(active_character_id)
+		equipment_page.set_character_id(active_character_id)
 
 
 func _runtime_character_stub(character_id: String, fallback_name: String) -> Dictionary:
@@ -365,23 +406,47 @@ func _apply_active_character(character: Dictionary) -> void:
 
 
 func _refresh_flow_summary() -> void:
+	var config_values: Dictionary = config_page.get_config_values()
 	var detail_character = _describe_character(character_page.get_character_id_text())
 	var battle_character = _describe_character(prepare_page.get_character_id_text())
+	var chapter_id = stage_page.get_selected_chapter_id()
 	var stage_id = stage_page.get_stage_id_text()
 	var stage_difficulty_id = prepare_page.get_stage_difficulty_text()
 	var battle_context_id = settle_page.get_battle_context_text()
+	var next_step = "先在“环境与 Token”页完成 /readyz 预检。"
+
+	if str(config_values.get("base_url", "")).strip_edges().is_empty():
+		next_step = "先填写 backend 地址。"
+	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
+		next_step = "先填写 Bearer Token。"
+	elif not has_loaded_character_list and current_character_detail.is_empty():
+		next_step = "读取角色列表；若为空，再创建角色。"
+	elif prepare_page.get_character_id_text().strip_edges().is_empty():
+		next_step = "确认当前出战角色，并在需要时先执行角色激活。"
+	elif stage_id.is_empty():
+		next_step = "进入主线页读取章节与关卡。"
+	elif stage_difficulty_id.is_empty():
+		next_step = "选择难度，系统会同步首通奖励状态。"
+	elif battle_context_id.is_empty():
+		next_step = "执行 battle prepare。"
+	else:
+		next_step = "Prepare 已完成，可直接提交 battle settle。"
 
 	var lines := [
-		"当前联调上下文：详情角色 %s | Battle 角色 %s | stage_id=%s | stage_difficulty_id=%s" % [
+		"正式主流程：1 角色 -> 2 背包/穿戴 -> 3 章节/关卡/难度 -> 4 战斗准备 -> 5 战斗结算",
+		"当前主路径：详情角色 %s | 出战角色 %s | chapter_id=%s | stage_id=%s | stage_difficulty_id=%s" % [
 			detail_character,
 			battle_character,
+			chapter_id if not chapter_id.is_empty() else "(未选择)",
 			stage_id if not stage_id.is_empty() else "(未填写)",
 			stage_difficulty_id if not stage_difficulty_id.is_empty() else "(未填写)",
 		],
 	]
 
 	if not battle_context_id.is_empty():
-		lines.append("当前 battle_context_id：%s" % battle_context_id)
+		lines.append("当前 battle_context_id：%s（已从 Prepare 承接到结算页）" % battle_context_id)
+
+	lines.append("下一步建议：%s" % next_step)
 
 	var current_character = _as_dictionary(current_character_detail.get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
@@ -524,12 +589,14 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			await _on_load_stages_pressed()
 		"chapter_selected":
 			await _on_load_stages_pressed(str(payload.get("chapter_id", "")))
+		"stage_selected":
+			await _on_stage_selected(payload)
 		"load_difficulties":
 			await _on_load_difficulties_pressed()
 		"refresh_reward_status":
 			await _on_refresh_reward_status_pressed()
 		"difficulty_selected":
-			_on_difficulty_selected(payload)
+			await _on_difficulty_selected(payload)
 		"activate_battle_character":
 			await _on_activate_battle_character_pressed()
 		"prepare":
@@ -569,7 +636,7 @@ func _on_fill_default_config_pressed() -> void:
 	_refresh_recent_selectors()
 	_refresh_flow_summary()
 	config_page.set_page_state("success", "已填入联调默认值，记得点击“保存配置”。")
-	config_page.set_output_text("默认值来自当前正式文档与最小联调 seed：127.0.0.1:8000 / test-token-2001 / character_id=1001 / stage_nanshan_001。")
+	config_page.set_output_text("默认值来自当前正式文档与最小联调 seed，只作为联调兜底；主流程仍应以真实角色列表、章节列表和关卡难度列表为准。")
 
 
 func _on_save_config_pressed() -> void:
@@ -630,14 +697,23 @@ func _on_load_characters_pressed() -> void:
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
-	_store_character_list(data)
-	character_page.render_character_list(data, character_page.get_character_id_text())
+	var characters: Array = _as_array(data.get("characters", []))
+	var active_character: Dictionary = _find_active_character(characters)
+	var preferred_character_id = character_page.get_character_id_text()
+	if preferred_character_id.is_empty() and not active_character.is_empty():
+		preferred_character_id = str(active_character.get("character_id", ""))
 
-	if _as_array(data.get("characters", [])).is_empty():
+	_store_character_list(data)
+	_sync_primary_character_from_list(characters)
+	character_page.render_character_list(data, preferred_character_id)
+
+	if characters.is_empty():
 		character_page.show_character_list_empty()
 		character_page.set_page_state("empty", "当前用户还没有角色，请先创建角色。")
+	elif not active_character.is_empty():
+		character_page.set_page_state("success", "角色列表已加载，当前启用角色已承接到 Battle 主流程。")
 	else:
-		character_page.set_page_state("success", "角色列表已加载，可继续查看详情或切换当前启用角色。")
+		character_page.set_page_state("success", "角色列表已加载，可继续查看详情并选择当前出战角色。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -673,11 +749,11 @@ func _on_create_character_pressed() -> void:
 	if is_active:
 		prepare_page.set_character_id(created_character_id)
 		settle_page.set_character_id(created_character_id)
-		character_page.set_page_state("success", "角色创建成功，已同步 character_id 到后续页面。")
+		character_page.set_page_state("success", "角色创建成功，已成为当前出战角色，可继续查看详情或进入主线。")
 	else:
 		character_page.set_page_state(
 			"success",
-			"角色创建成功，但当前角色 is_active=0；角色页/穿戴页已切到新角色，battle 页继续保留当前可战斗角色。"
+			"角色创建成功，但当前角色 is_active=0；如需立刻进入主线，请先设为当前出战角色。"
 		)
 
 	character_page.set_output_json(data)
@@ -712,9 +788,9 @@ func _on_load_character_pressed() -> void:
 	if is_active:
 		prepare_page.set_character_id(str(character_id_value))
 		settle_page.set_character_id(str(character_id_value))
-		character_page.set_page_state("success", "角色详情已加载，并已同步到 battle 页。")
+		character_page.set_page_state("success", "角色详情已加载，并已同步到 Battle 主流程。")
 	else:
-		character_page.set_page_state("success", "角色详情已加载；当前角色 is_active=0，battle 页继续保留当前可战斗角色。")
+		character_page.set_page_state("success", "角色详情已加载；若要进入 Battle 主流程，请先激活当前角色。")
 
 	character_page.set_output_json(data)
 	_persist_runtime_config()
@@ -798,9 +874,9 @@ func _on_sync_current_character_pressed() -> void:
 	if int(character.get("is_active", 0)) == 1:
 		prepare_page.set_character_id(current_character_id)
 		settle_page.set_character_id(current_character_id)
-		character_page.set_page_state("success", "当前角色 ID 已同步到后续页面。")
+		character_page.set_page_state("success", "当前角色已同步到背包、穿戴与 Battle 主流程。")
 	else:
-		character_page.set_page_state("success", "当前角色 ID 已同步到角色页/穿戴页；由于 is_active=0，battle 页保留原角色。")
+		character_page.set_page_state("success", "当前角色已同步到详情与穿戴；如需进入 Battle 主流程，请先激活。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1005,7 +1081,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	if _as_array(data.get("stages", [])).is_empty():
 		stage_page.set_page_state("empty", "当前章节没有关卡数据。")
 	else:
-		stage_page.set_page_state("success", "关卡列表已加载，可继续读取难度列表。")
+		stage_page.set_page_state("success", "关卡列表已加载，选择关卡后会自动读取难度列表。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1042,21 +1118,33 @@ func _on_load_difficulties_pressed() -> void:
 	if _as_array(data.get("difficulties", [])).is_empty():
 		stage_page.set_page_state("empty", "当前没有难度数据。")
 	else:
-		stage_page.set_page_state("success", "难度列表已加载，可继续查看首通奖励状态。")
+		stage_page.set_page_state("success", "难度列表已加载，请选择难度并承接到 Battle Prepare。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_flow_summary()
 
 
-func _on_refresh_reward_status_pressed() -> void:
+func _on_stage_selected(metadata: Dictionary) -> void:
+	var stage_id_value = str(metadata.get("stage_id", "")).strip_edges()
+	if stage_id_value.is_empty():
+		return
+
+	stage_page.set_stage_id(stage_id_value)
+	_remember_stage_id(stage_id_value)
+	_refresh_recent_selectors()
+	_refresh_flow_summary()
+	await _on_load_difficulties_pressed()
+
+
+func _on_refresh_reward_status_pressed() -> bool:
 	var stage_difficulty_id_value = stage_page.get_selected_stage_difficulty()
 	if stage_difficulty_id_value.is_empty():
 		stage_difficulty_id_value = prepare_page.get_stage_difficulty_text()
 
 	if stage_difficulty_id_value.is_empty():
 		stage_page.set_page_state("error", "请先选择或读取 stage_difficulty_id。")
-		return
+		return false
 
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	settle_page.set_stage_difficulty_id(stage_difficulty_id_value)
@@ -1068,7 +1156,7 @@ func _on_refresh_reward_status_pressed() -> void:
 
 	if not result.get("ok", false):
 		_handle_failure(stage_page, result, "读取首通奖励状态失败。")
-		return
+		return false
 
 	current_reward_status = _as_dictionary(result.get("data", {}))
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
@@ -1096,6 +1184,8 @@ func _on_refresh_reward_status_pressed() -> void:
 			]
 		)
 
+	return true
+
 
 func _on_difficulty_selected(metadata: Dictionary) -> void:
 	var stage_difficulty_id_value = str(metadata.get("stage_difficulty_id", ""))
@@ -1106,9 +1196,14 @@ func _on_difficulty_selected(metadata: Dictionary) -> void:
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	settle_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
+	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_flow_summary()
-	stage_page.set_page_state("success", "已选中难度，可继续执行 battle prepare。")
+	var reward_loaded := await _on_refresh_reward_status_pressed()
+	if not reward_loaded:
+		return
+
+	stage_page.set_page_state("success", "难度已选定，首通奖励状态已同步，可继续执行 battle prepare。")
 	_set_current_tab(PREPARE_PAGE)
 
 
@@ -1144,20 +1239,29 @@ func _on_prepare_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_prepare_result = data
+	current_settle_result = {}
 	current_prepared_monster_ids = _extract_monster_ids(data)
 	prepare_page.show_prepare_summary(data)
 
 	var battle_context_id = str(data.get("battle_context_id", ""))
 	settle_page.set_battle_context_id(battle_context_id)
 	settle_page.set_killed_monsters(current_prepared_monster_ids)
+	settle_page.show_handoff_summary(
+		str(character_id_value),
+		stage_difficulty_id_value,
+		battle_context_id,
+		current_prepared_monster_ids.size()
+	)
 	recent_battle_context_ids = ClientConfigStoreScript.upsert_recent_string(recent_battle_context_ids, battle_context_id, 5)
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
-	prepare_page.set_page_state("success", "battle prepare 成功，battle_context_id 已同步到结算页。")
+	prepare_page.set_page_state("success", "battle prepare 成功，已自动承接到结算页。")
+	settle_page.set_page_state("success", "已承接本次 Prepare，可直接提交结算。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_flow_summary()
+	_set_current_tab(SETTLE_PAGE)
 
 
 func _on_fill_prepared_monsters_pressed() -> void:
@@ -1166,7 +1270,13 @@ func _on_fill_prepared_monsters_pressed() -> void:
 		return
 
 	settle_page.set_killed_monsters(current_prepared_monster_ids)
-	settle_page.set_page_state("success", "已填入 prepare 阶段的 monster_id 列表。")
+	settle_page.show_handoff_summary(
+		settle_page.get_character_id_text(),
+		settle_page.get_stage_difficulty_text(),
+		settle_page.get_battle_context_text(),
+		current_prepared_monster_ids.size()
+	)
+	settle_page.set_page_state("success", "已填入 Prepare 阶段的 monster_id 列表。")
 
 
 func _on_settle_pressed() -> void:
@@ -1213,7 +1323,7 @@ func _on_settle_pressed() -> void:
 	current_settle_result = data
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
 	settle_page.show_settlement_summary(data)
-	settle_page.set_page_state("success", "battle settle 成功，已显示掉落、奖励、入包与首通奖励状态。")
+	settle_page.set_page_state("success", "battle settle 成功，可返回背包或穿戴查看本轮结果。")
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
@@ -1221,6 +1331,7 @@ func _on_settle_pressed() -> void:
 		_as_array(current_difficulties.get("difficulties", [])).size(),
 		current_reward_status
 	)
+	stage_page.set_page_state("success", "结算完成，首通奖励状态已回写到主线路径。")
 	_refresh_flow_summary()
 
 

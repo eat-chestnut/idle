@@ -3,6 +3,8 @@ class_name PhaseOneStagePage
 
 var chapter_list: ItemList
 var stage_list: ItemList
+var stage_override_toggle: CheckBox
+var stage_override_box: VBoxContainer
 var stage_id_input: LineEdit
 var difficulty_list: ItemList
 var _selected_chapter_id := ""
@@ -11,16 +13,16 @@ var _selected_stage_difficulty_id := ""
 
 func _init() -> void:
 	setup_page(
-		"章节与难度",
+		"主线",
 		[
-			"章节页会先读取真实章节列表，再读取章节下的真实关卡列表，最后进入难度选择。",
-			"客户端不再依赖手输 `stage_id` 作为主流程，只保留当前选中值展示。",
+			"主路径是：读取章节 -> 选择章节 -> 自动读取关卡 -> 选择关卡 -> 自动读取难度。",
+			"手输 `stage_id` 仅保留给联调覆盖，不再作为主流程入口。",
 		]
 	)
 
 	var chapter_buttons := add_button_row()
-	add_action_button(chapter_buttons, "读取章节列表", "load_chapters")
-	add_action_button(chapter_buttons, "读取当前章节关卡", "load_stages")
+	add_action_button(chapter_buttons, "进入章节列表", "load_chapters")
+	add_action_button(chapter_buttons, "重读当前章节关卡", "load_stages")
 
 	chapter_list = add_labeled_item_list("章节列表", 120)
 	chapter_list.item_selected.connect(_on_chapter_selected)
@@ -28,11 +30,18 @@ func _init() -> void:
 	stage_list = add_labeled_item_list("关卡列表", 120)
 	stage_list.item_selected.connect(_on_stage_selected)
 
-	stage_id_input = add_labeled_input("当前 stage_id", "stage_nanshan_001")
+	stage_override_toggle = add_check_box("显示 stage_id 联调覆盖输入", false)
+	stage_override_toggle.toggled.connect(_on_stage_override_toggled)
+	stage_override_box = VBoxContainer.new()
+	stage_override_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_override_box.visible = false
+	get_body().add_child(stage_override_box)
+
+	stage_id_input = add_labeled_input("当前 stage_id（联调覆盖）", "stage_nanshan_001", stage_override_box)
 	stage_id_input.text_changed.connect(_on_stage_id_changed)
 
 	var difficulty_buttons := add_button_row()
-	add_action_button(difficulty_buttons, "读取难度列表", "load_difficulties")
+	add_action_button(difficulty_buttons, "重读当前难度列表", "load_difficulties")
 	add_action_button(difficulty_buttons, "刷新首通奖励状态", "refresh_reward_status")
 
 	difficulty_list = add_labeled_item_list("难度列表", 180)
@@ -192,13 +201,19 @@ func set_stage_summary(chapter_count: int, stage_count: int, difficulty_count: i
 		else:
 			reward_text = "无首通奖励"
 
-	set_summary_text("chapters=%d | stages=%d | difficulties=%d | 当前 stage_id=%s | %s" % [
+	var stage_difficulty_text = _selected_stage_difficulty_id if not _selected_stage_difficulty_id.is_empty() else "(未选择)"
+	set_summary_text("chapters=%d | stages=%d | difficulties=%d | 当前 stage_id=%s | 当前难度=%s | %s" % [
 		chapter_count,
 		stage_count,
 		difficulty_count,
 		get_stage_id_text(),
+		stage_difficulty_text,
 		reward_text,
 	])
+
+
+func _on_stage_override_toggled(pressed: bool) -> void:
+	stage_override_box.visible = pressed
 
 
 func _on_stage_id_changed(_text: String) -> void:
@@ -227,7 +242,8 @@ func _on_stage_selected(index: int) -> void:
 
 	stage_id_input.text = stage_id
 	_emit_context("stage_id_changed", {"stage_id": stage_id})
-	set_page_state("success", "已选中关卡 %s，可继续读取难度列表。" % stage_id)
+	set_page_state("loading", "已选中关卡 %s，正在读取真实难度列表。" % stage_id)
+	_emit_action("stage_selected", metadata)
 
 
 func _on_difficulty_selected(index: int) -> void:
