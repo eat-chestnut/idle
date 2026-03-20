@@ -24,15 +24,15 @@
 
 ## 2. 最小联调前提
 
-从 `backend/` 目录执行：
+以下命令默认从仓库根目录执行：
 
 ```bash
-cp .env.example .env
-touch database/database.sqlite
-composer install
-php artisan key:generate
-php artisan migrate --seed
-php artisan serve
+cp ./backend/.env.example ./backend/.env
+touch ./backend/database/database.sqlite
+composer --working-dir=./backend install
+php ./backend/artisan key:generate
+php ./backend/artisan migrate --seed
+php ./backend/artisan serve
 ```
 
 如果不是 SQLite，请先把 `.env` 中 `DB_*` 改成真实数据库。
@@ -70,9 +70,9 @@ php artisan serve
 ### phase-one 可联调
 
 - `GET /readyz`
-- `php artisan phase-one:diagnose --profile=interop`
-- `php artisan phase-one:diagnose --profile=interop --json`
-- `php artisan phase-one:contract-drift-check --json`
+- `php ./backend/artisan phase-one:diagnose --profile=interop`
+- `php ./backend/artisan phase-one:diagnose --profile=interop --json`
+- `php ./backend/artisan phase-one:contract-drift-check --json`
 
 检查项包括：
 
@@ -96,7 +96,7 @@ php artisan serve
 ### phase-one 可验收
 
 - `GET /readyz?profile=acceptance`
-- `php artisan phase-one:diagnose --profile=acceptance`
+- `php ./backend/artisan phase-one:diagnose --profile=acceptance`
 
 会在“可联调”基础上增加：
 
@@ -106,7 +106,7 @@ php artisan serve
 注意：
 
 - `/readyz` 是运维与联调入口，不属于 phase-one 前台业务 OpenAPI 契约。
-- `composer phase-one:acceptance` 当前会先执行 `php artisan phase-one:diagnose --profile=acceptance`，再跑定向验收测试。
+- `composer --working-dir=./backend phase-one:acceptance` 当前会先执行 `php ./backend/artisan phase-one:diagnose --profile=acceptance`，再跑定向验收测试。
 
 ## 5. 当前收口后的强相关口径
 
@@ -124,10 +124,10 @@ php artisan serve
 
 ## 6. 推荐联调顺序
 
-1. `php artisan phase-one:diagnose --profile=service --json`
-2. `php artisan phase-one:diagnose --profile=interop --json`
-3. `php artisan phase-one:contract-drift-check --json`
-4. `php artisan workflow-lock:check --json`
+1. `php ./backend/artisan phase-one:diagnose --profile=service --json`
+2. `php ./backend/artisan phase-one:diagnose --profile=interop --json`
+3. `php ./backend/artisan phase-one:contract-drift-check --json`
+4. `php ./backend/artisan workflow-lock:check --json`
 5. `GET /api/characters`
 6. `POST /api/characters`
 7. `POST /api/characters/{character_id}/activate`

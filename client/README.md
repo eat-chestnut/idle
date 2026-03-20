@@ -38,12 +38,12 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token ./client/phase-one-mer
 
 该 gate 固定串起：
 
-1. backend `phase-one:diagnose --profile=interop --json`
-2. backend `phase-one:contract-drift-check --json`
+1. backend `php ./backend/artisan phase-one:diagnose --profile=interop --json`
+2. backend `php ./backend/artisan phase-one:contract-drift-check --json`
 3. Godot 项目启动 smoke
 4. `PhaseOneClient.tscn` headless smoke
 5. 基于 `client/scripts/backend_api.gd` 的真实 backend 在线 smoke
-6. backend `composer phase-one:acceptance`
+6. backend `composer --working-dir=./backend phase-one:acceptance`
 
 注意：
 
@@ -167,12 +167,11 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token ./client/phase-one-mer
 
 ## 最小联调前置
 
-backend 启动前建议先执行：
+backend 启动前建议先从仓库根执行：
 
 ```bash
-cd backend
-php artisan phase-one:diagnose --profile=interop --json
-php artisan phase-one:contract-drift-check --json
+php ./backend/artisan phase-one:diagnose --profile=interop --json
+php ./backend/artisan phase-one:contract-drift-check --json
 ```
 
 如果需要最小联调账号：
