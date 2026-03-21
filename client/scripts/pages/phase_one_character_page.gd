@@ -3,95 +3,146 @@ class_name PhaseOneCharacterPage
 
 const ACTIVE_TINT := Color(0.45, 0.88, 0.62, 1.0)
 const IDLE_TINT := Color(0.65, 0.73, 0.88, 1.0)
+const WARNING_TINT := Color(0.95, 0.68, 0.38, 1.0)
 
-var hero_name_label: Label
-var hero_meta_label: Label
-var hero_progress_label: Label
-var hero_tag_row: HBoxContainer
-var growth_hint_label: Label
+var current_role_name_label: Label
+var current_role_meta_label: Label
+var current_role_status_label: Label
+var current_role_tag_row: HBoxContainer
+
+var summary_meta_label: Label
+var summary_stats_label: Label
+var summary_hint_label: Label
+
+var action_status_label: Label
+var activate_button: Button
+
+var inventory_entry_button: Button
+var equipment_entry_button: Button
+var stage_entry_button: Button
+
+var recommendation_label: Label
+var handoff_label: Label
+var recommendation_button: Button
+var _recommendation_action := ""
+var _recommendation_payload: Dictionary = {}
+
 var character_cards_box: VBoxContainer
 var class_input: LineEdit
 var name_input: LineEdit
 var character_id_input: LineEdit
-var stage_entry_button: Button
+var tech_toggle: CheckBox
+var tech_box: VBoxContainer
 
 var _current_records: Array = []
+var _current_stat_snapshot: Dictionary = {}
 
 
 func _init() -> void:
-	setup_page(
-		"角色",
-		[
-			"角色页现在承担竖版主入口：先确认当前角色，再进入背包、穿戴和主线。",
-			"Battle 可战斗资格仍以后端 `is_active` 为准；切换当前启用角色必须走真实激活接口。",
-		]
-	)
+	setup_page("角色", [])
 
-	var hero_card := add_card("当前角色", "优先承接当前启用角色；如果没有启用角色，会跟随你当前选中的详情角色。")
-	hero_name_label = Label.new()
-	hero_name_label.add_theme_font_size_override("font_size", 24)
-	hero_card.add_child(hero_name_label)
+	var current_card := add_card("当前角色", "先确认当前是谁、现在能不能直接出战。")
+	current_role_name_label = Label.new()
+	current_role_name_label.add_theme_font_size_override("font_size", 26)
+	current_card.add_child(current_role_name_label)
 
-	hero_meta_label = Label.new()
-	hero_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hero_card.add_child(hero_meta_label)
+	current_role_meta_label = Label.new()
+	current_role_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	current_card.add_child(current_role_meta_label)
 
-	hero_progress_label = Label.new()
-	hero_progress_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hero_progress_label.modulate = CARD_TEXT_MUTED
-	hero_card.add_child(hero_progress_label)
+	current_role_status_label = Label.new()
+	current_role_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	current_role_status_label.modulate = CARD_TEXT_MUTED
+	current_card.add_child(current_role_status_label)
 
-	hero_tag_row = HBoxContainer.new()
-	hero_tag_row.add_theme_constant_override("separation", 8)
-	hero_card.add_child(hero_tag_row)
+	current_role_tag_row = HBoxContainer.new()
+	current_role_tag_row.add_theme_constant_override("separation", 8)
+	current_card.add_child(current_role_tag_row)
 
-	growth_hint_label = Label.new()
-	growth_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	growth_hint_label.modulate = CARD_TEXT_MUTED
-	hero_card.add_child(growth_hint_label)
+	var summary_card := add_card("角色摘要", "当前角色的核心状态和下一步入口会先在这里汇总。")
+	summary_meta_label = Label.new()
+	summary_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary_card.add_child(summary_meta_label)
 
-	var hero_buttons := add_button_row(hero_card)
-	add_action_button(hero_buttons, "查看角色详情", "load_character")
-	add_action_button(hero_buttons, "设为当前出战角色", "activate_current_character")
-	add_action_button(hero_buttons, "同步到主流程", "sync_current_character")
+	summary_stats_label = Label.new()
+	summary_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary_card.add_child(summary_stats_label)
 
-	var entry_buttons := add_button_row(hero_card)
-	add_action_button(entry_buttons, "去背包", "navigate_inventory")
-	add_action_button(entry_buttons, "去穿戴", "navigate_equipment")
-	stage_entry_button = add_action_button(entry_buttons, "继续主线", "navigate_stage")
+	summary_hint_label = Label.new()
+	summary_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary_hint_label.modulate = CARD_TEXT_MUTED
+	summary_card.add_child(summary_hint_label)
+
+	var action_card := add_card("角色操作", "切换、激活、创建分开处理，不让主入口被同质按钮挤掉。")
+	action_status_label = Label.new()
+	action_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	action_status_label.modulate = CARD_TEXT_MUTED
+	action_card.add_child(action_status_label)
+
+	var action_buttons := add_button_row(action_card)
+	activate_button = add_action_button(action_buttons, "激活角色", "activate_current_character")
+	style_primary_button(activate_button, ACTIVE_TINT)
+	add_action_button(action_buttons, "刷新角色列表", "load_characters")
+
+	var entry_card := add_card("主入口", "背包、穿戴、主线是当前角色的三个主入口。")
+	var entry_buttons := add_button_row(entry_card)
+	inventory_entry_button = add_action_button(entry_buttons, "去背包", "navigate_inventory")
+	equipment_entry_button = add_action_button(entry_buttons, "去穿戴", "navigate_equipment")
+	stage_entry_button = add_action_button(entry_buttons, "去主线", "navigate_stage")
 	style_primary_button(stage_entry_button)
 
-	var list_card := add_card("角色切换", "真实角色列表会优先展示当前启用角色，并保留创建后的快速回跳。")
-	var list_buttons := add_button_row(list_card)
-	add_action_button(list_buttons, "刷新角色列表", "load_characters")
+	var recommendation_card := add_card("当前建议", "优先告诉玩家下一步最自然去哪里。")
+	recommendation_label = Label.new()
+	recommendation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	recommendation_card.add_child(recommendation_label)
 
+	handoff_label = Label.new()
+	handoff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	handoff_label.modulate = CARD_TEXT_MUTED
+	recommendation_card.add_child(handoff_label)
+
+	var recommendation_buttons := add_button_row(recommendation_card)
+	recommendation_button = add_button(recommendation_buttons, "去主线", _on_recommendation_pressed)
+	style_primary_button(recommendation_button)
+
+	var list_card := add_card("切换角色", "已有角色会突出当前启用角色；你也可以改看别的角色。")
 	character_cards_box = VBoxContainer.new()
 	character_cards_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	character_cards_box.add_theme_constant_override("separation", 10)
 	list_card.add_child(character_cards_box)
 
-	var create_card := add_card("创建角色", "只保留 phase-one 创建入口，不扩未来成长系统。")
-	class_input = add_labeled_input("class_id", "class_jingang", create_card)
-	name_input = add_labeled_input("character_name", "联调角色", create_card)
+	var create_card := add_card("创建角色", "只有真的没有角色，或你想换一个新角色时才需要这里。")
+	class_input = add_labeled_input("职业", "class_jingang", create_card)
+	name_input = add_labeled_input("角色名称", "联调角色", create_card)
 	var create_buttons := add_button_row(create_card)
 	add_action_button(create_buttons, "创建角色", "create_character")
 
-	var current_card := add_card("当前选中角色", "这里保留最小技术输入兜底，避免卡住真实联调链路。")
-	character_id_input = add_labeled_input("character_id", "", current_card)
+	var tech_card := add_card("联调覆盖", "技术字段下沉到次级区域，默认不用碰。")
+	tech_toggle = add_check_box("显示 character_id 技术输入", false, tech_card)
+	tech_toggle.toggled.connect(_on_tech_toggle)
+
+	tech_box = VBoxContainer.new()
+	tech_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tech_box.visible = false
+	tech_card.add_child(tech_box)
+
+	character_id_input = add_labeled_input("character_id（技术覆盖）", "", tech_box)
 	character_id_input.text_changed.connect(_on_character_id_changed)
-	var detail_buttons := add_button_row(current_card)
-	add_action_button(detail_buttons, "查看角色详情", "load_character")
-	add_action_button(detail_buttons, "设为当前出战角色", "activate_current_character")
+	var tech_buttons := add_button_row(tech_box)
+	add_action_button(tech_buttons, "按编号读取角色", "load_character")
+	add_action_button(tech_buttons, "同步当前角色", "sync_current_character")
 
 	show_character_summary({})
 	set_character_list([], "")
-	show_growth_handoff("当前角色页是成长回流入口：确认角色后，可以继续去背包、穿戴或主线。")
+	show_growth_handoff("")
+	set_output_text("")
+	_move_secondary_sections_to_bottom()
 
 
 func apply_config(values: Dictionary) -> void:
 	class_input.text = str(values.get("class_id", "class_jingang"))
 	name_input.text = str(values.get("character_name", "联调角色"))
-	character_id_input.text = normalize_id_string(values.get("character_id", "1001"))
+	character_id_input.text = normalize_id_string(values.get("character_id", ""))
 
 
 func get_create_payload() -> Dictionary:
@@ -110,55 +161,38 @@ func set_character_id(character_id: String) -> void:
 	_refresh_hero_from_records()
 
 
+func set_character_stat_snapshot(snapshot: Dictionary) -> void:
+	_current_stat_snapshot = snapshot.duplicate(true)
+	_refresh_hero_from_records()
+
+
 func set_character_list(records: Array, current_character_id: String) -> String:
 	_current_records = records.duplicate(true)
-	clear_container(character_cards_box)
 
-	var selected_character_id := current_character_id
-	var active_character_id := ""
-
-	for character in _current_records:
-		var entry: Dictionary = character if typeof(character) == TYPE_DICTIONARY else {}
-		var character_id := normalize_id_string(entry.get("character_id", ""))
-		if character_id.is_empty():
-			continue
-
-		if int(entry.get("is_active", 0)) == 1:
-			active_character_id = character_id
-
-		character_cards_box.add_child(_build_character_card(entry))
-
-	if selected_character_id.is_empty():
-		selected_character_id = active_character_id
-	if selected_character_id.is_empty() and not _current_records.is_empty():
-		selected_character_id = normalize_id_string(_current_records[0].get("character_id", ""))
-
-	if not selected_character_id.is_empty():
+	var selected_character_id := _determine_selected_character_id(current_character_id)
+	if selected_character_id != get_character_id_text():
 		character_id_input.text = selected_character_id
 
-	if character_cards_box.get_child_count() == 0:
-		var empty_label := Label.new()
-		empty_label.text = "当前还没有角色，请先创建角色。"
-		empty_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		empty_label.modulate = CARD_TEXT_MUTED
-		character_cards_box.add_child(empty_label)
-
+	_rebuild_character_cards(selected_character_id)
 	_refresh_hero_from_records()
-	return active_character_id
+	return _find_active_character_id()
 
 
 func render_character_list(payload: Dictionary, current_character_id: String) -> void:
 	var active_character_id := set_character_list(payload.get("characters", []), current_character_id)
-	set_summary_text("当前用户角色=%d | 当前启用角色=%s" % [
-		_current_records.size(),
-		active_character_id if not active_character_id.is_empty() else "(无)",
-	])
+	if _current_records.is_empty():
+		set_summary_text("当前还没有角色，先创建一个新的当前角色。")
+	else:
+		var active_name := "暂未启用角色"
+		if not active_character_id.is_empty():
+			active_name = _describe_character_brief(_find_character_by_id(active_character_id))
+		set_summary_text("当前共有 %d 名角色；%s。" % [_current_records.size(), active_name])
 	set_output_json(payload)
 
 
 func show_character_list_empty() -> void:
 	set_character_list([], character_id_input.text)
-	set_summary_text("当前没有角色，请先创建角色。")
+	set_summary_text("当前还没有角色，创建完成后就能继续去背包、穿戴和主线。")
 	set_output_json({"characters": []})
 
 
@@ -171,46 +205,92 @@ func show_character_summary(character: Dictionary) -> void:
 	if resolved.is_empty():
 		resolved = _find_character_by_id(character_id_input.text)
 
-	if resolved.is_empty():
-		hero_name_label.text = "尚未选择角色"
-		hero_meta_label.text = "先读取角色列表，或创建第一个角色。"
-		hero_progress_label.text = "角色详情、激活状态和主入口会在这里汇总。"
-		clear_container(hero_tag_row)
-		return
-
-	var character_id := normalize_id_string(resolved.get("character_id", ""))
+	var has_records := not _current_records.is_empty()
+	var has_character := not resolved.is_empty()
 	var is_active := int(resolved.get("is_active", 0)) == 1
 
-	hero_name_label.text = "%s  #%s" % [str(resolved.get("character_name", "角色")), character_id]
-	hero_meta_label.text = "%s | 等级 %s | exp %s" % [
-		str(resolved.get("class_name", resolved.get("class_id", ""))),
-		str(resolved.get("level", "1")),
-		str(resolved.get("exp", "0")),
-	]
-	hero_progress_label.text = "未分配属性点 %s | 力量 %s | 灵力 %s | 体魄 %s | 身法 %s" % [
-		str(resolved.get("unspent_stat_points", "0")),
-		str(resolved.get("added_strength", "0")),
-		str(resolved.get("added_mana", "0")),
-		str(resolved.get("added_constitution", "0")),
-		str(resolved.get("added_dexterity", "0")),
-	]
+	clear_container(current_role_tag_row)
 
-	clear_container(hero_tag_row)
-	hero_tag_row.add_child(create_pill("当前详情角色", IDLE_TINT))
-	if is_active:
-		hero_tag_row.add_child(create_pill("已激活，可直接出战", ACTIVE_TINT))
+	if not has_character:
+		current_role_name_label.text = "当前角色待确认"
+		if has_records:
+			current_role_meta_label.text = "已有角色可用，先从下方角色列表里选一个当前角色。"
+			current_role_status_label.text = "还没锁定当前查看角色；锁定后就能直接去背包、穿戴或主线。"
+			current_role_tag_row.add_child(create_pill("等待选择", IDLE_TINT))
+		else:
+			current_role_meta_label.text = "当前还没有角色。"
+			current_role_status_label.text = "先创建角色，创建后就能直接进入背包、穿戴和主线。"
+			current_role_tag_row.add_child(create_pill("等待创建", WARNING_TINT))
+
+		summary_meta_label.text = "角色摘要会在你锁定当前角色后补齐。"
+		summary_stats_label.text = "攻击：待确认 | 防御：待确认 | 生命：待确认"
+		summary_hint_label.text = "正式攻击、防御、生命会在出战页按真实 prepare 快照确认。"
 	else:
-		hero_tag_row.add_child(create_pill("未激活，需要先切换出战角色", Color(0.95, 0.68, 0.38, 1.0)))
+		var character_id := normalize_id_string(resolved.get("character_id", ""))
+		current_role_name_label.text = "%s  #%s" % [str(resolved.get("character_name", "角色")), character_id]
+		current_role_meta_label.text = "%s | 等级 %s" % [
+			str(resolved.get("class_name", resolved.get("class_id", ""))),
+			str(resolved.get("level", "1")),
+		]
+		current_role_status_label.text = (
+			"当前启用，可直接出战。"
+			if is_active
+			else "当前还没启用，先激活后再去主线会更顺。"
+		)
+		current_role_tag_row.add_child(create_pill("当前角色", IDLE_TINT))
+		current_role_tag_row.add_child(
+			create_pill("当前启用" if is_active else "待激活", ACTIVE_TINT if is_active else WARNING_TINT)
+		)
+		current_role_tag_row.add_child(
+			create_pill("可出战" if is_active else "暂不可出战", ACTIVE_TINT if is_active else WARNING_TINT)
+		)
+
+		summary_meta_label.text = "%s | 等级 %s | 未分配属性点 %s" % [
+			str(resolved.get("class_name", resolved.get("class_id", ""))),
+			str(resolved.get("level", "1")),
+			str(resolved.get("unspent_stat_points", "0")),
+		]
+		summary_stats_label.text = _build_stat_summary_text(resolved)
+		summary_hint_label.text = _build_summary_hint_text(resolved)
+
+	_refresh_action_panel(resolved)
+	_refresh_entry_buttons(has_character)
+	_refresh_recommendation(resolved)
+	_rebuild_character_cards(get_character_id_text())
 
 
 func show_growth_handoff(text: String) -> void:
-	growth_hint_label.text = text
+	handoff_label.text = text
 
 
-func _build_character_card(entry: Dictionary) -> PanelContainer:
+func _rebuild_character_cards(selected_character_id: String) -> void:
+	clear_container(character_cards_box)
+
+	if _current_records.is_empty():
+		var empty_label := Label.new()
+		empty_label.text = "当前还没有角色，先创建一个新的当前角色吧。"
+		empty_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty_label.modulate = CARD_TEXT_MUTED
+		character_cards_box.add_child(empty_label)
+		return
+
+	for character in _current_records:
+		var entry: Dictionary = character if typeof(character) == TYPE_DICTIONARY else {}
+		if normalize_id_string(entry.get("character_id", "")).is_empty():
+			continue
+		character_cards_box.add_child(_build_character_card(entry, selected_character_id))
+
+
+func _build_character_card(entry: Dictionary, selected_character_id: String) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_theme_stylebox_override("panel", _create_card_style())
+	card.add_theme_stylebox_override(
+		"panel",
+		_create_character_card_style(
+			normalize_id_string(entry.get("character_id", "")) == selected_character_id,
+			int(entry.get("is_active", 0)) == 1
+		)
+	)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 14)
@@ -224,6 +304,7 @@ func _build_character_card(entry: Dictionary) -> PanelContainer:
 	margin.add_child(box)
 
 	var character_id := normalize_id_string(entry.get("character_id", ""))
+	var is_selected := character_id == selected_character_id
 	var is_active := int(entry.get("is_active", 0)) == 1
 
 	var title := Label.new()
@@ -232,10 +313,10 @@ func _build_character_card(entry: Dictionary) -> PanelContainer:
 	box.add_child(title)
 
 	var meta := Label.new()
-	meta.text = "%s | 等级 %s | 当前状态：%s" % [
+	meta.text = "%s | 等级 %s | %s" % [
 		str(entry.get("class_name", entry.get("class_id", ""))),
 		str(entry.get("level", "1")),
-		"已激活" if is_active else "未激活",
+		"当前启用" if is_active else "未启用",
 	]
 	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	meta.modulate = CARD_TEXT_MUTED
@@ -244,18 +325,20 @@ func _build_character_card(entry: Dictionary) -> PanelContainer:
 	var tags := HBoxContainer.new()
 	tags.add_theme_constant_override("separation", 8)
 	box.add_child(tags)
-	tags.add_child(create_pill("职业 %s" % str(entry.get("class_name", entry.get("class_id", ""))), IDLE_TINT))
+	if is_selected:
+		tags.add_child(create_pill("当前查看", IDLE_TINT))
 	if is_active:
-		tags.add_child(create_pill("当前启用", ACTIVE_TINT))
+		tags.add_child(create_pill("可出战", ACTIVE_TINT))
 	else:
-		tags.add_child(create_pill("可切换", Color(0.95, 0.68, 0.38, 1.0)))
+		tags.add_child(create_pill("可切换后激活", WARNING_TINT))
 
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 8)
 	box.add_child(actions)
 
 	var select_button := Button.new()
-	select_button.text = "选中"
+	select_button.text = "当前角色" if is_selected else "切换角色"
+	select_button.disabled = is_selected
 	select_button.pressed.connect(func() -> void:
 		character_id_input.text = character_id
 		show_character_summary(entry)
@@ -264,15 +347,15 @@ func _build_character_card(entry: Dictionary) -> PanelContainer:
 	actions.add_child(select_button)
 
 	if not is_active:
-		var activate_button := Button.new()
-		activate_button.text = "激活"
-		activate_button.pressed.connect(func() -> void:
+		var activate_card_button := Button.new()
+		activate_card_button.text = "激活角色"
+		activate_card_button.pressed.connect(func() -> void:
 			character_id_input.text = character_id
 			show_character_summary(entry)
 			_emit_context("detail_character_changed", {"character_id": character_id})
 			_emit_action("activate_current_character", {"character_id": character_id})
 		)
-		actions.add_child(activate_button)
+		actions.add_child(activate_card_button)
 
 	return card
 
@@ -292,6 +375,166 @@ func _find_character_by_id(character_id: String) -> Dictionary:
 			return entry
 
 	return {}
+
+
+func _find_active_character_id() -> String:
+	for record in _current_records:
+		var entry: Dictionary = record if typeof(record) == TYPE_DICTIONARY else {}
+		if int(entry.get("is_active", 0)) == 1:
+			return normalize_id_string(entry.get("character_id", ""))
+	return ""
+
+
+func _determine_selected_character_id(current_character_id: String) -> String:
+	var candidates := [
+		normalize_id_string(current_character_id),
+		get_character_id_text(),
+		_find_active_character_id(),
+	]
+
+	for candidate in candidates:
+		if candidate.is_empty():
+			continue
+		if not _find_character_by_id(candidate).is_empty():
+			return candidate
+
+	if _current_records.is_empty():
+		return ""
+
+	var first_entry: Dictionary = _current_records[0] if typeof(_current_records[0]) == TYPE_DICTIONARY else {}
+	return normalize_id_string(first_entry.get("character_id", ""))
+
+
+func _describe_character_brief(character: Dictionary) -> String:
+	if character.is_empty():
+		return "还没有可承接的当前角色"
+	return "%s 已作为当前角色" % str(character.get("character_name", "角色"))
+
+
+func _build_stat_summary_text(character: Dictionary) -> String:
+	if _stat_snapshot_matches_character(character):
+		return "攻击：%s | 防御：物防 %s / 法防 %s | 生命：%s" % [
+			str(_current_stat_snapshot.get("attack", "-")),
+			str(_current_stat_snapshot.get("physical_defense", "-")),
+			str(_current_stat_snapshot.get("magic_defense", "-")),
+			str(_current_stat_snapshot.get("hp", "-")),
+		]
+
+	return "攻击：待出战确认 | 防御：待出战确认 | 生命：待出战确认"
+
+
+func _build_summary_hint_text(character: Dictionary) -> String:
+	if character.is_empty():
+		return "锁定当前角色后，这里会立刻切到可推进状态。"
+	if _stat_snapshot_matches_character(character):
+		return "以上攻击、防御、生命来自最近一次正式出战快照。"
+	if int(character.get("is_active", 0)) == 1:
+		return "当前角色已经可出战；去主线选关后，出战页会补齐正式属性摘要。"
+	return "先激活当前角色，再去主线和出战页会更顺。"
+
+
+func _stat_snapshot_matches_character(character: Dictionary) -> bool:
+	if character.is_empty() or _current_stat_snapshot.is_empty():
+		return false
+
+	return normalize_id_string(_current_stat_snapshot.get("character_id", "")) == normalize_id_string(character.get("character_id", ""))
+
+
+func _refresh_action_panel(character: Dictionary) -> void:
+	if _current_records.is_empty():
+		action_status_label.text = "当前还没有角色，先创建一个新的角色。"
+		activate_button.text = "先创建角色"
+		activate_button.disabled = true
+		return
+
+	if character.is_empty():
+		action_status_label.text = "先从下方角色列表中切换一个当前角色，再决定是否激活。"
+		activate_button.text = "激活角色"
+		activate_button.disabled = true
+		return
+
+	if int(character.get("is_active", 0)) == 1:
+		action_status_label.text = "当前角色已经启用，可以直接继续背包、穿戴或主线。"
+		activate_button.text = "当前已启用"
+		activate_button.disabled = true
+		return
+
+	action_status_label.text = "当前角色还没启用，先激活后再去主线推进最顺。"
+	activate_button.text = "激活角色"
+	activate_button.disabled = false
+
+
+func _refresh_entry_buttons(has_character: bool) -> void:
+	inventory_entry_button.disabled = not has_character
+	equipment_entry_button.disabled = not has_character
+	stage_entry_button.disabled = not has_character
+
+
+func _refresh_recommendation(character: Dictionary) -> void:
+	if _current_records.is_empty():
+		recommendation_label.text = "先创建角色。创建完成后，这一页就会切成正式主入口。"
+		_set_recommendation_action("创建角色", "create_character")
+		return
+
+	if character.is_empty():
+		recommendation_label.text = "先从角色列表里切换一个当前角色。"
+		_set_recommendation_action("刷新角色列表", "load_characters")
+		return
+
+	if int(character.get("is_active", 0)) == 0:
+		recommendation_label.text = "先激活当前角色，再去主线推进会更自然。"
+		_set_recommendation_action("激活角色", "activate_current_character")
+		return
+
+	recommendation_label.text = "先去主线推进；如果想先整理收益，也可以顺手去背包或穿戴。"
+	_set_recommendation_action("去主线", "navigate_stage")
+
+
+func _set_recommendation_action(button_text: String, action: String, payload: Dictionary = {}) -> void:
+	_recommendation_action = action
+	_recommendation_payload = payload.duplicate(true)
+	recommendation_button.text = button_text
+	recommendation_button.disabled = action.strip_edges().is_empty()
+
+
+func _create_character_card_style(is_selected: bool, is_active: bool) -> StyleBoxFlat:
+	var style := _create_card_style()
+	if is_selected:
+		style.border_color = PRIMARY_BUTTON_TINT
+		style.bg_color = Color(0.12, 0.16, 0.24, 0.98)
+	elif is_active:
+		style.border_color = ACTIVE_TINT
+		style.bg_color = Color(0.09, 0.14, 0.18, 0.98)
+	return style
+
+
+func _move_secondary_sections_to_bottom() -> void:
+	var output_panel := _resolve_card_panel(_output_toggle)
+	if output_panel != null and output_panel.get_parent() == _body:
+		_body.move_child(output_panel, _body.get_child_count() - 1)
+
+	var status_panel := _resolve_card_panel(_state_badge_row)
+	if status_panel != null and status_panel.get_parent() == _shell:
+		_shell.move_child(status_panel, _shell.get_child_count() - 1)
+
+
+func _resolve_card_panel(control: Control) -> Control:
+	if control == null:
+		return null
+	var parent := control.get_parent()
+	if parent == null or parent.get_parent() == null or parent.get_parent().get_parent() == null:
+		return null
+	return parent.get_parent().get_parent()
+
+
+func _on_recommendation_pressed() -> void:
+	if _recommendation_action.strip_edges().is_empty():
+		return
+	_emit_action(_recommendation_action, _recommendation_payload)
+
+
+func _on_tech_toggle(pressed: bool) -> void:
+	tech_box.visible = pressed
 
 
 func _on_character_id_changed(_text: String) -> void:
