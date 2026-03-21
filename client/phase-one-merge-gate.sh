@@ -3,6 +3,9 @@
 set -euo pipefail
 
 # Usage: run from the repository root with ./client/phase-one-merge-gate.sh
+#
+# This gate intentionally stays focused on "can the current phase-one client be
+# reviewed, smoken, and handed off" rather than adding any new gameplay checks.
 
 # Resolve repository-relative paths once so the script works from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,10 +58,19 @@ log_step() {
   echo "[client-merge-gate] $1"
 }
 
+run_step() {
+  local step_label="$1"
+  shift
+
+  log_step "${step_label}"
+  "$@"
+}
+
 print_runtime_context() {
   log_step "repo=${REPO_ROOT}"
   log_step "backend_url=${BACKEND_URL}"
   log_step "godot_bin=${GODOT_BIN}"
+  log_step "server_log=${SERVER_LOG}"
 }
 
 ensure_command() {
@@ -77,6 +89,7 @@ require_runtime_commands() {
 
 cleanup() {
   if [[ "${STARTED_SERVER}" -eq 1 && -n "${SERVER_PID}" ]]; then
+    log_step "stopping merge-gate backend pid=${SERVER_PID}"
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
@@ -141,7 +154,7 @@ wait_for_backend() {
 
 start_backend_if_needed() {
   if curl -fsS "${BACKEND_URL}/up" >/dev/null 2>&1; then
-    log_step "backend already online at ${BACKEND_URL}"
+    log_step "backend already online at ${BACKEND_URL}; reusing existing server"
     return 0
   fi
 
@@ -158,6 +171,7 @@ start_backend_if_needed() {
   rm -f "${SERVER_LOG}.pid"
   STARTED_SERVER=1
 
+  log_step "merge gate started backend pid=${SERVER_PID}"
   wait_for_backend
 }
 
@@ -173,29 +187,23 @@ main() {
 
   print_runtime_context
 
-  log_step "backend interop diagnose"
-  run_backend_interop_diagnose
+  run_step "backend interop diagnose" run_backend_interop_diagnose
 
-  log_step "backend contract drift"
-  run_backend_contract_drift_check
+  run_step "backend contract drift" run_backend_contract_drift_check
 
-  log_step "client project boot smoke"
-  run_client_project_boot_smoke
+  run_step "client project boot smoke" run_client_project_boot_smoke
 
-  log_step "client main scene smoke"
-  run_client_main_scene_smoke
+  run_step "client main scene smoke" run_client_main_scene_smoke
 
   start_backend_if_needed
 
-  log_step "client online smoke"
-  run_client_online_smoke
+  run_step "client online smoke" run_client_online_smoke
 
   cleanup
   STARTED_SERVER=0
   SERVER_PID=""
 
-  log_step "backend acceptance"
-  run_backend_acceptance_suite
+  run_step "backend acceptance" run_backend_acceptance_suite
 
   log_step "success"
 }

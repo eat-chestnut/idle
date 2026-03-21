@@ -11,15 +11,23 @@ const READY_PROFILE := "interop"
 const EXIT_SUCCESS := 0
 const EXIT_FAILURE := 1
 const EXIT_USAGE := 2
+const HELP_FLAGS := ["--help", "-h"]
 
 var _base_url := DEFAULT_BASE_URL
 var _bearer_token := DEFAULT_BEARER_TOKEN
+var _should_print_help := false
 
 
 func _initialize() -> void:
 	var parse_error := _parse_args(OS.get_cmdline_user_args())
+	if _should_print_help:
+		_print_usage()
+		quit(EXIT_SUCCESS)
+		return
+
 	if not parse_error.is_empty():
 		printerr("%s %s" % [SMOKE_LOG_PREFIX, parse_error])
+		_print_usage()
 		quit(EXIT_USAGE)
 		return
 
@@ -35,10 +43,13 @@ func _execute_smoke() -> int:
 	# Keep the smoke flow aligned with the player-facing client order so the
 	# output stays useful for merge-gate triage and manual handoff.
 	var api = BackendApi.new(root, _base_url, _bearer_token)
+	_print_runtime_context()
 
 	if not await _ensure_ready(api):
 		return EXIT_FAILURE
 
+	# Character selection stays aligned with the real client entry path:
+	# reuse an active character first, then create the smallest legal fallback.
 	var selected_character := await _select_or_create_character(api)
 	if selected_character.is_empty():
 		return EXIT_FAILURE
@@ -52,6 +63,8 @@ func _execute_smoke() -> int:
 	if (await _activate_character(api, character_id)).is_empty():
 		return EXIT_FAILURE
 
+	# Stage selection deliberately follows "first real backend-provided option"
+	# so the smoke stays deterministic without inventing any local fixtures.
 	var stage_target := await _load_stage_target(api)
 	if stage_target.is_empty():
 		return EXIT_FAILURE
@@ -86,7 +99,9 @@ func _execute_smoke() -> int:
 func _parse_args(args: Array) -> String:
 	for raw_arg in args:
 		var arg := str(raw_arg)
-		if arg.begins_with("--base-url="):
+		if arg in HELP_FLAGS:
+			_should_print_help = true
+		elif arg.begins_with("--base-url="):
 			_base_url = arg.trim_prefix("--base-url=").strip_edges()
 		elif arg.begins_with("--bearer-token="):
 			_bearer_token = arg.trim_prefix("--bearer-token=").strip_edges()
@@ -99,6 +114,36 @@ func _parse_args(args: Array) -> String:
 	return ""
 
 
+func _print_usage() -> void:
+	print(
+		"\n".join([
+			"Usage:",
+			"  godot --headless --path . --script ./client/scripts/phase_one_online_smoke.gd -- \\",
+			"    --base-url=http://127.0.0.1:8000 \\",
+			"    --bearer-token=test-token-2001",
+			"",
+			"Optional flags:",
+			"  --base-url=...       backend base URL, defaults to %s" % DEFAULT_BASE_URL,
+			"  --bearer-token=...   bearer token, defaults to %s" % DEFAULT_BEARER_TOKEN,
+			"  --help, -h           print this help and exit",
+			"",
+			"Covered flow:",
+			"  readyz -> characters -> activate -> chapters/stages/difficulties -> prepare -> settle",
+		])
+	)
+
+
+func _print_runtime_context() -> void:
+	print(
+		"%s base_url=%s ready_profile=%s" % [
+			SMOKE_LOG_PREFIX,
+			_base_url,
+			READY_PROFILE,
+		]
+	)
+
+
+# Character helpers
 func _pick_active_character(records: Array) -> Dictionary:
 	for record in records:
 		var entry := _as_dictionary(record)
@@ -164,6 +209,7 @@ func _activate_character(api, character_id: int) -> Dictionary:
 	return selected_character
 
 
+# Stage selection helpers
 func _load_stage_target(api) -> Dictionary:
 	# Pick the first backend-provided chapter/stage/difficulty instead of
 	# inventing any local ordering or synthetic smoke fixture.
@@ -206,6 +252,7 @@ func _ensure_ready(api) -> bool:
 	return true
 
 
+# Battle helpers
 func _prepare_battle(api, character_id: int, stage_target: Dictionary) -> Dictionary:
 	var prepare_result: Dictionary = await api.request_json("POST", "/api/battles/prepare", {
 		"character_id": character_id,
@@ -272,6 +319,7 @@ func _build_success_summary(
 	}
 
 
+# Backend list readers
 func _build_smoke_character_name() -> String:
 	var timestamp := Time.get_datetime_string_from_system(false, true)
 	var normalized_timestamp := timestamp.replace(":", "").replace("-", "").replace(" ", "_")
@@ -352,6 +400,7 @@ func _extract_monster_ids(payload: Dictionary) -> Array:
 	return result
 
 
+# Shared output / coercion helpers
 func _fail(step: String, result: Dictionary) -> int:
 	printerr(
 		"%s %s failed: kind=%s code=%s http_status=%s message=%s" % [
