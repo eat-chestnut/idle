@@ -230,7 +230,7 @@ func _set_initial_states() -> void:
 	prepare_page.set_page_state("empty", "当前角色和目标锁定后，这里就能直接开始战斗。")
 	prepare_page.set_output_text("等待出战确认。")
 
-	battle_page.set_page_state("empty", "先完成出战确认，再进入战斗空间。")
+	battle_page.set_page_state("empty", "先在出战页锁定角色和目标，再进入战场。")
 	battle_page.set_output_text("等待出战页承接。")
 
 	settle_page.set_page_state("empty", "先完成出战准备，再进入结算。")
@@ -1749,7 +1749,7 @@ func _on_prepare_pressed() -> void:
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	prepare_page.set_page_state("success", "出战信息已经锁定，马上进入战斗。")
-	battle_page.set_page_state("success", "战场已经准备好，可以开始推进和处理敌人。")
+	battle_page.set_page_state("success", "战场已经准备好，可以开始接敌和清场。")
 	settle_page.set_page_state("success", "本次战斗已承接到结果链，结束后会自动来到这里。")
 
 	_persist_runtime_config()
