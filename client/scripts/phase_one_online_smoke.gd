@@ -18,6 +18,7 @@ var _bearer_token := DEFAULT_BEARER_TOKEN
 var _should_print_help := false
 
 
+# ----- Entry / lifecycle -----
 func _initialize() -> void:
 	var parse_error := _parse_args(OS.get_cmdline_user_args())
 	if _should_print_help:
@@ -54,10 +55,8 @@ func _execute_smoke() -> int:
 	if selected_character.is_empty():
 		return EXIT_FAILURE
 
-	var character_id := int(selected_character.get("character_id", 0))
+	var character_id := _resolve_character_id(selected_character)
 	if character_id <= 0:
-		printerr("%s invalid character_id in selected character payload" % SMOKE_LOG_PREFIX)
-		_print_json(selected_character)
 		return EXIT_FAILURE
 
 	if (await _activate_character(api, character_id)).is_empty():
@@ -96,6 +95,7 @@ func _execute_smoke() -> int:
 	return EXIT_SUCCESS
 
 
+# ----- CLI / runtime context -----
 func _parse_args(args: Array) -> String:
 	for raw_arg in args:
 		var arg := str(raw_arg)
@@ -143,7 +143,17 @@ func _print_runtime_context() -> void:
 	)
 
 
-# Character helpers
+# ----- Character helpers -----
+func _resolve_character_id(selected_character: Dictionary) -> int:
+	var character_id := int(selected_character.get("character_id", 0))
+	if character_id > 0:
+		return character_id
+
+	printerr("%s invalid character_id in selected character payload" % SMOKE_LOG_PREFIX)
+	_print_json(selected_character)
+	return 0
+
+
 func _pick_active_character(records: Array) -> Dictionary:
 	for record in records:
 		var entry := _as_dictionary(record)
@@ -209,7 +219,21 @@ func _activate_character(api, character_id: int) -> Dictionary:
 	return selected_character
 
 
-# Stage selection helpers
+# ----- Stage selection helpers -----
+func _build_stage_target(
+	chapter_id: String,
+	stage_id: String,
+	stage_difficulty_id: String,
+	reward_status_before: Dictionary
+) -> Dictionary:
+	return {
+		"chapter_id": chapter_id,
+		"stage_id": stage_id,
+		"stage_difficulty_id": stage_difficulty_id,
+		"reward_status_before": reward_status_before,
+	}
+
+
 func _load_stage_target(api) -> Dictionary:
 	# Pick the first backend-provided chapter/stage/difficulty instead of
 	# inventing any local ordering or synthetic smoke fixture.
@@ -229,12 +253,16 @@ func _load_stage_target(api) -> Dictionary:
 	if reward_status_before.is_empty():
 		return {}
 
-	return {
-		"chapter_id": chapter_id,
-		"stage_id": stage_id,
-		"stage_difficulty_id": stage_difficulty_id,
-		"reward_status_before": reward_status_before,
-	}
+	return _build_stage_target(chapter_id, stage_id, stage_difficulty_id, reward_status_before)
+
+
+func _validate_ready_payload(ready_data: Dictionary) -> bool:
+	if bool(ready_data.get("ready", false)):
+		return true
+
+	printerr("%s readyz returned ready=false" % SMOKE_LOG_PREFIX)
+	_print_json(ready_data)
+	return false
 
 
 func _ensure_ready(api) -> bool:
@@ -244,15 +272,13 @@ func _ensure_ready(api) -> bool:
 		return false
 
 	var ready_data := _as_dictionary(ready_result.get("data", {}))
-	if not bool(ready_data.get("ready", false)):
-		printerr("%s readyz returned ready=false" % SMOKE_LOG_PREFIX)
-		_print_json(ready_data)
+	if not _validate_ready_payload(ready_data):
 		return false
 
 	return true
 
 
-# Battle helpers
+# ----- Battle helpers -----
 func _prepare_battle(api, character_id: int, stage_target: Dictionary) -> Dictionary:
 	var prepare_result: Dictionary = await api.request_json("POST", "/api/battles/prepare", {
 		"character_id": character_id,
@@ -319,7 +345,7 @@ func _build_success_summary(
 	}
 
 
-# Backend list readers
+# ----- Backend list readers -----
 func _build_smoke_character_name() -> String:
 	var timestamp := Time.get_datetime_string_from_system(false, true)
 	var normalized_timestamp := timestamp.replace(":", "").replace("-", "").replace(" ", "_")
@@ -400,7 +426,7 @@ func _extract_monster_ids(payload: Dictionary) -> Array:
 	return result
 
 
-# Shared output / coercion helpers
+# ----- Shared output / coercion helpers -----
 func _fail(step: String, result: Dictionary) -> int:
 	printerr(
 		"%s %s failed: kind=%s code=%s http_status=%s message=%s" % [
