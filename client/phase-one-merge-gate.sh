@@ -44,6 +44,10 @@ The script runs, in order:
   4. Godot main-scene headless smoke
   5. client online smoke against the real backend
   6. backend phase-one acceptance suite
+
+Useful follow-up checks:
+  git show HEAD:client/phase-one-merge-gate.sh | wc -l
+  git show HEAD:client/scripts/phase_one_online_smoke.gd | wc -l
 EOF
 }
 
@@ -62,6 +66,13 @@ ensure_command() {
     log_step "missing command: $1" >&2
     exit 1
   fi
+}
+
+require_runtime_commands() {
+  ensure_command curl
+  ensure_command "${GODOT_BIN}"
+  ensure_command "${PHP_BIN}"
+  ensure_command "${COMPOSER_BIN}"
 }
 
 cleanup() {
@@ -101,6 +112,18 @@ run_client_online_smoke() {
   run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
     --base-url="${BACKEND_URL}" \
     --bearer-token="${BEARER_TOKEN}"
+}
+
+run_backend_interop_diagnose() {
+  run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
+}
+
+run_backend_contract_drift_check() {
+  run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
+}
+
+run_backend_acceptance_suite() {
+  run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
 }
 
 wait_for_backend() {
@@ -146,18 +169,15 @@ main() {
 
   trap cleanup EXIT
 
-  ensure_command curl
-  ensure_command "${GODOT_BIN}"
-  ensure_command "${PHP_BIN}"
-  ensure_command "${COMPOSER_BIN}"
+  require_runtime_commands
 
   print_runtime_context
 
   log_step "backend interop diagnose"
-  run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
+  run_backend_interop_diagnose
 
   log_step "backend contract drift"
-  run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
+  run_backend_contract_drift_check
 
   log_step "client project boot smoke"
   run_client_project_boot_smoke
@@ -175,7 +195,7 @@ main() {
   SERVER_PID=""
 
   log_step "backend acceptance"
-  run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
+  run_backend_acceptance_suite
 
   log_step "success"
 }
