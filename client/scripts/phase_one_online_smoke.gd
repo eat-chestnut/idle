@@ -1,5 +1,7 @@
 extends SceneTree
 
+# Headless smoke that walks the real phase-one client/backend main path:
+# readyz -> character -> activate -> chapter/stage/difficulty -> prepare -> settle.
 const BackendApi = preload("res://client/scripts/backend_api.gd")
 const DEFAULT_BASE_URL := "http://127.0.0.1:8000"
 const DEFAULT_BEARER_TOKEN := "test-token-2001"
@@ -27,14 +29,7 @@ func _run_smoke() -> void:
 func _execute_smoke() -> int:
 	var api = BackendApi.new(root, _base_url, _bearer_token)
 
-	var ready_result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": "interop"})
-	if not ready_result.get("ok", false):
-		return _fail("readyz", ready_result)
-
-	var ready_data := _as_dictionary(ready_result.get("data", {}))
-	if not bool(ready_data.get("ready", false)):
-		printerr("[client-online-smoke] readyz returned ready=false")
-		_print_json(ready_data)
+	if not await _ensure_ready(api):
 		return 1
 
 	var selected_character := await _select_or_create_character(api)
@@ -54,46 +49,27 @@ func _execute_smoke() -> int:
 	if stage_target.is_empty():
 		return 1
 
-	var prepare_result: Dictionary = await api.request_json("POST", "/api/battles/prepare", {
-		"character_id": character_id,
-		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
-	})
-	if not prepare_result.get("ok", false):
-		return _fail("battles.prepare", prepare_result)
-
-	var prepare_data := _as_dictionary(prepare_result.get("data", {}))
-	var battle_context_id := str(prepare_data.get("battle_context_id", "")).strip_edges()
-	var monster_ids := _extract_monster_ids(prepare_data)
-	if battle_context_id.is_empty() or monster_ids.is_empty():
-		printerr("[client-online-smoke] prepare payload missing battle_context_id or monster_list")
-		_print_json(prepare_data)
+	var prepare_payload := await _prepare_battle(api, character_id, stage_target)
+	if prepare_payload.is_empty():
 		return 1
 
-	var settle_result: Dictionary = await api.request_json("POST", "/api/battles/settle", {
-		"character_id": character_id,
-		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
-		"battle_context_id": battle_context_id,
-		"is_cleared": 1,
-		"killed_monsters": monster_ids,
-	})
-	if not settle_result.get("ok", false):
-		return _fail("battles.settle", settle_result)
+	var settle_data := await _settle_battle(
+		api,
+		character_id,
+		stage_target,
+		str(prepare_payload.get("battle_context_id", "")),
+		_as_array(prepare_payload.get("monster_ids", []))
+	)
+	if settle_data.is_empty():
+		return 1
 
-	var settle_data := _as_dictionary(settle_result.get("data", {}))
-	var reward_status_after := _as_dictionary(settle_data.get("first_clear_reward_status", {}))
-	var summary := {
-		"base_url": _base_url,
-		"character_id": character_id,
-		"chapter_id": str(stage_target.get("chapter_id", "")),
-		"stage_id": str(stage_target.get("stage_id", "")),
-		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
-		"battle_context_id": battle_context_id,
-		"monster_count": monster_ids.size(),
-		"drop_count": _as_array(settle_data.get("drop_results", [])).size(),
-		"reward_count": _as_array(settle_data.get("reward_results", [])).size(),
-		"reward_status_before": _as_dictionary(stage_target.get("reward_status_before", {})),
-		"reward_status_after": reward_status_after,
-	}
+	var summary := _build_success_summary(
+		character_id,
+		stage_target,
+		str(prepare_payload.get("battle_context_id", "")),
+		_as_array(prepare_payload.get("monster_ids", [])),
+		settle_data
+	)
 
 	print("[client-online-smoke] success")
 	_print_json(summary)
@@ -140,6 +116,7 @@ func _select_or_create_character(api) -> Dictionary:
 	if not selected_character.is_empty():
 		return selected_character
 
+	# Reuse the formal character-create API instead of inventing a local smoke fixture.
 	var create_result: Dictionary = await api.request_json("POST", "/api/characters", {
 		"class_id": DEFAULT_SMOKE_CLASS_ID,
 		"character_name": _build_smoke_character_name(),
@@ -239,6 +216,87 @@ func _load_stage_target(api) -> Dictionary:
 		"stage_id": stage_id,
 		"stage_difficulty_id": stage_difficulty_id,
 		"reward_status_before": _as_dictionary(reward_status_before_result.get("data", {})),
+	}
+
+
+func _ensure_ready(api) -> bool:
+	var ready_result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": "interop"})
+	if not ready_result.get("ok", false):
+		_fail("readyz", ready_result)
+		return false
+
+	var ready_data := _as_dictionary(ready_result.get("data", {}))
+	if not bool(ready_data.get("ready", false)):
+		printerr("[client-online-smoke] readyz returned ready=false")
+		_print_json(ready_data)
+		return false
+
+	return true
+
+
+func _prepare_battle(api, character_id: int, stage_target: Dictionary) -> Dictionary:
+	var prepare_result: Dictionary = await api.request_json("POST", "/api/battles/prepare", {
+		"character_id": character_id,
+		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
+	})
+	if not prepare_result.get("ok", false):
+		_fail("battles.prepare", prepare_result)
+		return {}
+
+	var prepare_data := _as_dictionary(prepare_result.get("data", {}))
+	var battle_context_id := str(prepare_data.get("battle_context_id", "")).strip_edges()
+	var monster_ids := _extract_monster_ids(prepare_data)
+	if battle_context_id.is_empty() or monster_ids.is_empty():
+		printerr("[client-online-smoke] prepare payload missing battle_context_id or monster_list")
+		_print_json(prepare_data)
+		return {}
+
+	return {
+		"battle_context_id": battle_context_id,
+		"monster_ids": monster_ids,
+	}
+
+
+func _settle_battle(
+	api,
+	character_id: int,
+	stage_target: Dictionary,
+	battle_context_id: String,
+	monster_ids: Array
+) -> Dictionary:
+	var settle_result: Dictionary = await api.request_json("POST", "/api/battles/settle", {
+		"character_id": character_id,
+		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
+		"battle_context_id": battle_context_id,
+		"is_cleared": 1,
+		"killed_monsters": monster_ids,
+	})
+	if not settle_result.get("ok", false):
+		_fail("battles.settle", settle_result)
+		return {}
+
+	return _as_dictionary(settle_result.get("data", {}))
+
+
+func _build_success_summary(
+	character_id: int,
+	stage_target: Dictionary,
+	battle_context_id: String,
+	monster_ids: Array,
+	settle_data: Dictionary
+) -> Dictionary:
+	return {
+		"base_url": _base_url,
+		"character_id": character_id,
+		"chapter_id": str(stage_target.get("chapter_id", "")),
+		"stage_id": str(stage_target.get("stage_id", "")),
+		"stage_difficulty_id": str(stage_target.get("stage_difficulty_id", "")),
+		"battle_context_id": battle_context_id,
+		"monster_count": monster_ids.size(),
+		"drop_count": _as_array(settle_data.get("drop_results", [])).size(),
+		"reward_count": _as_array(settle_data.get("reward_results", [])).size(),
+		"reward_status_before": _as_dictionary(stage_target.get("reward_status_before", {})),
+		"reward_status_after": _as_dictionary(settle_data.get("first_clear_reward_status", {})),
 	}
 
 
