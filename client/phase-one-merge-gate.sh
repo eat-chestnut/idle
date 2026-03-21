@@ -2,17 +2,13 @@
 
 set -euo pipefail
 
-# Usage: run from the repository root with ./client/phase-one-merge-gate.sh
-#
-# This gate intentionally stays focused on "can the current phase-one client be
-# reviewed, smoken, and handed off" rather than adding any new gameplay checks.
-
-# Resolve repository-relative paths once so the script works from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
+
 MAIN_SCENE="res://client/scenes/PhaseOneClient.tscn"
 ONLINE_SMOKE_SCRIPT="./client/scripts/phase_one_online_smoke.gd"
+READY_ENDPOINT="/up"
 
 MERGE_GATE_HOST="${MERGE_GATE_HOST:-127.0.0.1}"
 MERGE_GATE_PORT="${MERGE_GATE_PORT:-8000}"
@@ -30,8 +26,14 @@ usage() {
   cat <<'EOF'
 Usage:
   ./client/phase-one-merge-gate.sh
+  ./client/phase-one-merge-gate.sh --help
 
-Optional environment overrides:
+Purpose:
+  Run the phase-one client merge gate against the current repository reality.
+  The gate is intentionally limited to the already-implemented backend/client
+  baseline. It does not add new gameplay checks or replace GUI walkthroughs.
+
+Environment overrides:
   BACKEND_URL=http://127.0.0.1:8000
   BEARER_TOKEN=test-token-2001
   MERGE_GATE_HOST=127.0.0.1
@@ -40,52 +42,79 @@ Optional environment overrides:
   PHP_BIN=php
   COMPOSER_BIN=composer
 
-The script runs, in order:
-  1. backend phase-one interop diagnose
-  2. backend contract drift guard
-  3. Godot project boot smoke
-  4. Godot main-scene headless smoke
+Gate stages:
+  1. backend diagnose (interop)
+  2. backend contract drift check
+  3. client headless boot smoke
+  4. client main scene smoke
   5. client online smoke against the real backend
-  6. backend phase-one acceptance suite
+  6. backend acceptance suite
 
-Not covered by this script:
-  - standalone acceptance diagnose re-check
+Recommended follow-up checks after this script:
+  php ./backend/artisan phase-one:diagnose --profile=acceptance --json
+  godot --headless --path . --script ./client/scripts/phase_one_online_smoke.gd -- \
+    --base-url=http://127.0.0.1:8000 --bearer-token=test-token-2001
+  git show HEAD:client/phase-one-merge-gate.sh | sed -n '1,40p'
+  git show HEAD:client/scripts/phase_one_online_smoke.gd | sed -n '1,60p'
+
+Not covered:
   - non-headless GUI walkthrough
   - git commit / push
-
-Useful follow-up checks:
-  git show HEAD:client/phase-one-merge-gate.sh | wc -l
-  git show HEAD:client/scripts/phase_one_online_smoke.gd | wc -l
 EOF
 }
 
 log_step() {
-  echo "[client-merge-gate] $1"
+  printf '[client-merge-gate] %s\n' "$1"
+}
+
+log_note() {
+  printf '[client-merge-gate] note=%s\n' "$1"
 }
 
 run_step() {
   local step_label="$1"
   shift
 
-  log_step "${step_label}"
+  log_step "start ${step_label}"
   "$@"
+  log_step "done ${step_label}"
+}
+
+parse_args() {
+  if [[ $# -eq 0 ]]; then
+    return 0
+  fi
+
+  case "${1}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown argument: %s\n\n' "${1}" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
 }
 
 print_runtime_context() {
-  log_step "repo=${REPO_ROOT}"
-  log_step "backend_url=${BACKEND_URL}"
-  log_step "godot_bin=${GODOT_BIN}"
-  log_step "server_log=${SERVER_LOG}"
+  log_note "repo=${REPO_ROOT}"
+  log_note "backend_url=${BACKEND_URL}"
+  log_note "main_scene=${MAIN_SCENE}"
+  log_note "online_smoke_script=${ONLINE_SMOKE_SCRIPT}"
+  log_note "server_log=${SERVER_LOG}"
 }
 
 print_scope_notes() {
-  log_step "coverage=headless boot + main scene + online smoke + backend acceptance"
-  log_step "follow_up_required=acceptance diagnose re-check + GUI walkthrough"
+  log_note "coverage=interop_diagnose,contract_drift,headless_boot,main_scene,online_smoke,backend_acceptance"
+  log_note "follow_up=acceptance_diagnose_json,gui_walkthrough,raw_commit_review"
 }
 
 ensure_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    log_step "missing command: $1" >&2
+  local command_name="$1"
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    printf '[client-merge-gate] missing command: %s\n' "${command_name}" >&2
     exit 1
   fi
 }
@@ -99,14 +128,12 @@ require_runtime_commands() {
 
 cleanup() {
   if [[ "${STARTED_SERVER}" -eq 1 && -n "${SERVER_PID}" ]]; then
-    log_step "stopping merge-gate backend pid=${SERVER_PID}"
+    log_step "stopping temporary backend pid=${SERVER_PID}"
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
 }
 
-# Keep backend invocations anchored to backend/ so artisan and composer behave
-# the same way whether the script starts them or the developer does.
 run_backend_command() {
   (
     cd "${BACKEND_DIR}"
@@ -114,8 +141,6 @@ run_backend_command() {
   )
 }
 
-# Keep Godot invocations anchored to the repository root so scene/script paths
-# stay identical between local runs and CI-like headless runs.
 run_godot_command() {
   (
     cd "${REPO_ROOT}"
@@ -123,7 +148,58 @@ run_godot_command() {
   )
 }
 
-run_client_project_boot_smoke() {
+check_backend_alive() {
+  curl -fsS "${BACKEND_URL}${READY_ENDPOINT}" >/dev/null 2>&1
+}
+
+wait_for_backend() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if check_backend_alive; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  printf '[client-merge-gate] backend did not become ready at %s\n' "${BACKEND_URL}" >&2
+  return 1
+}
+
+start_backend_if_needed() {
+  if check_backend_alive; then
+    log_step "reusing existing backend at ${BACKEND_URL}"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "${SERVER_LOG}")"
+  log_step "starting temporary backend at ${BACKEND_URL}"
+
+  (
+    cd "${BACKEND_DIR}"
+    "${PHP_BIN}" artisan serve \
+      --host="${MERGE_GATE_HOST}" \
+      --port="${MERGE_GATE_PORT}" \
+      >"${SERVER_LOG}" 2>&1 &
+    echo $! >"${SERVER_LOG}.pid"
+  )
+
+  SERVER_PID="$(cat "${SERVER_LOG}.pid")"
+  rm -f "${SERVER_LOG}.pid"
+  STARTED_SERVER=1
+
+  log_note "temporary_backend_pid=${SERVER_PID}"
+  wait_for_backend
+}
+
+run_backend_diagnose_interop() {
+  run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
+}
+
+run_backend_contract_drift() {
+  run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
+}
+
+run_client_headless_boot_smoke() {
   run_godot_command --quit
 }
 
@@ -137,90 +213,46 @@ run_client_online_smoke() {
     --bearer-token="${BEARER_TOKEN}"
 }
 
-run_client_headless_checks() {
-  run_step "client project boot smoke" run_client_project_boot_smoke
-  run_step "client main scene smoke" run_client_main_scene_smoke
-}
-
-run_backend_interop_diagnose() {
-  run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
-}
-
-run_backend_contract_drift_check() {
-  run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
-}
-
-run_backend_acceptance_suite() {
+run_backend_acceptance() {
   run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
 }
 
 run_backend_gate_checks() {
-  run_step "backend interop diagnose" run_backend_interop_diagnose
-  run_step "backend contract drift" run_backend_contract_drift_check
+  run_step "backend diagnose (interop)" run_backend_diagnose_interop
+  run_step "backend contract drift" run_backend_contract_drift
 }
 
-wait_for_backend() {
-  local attempt
-  for attempt in $(seq 1 30); do
-    if curl -fsS "${BACKEND_URL}/up" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 1
-  done
+run_client_gate_checks() {
+  run_step "client headless boot smoke" run_client_headless_boot_smoke
+  run_step "client main scene smoke" run_client_main_scene_smoke
 
-  log_step "backend did not become ready at ${BACKEND_URL}" >&2
-  return 1
+  start_backend_if_needed
+  run_step "client online smoke" run_client_online_smoke
 }
 
-start_backend_if_needed() {
-  if curl -fsS "${BACKEND_URL}/up" >/dev/null 2>&1; then
-    log_step "backend already online at ${BACKEND_URL}; reusing existing server"
-    return 0
-  fi
-
-  mkdir -p "$(dirname "${SERVER_LOG}")"
-  log_step "starting backend at ${BACKEND_URL}"
-  (
-    cd "${BACKEND_DIR}"
-    "${PHP_BIN}" artisan serve --host="${MERGE_GATE_HOST}" --port="${MERGE_GATE_PORT}" \
-      >"${SERVER_LOG}" 2>&1 &
-    echo $! >"${SERVER_LOG}.pid"
-  )
-
-  SERVER_PID="$(cat "${SERVER_LOG}.pid")"
-  rm -f "${SERVER_LOG}.pid"
-  STARTED_SERVER=1
-
-  log_step "merge gate started backend pid=${SERVER_PID}"
-  wait_for_backend
+print_follow_up_checks() {
+  log_note "recommended_next=php ./backend/artisan phase-one:diagnose --profile=acceptance --json"
+  log_note "recommended_next=review raw commit text with git show HEAD:... | sed -n"
+  log_note "recommended_next=run non-headless GUI walkthrough before final merge"
 }
 
 main() {
-  if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    usage
-    return 0
-  fi
-
+  parse_args "$@"
   trap cleanup EXIT
 
   require_runtime_commands
-
   print_runtime_context
   print_scope_notes
 
   run_backend_gate_checks
-  run_client_headless_checks
-
-  start_backend_if_needed
-
-  run_step "client online smoke" run_client_online_smoke
+  run_client_gate_checks
 
   cleanup
   STARTED_SERVER=0
   SERVER_PID=""
 
-  run_step "backend acceptance" run_backend_acceptance_suite
-
+  run_step "backend acceptance" run_backend_acceptance
+  print_follow_up_checks
   log_step "success"
 }
 
