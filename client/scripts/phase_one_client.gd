@@ -227,7 +227,7 @@ func _set_initial_states() -> void:
 	stage_page.set_page_state("empty", "进入主线后，会自动展开当前章节和可挑战关卡。")
 	stage_page.set_output_text("等待章节、关卡、难度与首通奖励状态回读。")
 
-	prepare_page.set_page_state("empty", "先确认出战角色和目标难度，再开始战斗。")
+	prepare_page.set_page_state("empty", "当前角色和目标锁定后，这里就能直接开始战斗。")
 	prepare_page.set_output_text("等待出战确认。")
 
 	battle_page.set_page_state("empty", "先完成出战确认，再进入战斗空间。")
@@ -681,6 +681,7 @@ func _refresh_product_pages() -> void:
 	var battle_character := _find_character_record(prepare_page.get_character_id_text())
 	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
 	prepare_page.render_prepare_context(battle_character, route_context, current_reward_status)
+	prepare_page.show_prepare_summary(current_prepare_result)
 	settle_page.render_settle_context(battle_character, route_context)
 
 

@@ -4,61 +4,83 @@ class_name PhaseOnePreparePage
 const CHARACTER_TINT := Color(0.56, 0.82, 0.96, 1.0)
 const BATTLE_TINT := Color(0.99, 0.72, 0.40, 1.0)
 const REWARD_TINT := Color(0.55, 0.86, 0.68, 1.0)
+const WARNING_TINT := Color(0.95, 0.68, 0.38, 1.0)
 
 var recent_character_selector: OptionButton
+var recent_stage_difficulty_selector: OptionButton
 var override_toggle: CheckBox
 var override_box: VBoxContainer
 var character_id_input: LineEdit
-var recent_stage_difficulty_selector: OptionButton
 var stage_difficulty_input: LineEdit
 
+var header_target_label: Label
+var header_character_label: Label
+var header_tag_row: HBoxContainer
+
 var character_name_label: Label
-var character_meta_label: Label
+var character_status_label: Label
+var character_stat_label: Label
 var character_tag_row: HBoxContainer
+
 var route_title_label: Label
 var route_meta_label: Label
-var reward_status_label: Label
+var route_recommendation_label: Label
 var route_tag_row: HBoxContainer
-var stat_rows_box: VBoxContainer
-var enemy_summary_label: Label
-var monster_rows_box: VBoxContainer
-var technical_note_label: Label
-var primary_prepare_button: Button
 
+var enemy_summary_label: Label
+var enemy_hint_label: Label
+var monster_rows_box: VBoxContainer
+
+var reward_status_label: Label
+var reward_detail_label: Label
+var reward_tag_row: HBoxContainer
+
+var action_status_label: Label
+var primary_prepare_button: Button
+var activate_button: Button
+var back_stage_button: Button
+
+var _character_context: Dictionary = {}
 var _route_context: Dictionary = {}
 var _reward_status: Dictionary = {}
+var _prepare_payload: Dictionary = {}
 
 
 func _init() -> void:
-	setup_page(
-		"出战",
-		[
-			"出战页会把当前角色、目标难度和敌方信息收齐，再进入正式战斗。",
-			"战斗上下文编号会继续保留，但只放在技术详情里，不再抢主视线。",
-		]
-	)
+	setup_page("出战", [])
 
-	var character_card := add_card("当前出战角色", "当前出战角色必须是后端真实生效的启用角色。")
+	var header_card := add_card("出战确认", "")
+	header_target_label = Label.new()
+	header_target_label.add_theme_font_size_override("font_size", 24)
+	header_card.add_child(header_target_label)
+
+	header_character_label = Label.new()
+	header_character_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header_card.add_child(header_character_label)
+
+	header_tag_row = HBoxContainer.new()
+	header_tag_row.add_theme_constant_override("separation", 8)
+	header_card.add_child(header_tag_row)
+
+	var character_card := add_card("当前角色", "")
 	character_name_label = Label.new()
 	character_name_label.add_theme_font_size_override("font_size", 22)
 	character_card.add_child(character_name_label)
 
-	character_meta_label = Label.new()
-	character_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	character_card.add_child(character_meta_label)
+	character_status_label = Label.new()
+	character_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	character_card.add_child(character_status_label)
+
+	character_stat_label = Label.new()
+	character_stat_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	character_stat_label.modulate = CARD_TEXT_MUTED
+	character_card.add_child(character_stat_label)
 
 	character_tag_row = HBoxContainer.new()
 	character_tag_row.add_theme_constant_override("separation", 8)
 	character_card.add_child(character_tag_row)
 
-	recent_character_selector = add_labeled_option_button("出战角色（优先真实角色列表）", character_card)
-	recent_character_selector.item_selected.connect(_on_recent_character_selected)
-
-	var character_buttons := add_button_row(character_card)
-	add_action_button(character_buttons, "激活当前出战角色", "activate_battle_character")
-	add_action_button(character_buttons, "回主线", "navigate_stage")
-
-	var route_card := add_card("本次目标", "默认承接主线页已选中的章节、关卡和难度，不让玩家重复输入。")
+	var route_card := add_card("当前目标", "")
 	route_title_label = Label.new()
 	route_title_label.add_theme_font_size_override("font_size", 22)
 	route_card.add_child(route_title_label)
@@ -67,120 +89,92 @@ func _init() -> void:
 	route_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	route_card.add_child(route_meta_label)
 
-	reward_status_label = Label.new()
-	reward_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	reward_status_label.modulate = CARD_TEXT_MUTED
-	route_card.add_child(reward_status_label)
+	route_recommendation_label = Label.new()
+	route_recommendation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	route_recommendation_label.modulate = CARD_TEXT_MUTED
+	route_card.add_child(route_recommendation_label)
 
 	route_tag_row = HBoxContainer.new()
 	route_tag_row.add_theme_constant_override("separation", 8)
 	route_card.add_child(route_tag_row)
 
-	recent_stage_difficulty_selector = add_labeled_option_button("当前已选难度 / 最近难度", route_card)
-	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
-
-	var stats_card := add_card("战斗预览", "出战确认完成后，这里会补齐角色属性和敌方列表。")
-	stat_rows_box = VBoxContainer.new()
-	stat_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stat_rows_box.add_theme_constant_override("separation", 8)
-	stats_card.add_child(stat_rows_box)
-
-	var monster_card := add_card("敌方阵容", "敌方信息完全来自 prepare 返回的 monster_list。")
+	var enemy_card := add_card("敌方阵容", "")
 	enemy_summary_label = Label.new()
 	enemy_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	enemy_summary_label.modulate = CARD_TEXT_MUTED
-	monster_card.add_child(enemy_summary_label)
+	enemy_card.add_child(enemy_summary_label)
+
+	enemy_hint_label = Label.new()
+	enemy_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	enemy_hint_label.modulate = CARD_TEXT_MUTED
+	enemy_card.add_child(enemy_hint_label)
 
 	monster_rows_box = VBoxContainer.new()
 	monster_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	monster_rows_box.add_theme_constant_override("separation", 10)
-	monster_card.add_child(monster_rows_box)
+	enemy_card.add_child(monster_rows_box)
 
-	override_toggle = add_check_box("显示 Battle Prepare 联调覆盖输入", false, monster_card)
-	override_toggle.toggled.connect(_on_override_toggled)
-	override_box = VBoxContainer.new()
-	override_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	override_box.visible = false
-	monster_card.add_child(override_box)
+	var reward_card := add_card("首通奖励状态", "")
+	reward_status_label = Label.new()
+	reward_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reward_card.add_child(reward_status_label)
 
-	character_id_input = add_labeled_input("character_id（联调覆盖）", "", override_box)
-	character_id_input.text_changed.connect(_on_character_id_changed)
+	reward_detail_label = Label.new()
+	reward_detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reward_detail_label.modulate = CARD_TEXT_MUTED
+	reward_card.add_child(reward_detail_label)
 
-	stage_difficulty_input = add_labeled_input(
-		"stage_difficulty_id（联调覆盖）",
-		"stage_nanshan_001_normal",
-		override_box
-	)
-	stage_difficulty_input.text_changed.connect(_on_stage_difficulty_changed)
+	reward_tag_row = HBoxContainer.new()
+	reward_tag_row.add_theme_constant_override("separation", 8)
+	reward_card.add_child(reward_tag_row)
 
-	var action_card := add_card("出战", "主按钮只保留开始战斗，其余技术信息仍放在页面底部。")
-	technical_note_label = Label.new()
-	technical_note_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	technical_note_label.modulate = CARD_TEXT_MUTED
-	action_card.add_child(technical_note_label)
+	var action_card := add_card("开始战斗", "")
+	action_status_label = Label.new()
+	action_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	action_card.add_child(action_status_label)
 
 	var buttons := add_button_row(action_card)
 	primary_prepare_button = add_action_button(buttons, "开始战斗", "prepare")
 	style_primary_button(primary_prepare_button)
+	activate_button = add_action_button(buttons, "激活当前角色", "activate_battle_character")
+	back_stage_button = add_action_button(buttons, "返回主线调整", "navigate_stage")
+
+	var tech_card := add_card("联调覆盖", "快速切换和技术字段都下沉到这里。")
+	recent_character_selector = add_labeled_option_button("快速切换当前角色", tech_card)
+	recent_character_selector.item_selected.connect(_on_recent_character_selected)
+
+	recent_stage_difficulty_selector = add_labeled_option_button("快速切换目标难度", tech_card)
+	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
+
+	override_toggle = add_check_box("显示 Battle Prepare 技术覆盖输入", false, tech_card)
+	override_toggle.toggled.connect(_on_override_toggled)
+	override_box = VBoxContainer.new()
+	override_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	override_box.visible = false
+	tech_card.add_child(override_box)
+
+	character_id_input = add_labeled_input("character_id（技术覆盖）", "", override_box)
+	character_id_input.text_changed.connect(_on_character_id_changed)
+
+	stage_difficulty_input = add_labeled_input("stage_difficulty_id（技术覆盖）", "", override_box)
+	stage_difficulty_input.text_changed.connect(_on_stage_difficulty_changed)
 
 	render_prepare_context({}, {}, {})
 	show_prepare_summary({})
+	_move_secondary_sections_to_bottom()
 
 
 func apply_config(values: Dictionary) -> void:
 	character_id_input.text = normalize_id_string(
-		values.get("battle_character_id", values.get("character_id", "1001"))
+		values.get("battle_character_id", values.get("character_id", ""))
 	)
-	stage_difficulty_input.text = str(values.get("stage_difficulty_id", "stage_nanshan_001_normal"))
+	stage_difficulty_input.text = str(values.get("stage_difficulty_id", "")).strip_edges()
 
 
 func render_prepare_context(character: Dictionary, route_context: Dictionary, reward_status: Dictionary) -> void:
+	_character_context = character.duplicate(true)
 	_route_context = route_context.duplicate(true)
 	_reward_status = reward_status.duplicate(true)
-
-	var resolved_character := character.duplicate(true)
-	if resolved_character.is_empty():
-		character_name_label.text = "尚未锁定出战角色"
-		character_meta_label.text = "请先在角色页确认当前角色，或在本页选择可战斗角色。"
-	else:
-		character_name_label.text = "%s  #%s" % [
-			str(resolved_character.get("character_name", "角色")),
-			normalize_id_string(resolved_character.get("character_id", "")),
-		]
-		character_meta_label.text = "%s | 等级 %s | 当前状态：%s" % [
-			str(resolved_character.get("class_name", resolved_character.get("class_id", ""))),
-			str(resolved_character.get("level", "1")),
-			"已激活" if int(resolved_character.get("is_active", 0)) == 1 else "未激活",
-		]
-
-	clear_container(character_tag_row)
-	if resolved_character.is_empty():
-		character_tag_row.add_child(create_pill("等待角色", CHARACTER_TINT))
-	else:
-		character_tag_row.add_child(create_pill("角色已锁定", CHARACTER_TINT))
-		if int(resolved_character.get("is_active", 0)) == 1:
-			character_tag_row.add_child(create_pill("可直接出战", REWARD_TINT))
-		else:
-			character_tag_row.add_child(create_pill("需先激活", BATTLE_TINT))
-
-	var chapter_name := str(route_context.get("chapter_name", "章节待选择"))
-	var stage_name := str(route_context.get("stage_name", "关卡待选择"))
-	var difficulty_name := str(route_context.get("difficulty_name", "难度待选择"))
-	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
-	route_meta_label.text = "当前目标：章节 %s | 关卡 %s | 难度 %s | 推荐战力 %s" % [
-		str(route_context.get("chapter_id", "(未选择)")),
-		str(route_context.get("stage_id", "(未选择)")),
-		str(route_context.get("stage_difficulty_id", get_stage_difficulty_text())),
-		str(route_context.get("recommended_power", "-")),
-	]
-	reward_status_label.text = _format_reward_status(reward_status)
-
-	clear_container(route_tag_row)
-	if not str(route_context.get("stage_difficulty_id", "")).is_empty():
-		route_tag_row.add_child(create_pill("路线已锁定", BATTLE_TINT))
-	if not str(route_context.get("difficulty_key", "")).is_empty():
-		route_tag_row.add_child(create_pill("难度 %s" % str(route_context.get("difficulty_key", "")), CHARACTER_TINT))
-	route_tag_row.add_child(create_pill(_reward_tag_text(reward_status), REWARD_TINT if int(reward_status.get("has_reward", 0)) == 1 else CHARACTER_TINT))
+	_refresh_prepare_page()
 
 
 func set_recent_characters(records: Array, current_character_id: String) -> void:
@@ -193,9 +187,9 @@ func set_recent_characters(records: Array, current_character_id: String) -> void
 
 		var label = "%s #%s" % [str(entry.get("character_name", "角色")), character_id]
 		if entry.has("is_active") and int(entry.get("is_active", 0)) == 1:
-			label += " [可战斗]"
+			label += " [当前可战斗]"
 		elif entry.has("is_active"):
-			label += " [未激活]"
+			label += " [待激活]"
 
 		options.append({
 			"label": label,
@@ -203,7 +197,7 @@ func set_recent_characters(records: Array, current_character_id: String) -> void
 			"record": entry,
 		})
 
-	replace_options(recent_character_selector, options, "暂无真实角色记录", current_character_id)
+	replace_options(recent_character_selector, options, "暂无角色记录", current_character_id)
 
 
 func set_recent_stage_difficulties(stage_difficulty_ids: Array, current_stage_difficulty_id: String) -> void:
@@ -220,7 +214,7 @@ func set_recent_stage_difficulties(stage_difficulty_ids: Array, current_stage_di
 	replace_options(
 		recent_stage_difficulty_selector,
 		options,
-		"暂无成功难度记录",
+		"暂无难度记录",
 		current_stage_difficulty_id
 	)
 
@@ -230,7 +224,7 @@ func set_character_id(character_id: String) -> void:
 
 
 func set_stage_difficulty_id(stage_difficulty_id: String) -> void:
-	stage_difficulty_input.text = stage_difficulty_id
+	stage_difficulty_input.text = stage_difficulty_id.strip_edges()
 
 
 func get_character_id_text() -> String:
@@ -242,45 +236,133 @@ func get_stage_difficulty_text() -> String:
 
 
 func show_prepare_summary(payload: Dictionary) -> void:
-	clear_container(stat_rows_box)
-	clear_container(monster_rows_box)
-
+	_prepare_payload = payload.duplicate(true)
+	_refresh_prepare_page()
 	if payload.is_empty():
-		var empty_stats := Label.new()
-		empty_stats.text = "开始战斗前，这里会先整理角色当前属性摘要。"
-		empty_stats.modulate = CARD_TEXT_MUTED
-		stat_rows_box.add_child(empty_stats)
+		set_output_text("")
+	else:
+		set_output_json(payload)
 
-		enemy_summary_label.text = "敌方还没有载入，完成 Prepare 后会展示怪物数量、波次和首领信息。"
 
-		var empty_monsters := Label.new()
-		empty_monsters.text = "敌方阵容会在 Prepare 成功后自动承接。"
-		empty_monsters.modulate = CARD_TEXT_MUTED
-		monster_rows_box.add_child(empty_monsters)
-		technical_note_label.text = "战斗上下文尚未生成；开始战斗后会自动写入技术详情。"
-		set_output_json({})
+func _refresh_prepare_page() -> void:
+	var preview_payload := _matched_prepare_payload()
+	var preview_character := _as_dictionary(preview_payload.get("character", {}))
+	var preview_stats := _as_dictionary(preview_payload.get("character_stats", {}))
+	var preview_stage_difficulty := _as_dictionary(preview_payload.get("stage_difficulty", {}))
+	var monster_list: Array = _as_array(preview_payload.get("monster_list", []))
+
+	_refresh_header()
+	_refresh_character_summary(preview_character, preview_stats)
+	_refresh_route_summary(preview_stage_difficulty)
+	_refresh_enemy_summary(monster_list)
+	_refresh_reward_summary()
+	_refresh_action_area()
+
+
+func _refresh_header() -> void:
+	var character := _character_context
+	var route_context := _route_context
+	var chapter_name := str(route_context.get("chapter_name", "当前目标待确认"))
+	var stage_name := str(route_context.get("stage_name", "请先回主线选关"))
+	var difficulty_name := str(route_context.get("difficulty_name", "请先选难度"))
+
+	header_target_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
+	if character.is_empty():
+		header_character_label.text = "当前角色：待确认"
+	else:
+		header_character_label.text = "当前角色：%s" % _character_title(character)
+
+	clear_container(header_tag_row)
+	if not character.is_empty():
+		header_tag_row.add_child(create_pill("当前角色", CHARACTER_TINT))
+		if int(character.get("is_active", 0)) == 1:
+			header_tag_row.add_child(create_pill("可开始战斗", REWARD_TINT))
+		else:
+			header_tag_row.add_child(create_pill("需先激活", WARNING_TINT))
+	if not str(route_context.get("stage_difficulty_id", "")).is_empty():
+		header_tag_row.add_child(create_pill("当前目标", BATTLE_TINT))
+
+
+func _refresh_character_summary(preview_character: Dictionary, preview_stats: Dictionary) -> void:
+	var character := _character_context
+	clear_container(character_tag_row)
+
+	if character.is_empty():
+		character_name_label.text = "当前角色待确认"
+		character_status_label.text = "请先在角色页确认当前角色，或回主线重新承接目标。"
+		character_stat_label.text = "攻击 / 防御 / 生命会在开始战斗前按正式快照确认。"
+		character_tag_row.add_child(create_pill("等待角色", CHARACTER_TINT))
 		return
 
-	var stage_difficulty = payload.get("stage_difficulty", {})
-	var stage_difficulty_data = stage_difficulty if typeof(stage_difficulty) == TYPE_DICTIONARY else {}
-	var stats = payload.get("character_stats", {})
-	var stats_data = stats if typeof(stats) == TYPE_DICTIONARY else {}
-	var monster_list: Array = payload.get("monster_list", []) if typeof(payload.get("monster_list", [])) == TYPE_ARRAY else []
+	character_name_label.text = _character_title(character)
+	if int(character.get("is_active", 0)) == 1:
+		character_status_label.text = "当前角色已启用，这一场可以直接出战。"
+		character_tag_row.add_child(create_pill("当前启用", REWARD_TINT))
+		character_tag_row.add_child(create_pill("可出战", REWARD_TINT))
+	else:
+		character_status_label.text = "当前角色还没启用，先激活后再开始战斗会更顺。"
+		character_tag_row.add_child(create_pill("待激活", WARNING_TINT))
+		character_tag_row.add_child(create_pill("暂不可出战", WARNING_TINT))
+
+	if not preview_character.is_empty() and not preview_stats.is_empty():
+		character_stat_label.text = "攻击：%s | 防御：物防 %s / 法防 %s | 生命：%s" % [
+			str(preview_stats.get("attack", "-")),
+			str(preview_stats.get("physical_defense", "-")),
+			str(preview_stats.get("magic_defense", "-")),
+			str(preview_stats.get("hp", "-")),
+		]
+	else:
+		character_stat_label.text = "攻击 / 防御 / 生命会在点击“开始战斗”后按正式快照确认。"
+
+
+func _refresh_route_summary(preview_stage_difficulty: Dictionary) -> void:
+	var route_context := _route_context
+	var chapter_name := str(route_context.get("chapter_name", "当前章节待确认"))
+	var stage_name := str(route_context.get("stage_name", "请先回主线选关"))
+	var difficulty_name := str(route_context.get("difficulty_name", "请先选难度"))
+	var recommended_power := str(route_context.get("recommended_power", "-"))
+	if not preview_stage_difficulty.is_empty():
+		difficulty_name = str(preview_stage_difficulty.get("difficulty_name", difficulty_name))
+		recommended_power = str(preview_stage_difficulty.get("recommended_power", recommended_power))
+
+	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
+	route_meta_label.text = "当前挑战：%s · %s · %s | 推荐战力 %s" % [
+		chapter_name,
+		stage_name,
+		difficulty_name,
+		recommended_power,
+	]
+
+	if str(route_context.get("stage_difficulty_id", "")).is_empty():
+		route_recommendation_label.text = "先回主线锁定难度，这里就会进入可开打状态。"
+	else:
+		route_recommendation_label.text = "当前目标已经锁定；确认角色状态后就可以开始战斗。"
+
+	clear_container(route_tag_row)
+	if not str(route_context.get("chapter_name", "")).is_empty():
+		route_tag_row.add_child(create_pill("当前目标", BATTLE_TINT))
+	if not str(route_context.get("difficulty_key", "")).is_empty():
+		route_tag_row.add_child(create_pill("难度 %s" % str(route_context.get("difficulty_key", "")), CHARACTER_TINT))
+	if not str(route_context.get("stage_difficulty_id", "")).is_empty():
+		route_tag_row.add_child(create_pill("当前挑战", BATTLE_TINT))
+
+
+func _refresh_enemy_summary(monster_list: Array) -> void:
+	clear_container(monster_rows_box)
+
+	if monster_list.is_empty():
+		enemy_summary_label.text = "当前挑战已经锁定，开始战斗后会正式锁定敌方阵容。"
+		enemy_hint_label.text = "如果你刚刚准备过同一场战斗，这里会直接回显敌方数量和主要目标。"
+
+		var empty_monsters := Label.new()
+		empty_monsters.text = "点击“开始战斗”后，这里会展示敌方数量、波次和主要目标。"
+		empty_monsters.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty_monsters.modulate = CARD_TEXT_MUTED
+		monster_rows_box.add_child(empty_monsters)
+		return
+
 	var wave_numbers: Dictionary = {}
 	var boss_count := 0
-
-	for key in [
-		{"label": "攻击", "value": stats_data.get("attack", "-")},
-		{"label": "生命", "value": stats_data.get("hp", "-")},
-		{"label": "物防", "value": stats_data.get("physical_defense", "-")},
-		{"label": "法防", "value": stats_data.get("magic_defense", "-")},
-		{"label": "法力", "value": stats_data.get("mana", "-")},
-		{"label": "攻速", "value": stats_data.get("attack_speed", "-")},
-	]:
-		var row := Label.new()
-		row.text = "%s：%s" % [str(key.get("label", "")), str(key.get("value", "-"))]
-		stat_rows_box.add_child(row)
-
 	for monster in monster_list:
 		var entry: Dictionary = monster if typeof(monster) == TYPE_DICTIONARY else {}
 		wave_numbers[int(entry.get("wave_no", 1))] = true
@@ -293,12 +375,59 @@ func show_prepare_summary(payload: Dictionary) -> void:
 		wave_numbers.size(),
 		boss_count,
 	]
-	technical_note_label.text = "本次出战信息已经锁定；完整上下文编号和返回体仍保留在技术详情里。"
-	set_summary_text("出战确认完成 | 敌方 %d 名 | 难度 %s" % [
-		monster_list.size(),
-		str(stage_difficulty_data.get("difficulty_name", stage_difficulty_data.get("stage_difficulty_id", ""))),
-	])
-	set_output_json(payload)
+	if boss_count > 0:
+		enemy_hint_label.text = "这一场会遇到首领目标，建议确认当前角色状态后再开打。"
+	else:
+		enemy_hint_label.text = "当前阵容以普通敌人为主，开始战斗后会立即进入正式战场。"
+
+
+func _refresh_reward_summary() -> void:
+	reward_status_label.text = _format_reward_status(_reward_status)
+	if _reward_status.is_empty():
+		reward_detail_label.text = "首通奖励状态会跟着当前难度自动同步。"
+	else:
+		reward_detail_label.text = "当前难度的奖励状态已经同步，开始战斗后会在结果页正式回显。"
+
+	clear_container(reward_tag_row)
+	reward_tag_row.add_child(create_pill(_reward_tag_text(_reward_status), REWARD_TINT if int(_reward_status.get("has_reward", 0)) == 1 else CHARACTER_TINT))
+
+
+func _refresh_action_area() -> void:
+	var has_character := not _character_context.is_empty()
+	var has_difficulty := not str(_route_context.get("stage_difficulty_id", "")).is_empty()
+	var is_active := int(_character_context.get("is_active", 0)) == 1
+	var can_start := has_character and has_difficulty and is_active
+
+	if not has_character:
+		action_status_label.text = "先确认当前角色，再开始战斗。"
+	elif not has_difficulty:
+		action_status_label.text = "先回主线锁定难度，再开始战斗。"
+	elif not is_active:
+		action_status_label.text = "当前角色还没启用，先激活后就能开始战斗。"
+	else:
+		action_status_label.text = "当前角色和目标都已锁定，可以直接开始战斗。"
+
+	primary_prepare_button.disabled = not can_start
+	activate_button.visible = has_character and not is_active
+	activate_button.disabled = not has_character or is_active
+	back_stage_button.disabled = false
+
+
+func _matched_prepare_payload() -> Dictionary:
+	if _prepare_payload.is_empty():
+		return {}
+
+	var prepared_character := _as_dictionary(_prepare_payload.get("character", {}))
+	var prepared_stage_difficulty := _as_dictionary(_prepare_payload.get("stage_difficulty", {}))
+	var expected_character_id := get_character_id_text()
+	var expected_stage_difficulty_id := str(_route_context.get("stage_difficulty_id", get_stage_difficulty_text())).strip_edges()
+
+	if not expected_character_id.is_empty() and normalize_id_string(prepared_character.get("character_id", "")) != normalize_id_string(expected_character_id):
+		return {}
+	if not expected_stage_difficulty_id.is_empty() and str(prepared_stage_difficulty.get("stage_difficulty_id", "")).strip_edges() != expected_stage_difficulty_id:
+		return {}
+
+	return _prepare_payload
 
 
 func _build_monster_card(entry: Dictionary) -> PanelContainer:
@@ -349,22 +478,58 @@ func _build_monster_card(entry: Dictionary) -> PanelContainer:
 
 func _format_reward_status(reward_status: Dictionary) -> String:
 	if reward_status.is_empty():
-		return "首通奖励状态：正在等待主线页同步。"
+		return "当前奖励状态会在难度锁定后自动同步。"
 	if int(reward_status.get("has_reward", 0)) == 0:
-		return "首通奖励状态：这个难度没有首通奖励，正常推进即可。"
+		return "当前难度没有首通奖励，放心继续推进即可。"
 	if int(reward_status.get("has_granted", 0)) == 1:
-		return "首通奖励状态：已经领过，本次重点看掉落与入包，不会重复新增。"
-	return "首通奖励状态：首次通关后会在结算页展示。"
+		return "当前难度的首通奖励已经领过，这一场不会重复新增。"
+	return "当前难度还有首通奖励待领取。"
 
 
 func _reward_tag_text(reward_status: Dictionary) -> String:
 	if reward_status.is_empty():
-		return "奖励待同步"
+		return "待同步"
 	if int(reward_status.get("has_reward", 0)) == 0:
-		return "无首通奖励"
+		return "无新增"
 	if int(reward_status.get("has_granted", 0)) == 1:
-		return "首通已领"
-	return "首通未领"
+		return "已领取"
+	return "可领取"
+
+
+func _character_title(character: Dictionary) -> String:
+	return "%s  #%s" % [
+		str(character.get("character_name", "角色")),
+		normalize_id_string(character.get("character_id", "")),
+	]
+
+
+func _move_secondary_sections_to_bottom() -> void:
+	var output_panel := _resolve_card_panel(_output_toggle)
+	if output_panel != null and output_panel.get_parent() == _body:
+		_body.move_child(output_panel, _body.get_child_count() - 1)
+
+	var status_panel := _resolve_card_panel(_state_badge_row)
+	if status_panel != null and status_panel.get_parent() == _shell:
+		_shell.move_child(status_panel, _shell.get_child_count() - 1)
+
+
+func _resolve_card_panel(control: Control) -> Control:
+	if control == null:
+		return null
+	var parent := control.get_parent()
+	if parent == null or parent.get_parent() == null or parent.get_parent().get_parent() == null:
+		return null
+	return parent.get_parent().get_parent()
+
+
+func _as_dictionary(value: Variant) -> Dictionary:
+	if typeof(value) == TYPE_DICTIONARY:
+		return value
+	return {}
+
+
+func _as_array(value: Variant) -> Array:
+	return value if typeof(value) == TYPE_ARRAY else []
 
 
 func _on_override_toggled(pressed: bool) -> void:
