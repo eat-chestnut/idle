@@ -59,6 +59,7 @@ var has_loaded_character_list := false
 var has_loaded_stages := false
 var has_loaded_difficulties := false
 var _is_applying_config := false
+var _stage_auto_sync_in_flight := false
 
 
 func _ready() -> void:
@@ -168,6 +169,7 @@ func _build_ui() -> void:
 	tab_container = TabContainer.new()
 	tab_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tab_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tab_container.tab_changed.connect(_on_tab_changed)
 	shell.add_child(tab_container)
 
 	config_page = ConfigPageScript.new()
@@ -221,8 +223,8 @@ func _set_initial_states() -> void:
 	equipment_page.set_page_state("empty", "先确认当前角色，再刷新穿戴槽。")
 	equipment_page.set_output_text("等待穿戴槽刷新。")
 
-	stage_page.set_page_state("empty", "先进入主线页读取章节。")
-	stage_page.set_output_text("等待章节、关卡和难度请求。")
+	stage_page.set_page_state("empty", "进入主线后，会自动展开当前可推进章节。")
+	stage_page.set_output_text("等待章节、关卡、难度与首通奖励状态回读。")
 
 	prepare_page.set_page_state("empty", "先确认出战角色和目标难度，再开始战斗。")
 	prepare_page.set_output_text("等待出战确认。")
@@ -244,8 +246,13 @@ func _refresh_runtime_config_snapshot() -> void:
 	saved_config["character_name"] = create_payload.get("character_name", "")
 	saved_config["character_id"] = character_page.get_character_id_text()
 	saved_config["battle_character_id"] = prepare_page.get_character_id_text()
+	saved_config["chapter_id"] = stage_page.get_selected_chapter_id()
 	saved_config["stage_id"] = stage_page.get_stage_id_text()
-	saved_config["stage_difficulty_id"] = prepare_page.get_stage_difficulty_text()
+	saved_config["stage_difficulty_id"] = (
+		prepare_page.get_stage_difficulty_text()
+		if not prepare_page.get_stage_difficulty_text().is_empty()
+		else stage_page.get_selected_stage_difficulty()
+	)
 
 	api.update_credentials(saved_config.get("base_url", ""), saved_config.get("bearer_token", ""))
 
@@ -494,9 +501,13 @@ func _refresh_flow_summary() -> void:
 	var config_values: Dictionary = config_page.get_config_values()
 	var detail_character = _describe_character(character_page.get_character_id_text())
 	var battle_character = _describe_character(prepare_page.get_character_id_text())
-	var chapter_id = stage_page.get_selected_chapter_id()
-	var stage_id = stage_page.get_stage_id_text()
-	var stage_difficulty_id = prepare_page.get_stage_difficulty_text()
+	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
+	var chapter_id := str(route_context.get("chapter_id", "")).strip_edges()
+	var stage_id := str(route_context.get("stage_id", "")).strip_edges()
+	var stage_difficulty_id := str(route_context.get("stage_difficulty_id", "")).strip_edges()
+	var chapter_name := str(route_context.get("chapter_name", "章节待选择"))
+	var stage_name := str(route_context.get("stage_name", "关卡待选择"))
+	var difficulty_name := str(route_context.get("difficulty_name", "难度待选择"))
 	var battle_context_id = settle_page.get_battle_context_text()
 	var next_step = "先在“环境与 Token”页完成 /readyz 预检。"
 
@@ -521,17 +532,17 @@ func _refresh_flow_summary() -> void:
 
 	var lines := [
 		"正式主流程：1 角色主页 -> 2 背包/穿戴 -> 3 主线推进 -> 4 出战确认 -> 5 战斗 -> 6 结果页",
-		"当前主路径：详情角色 %s | 出战角色 %s | chapter_id=%s | stage_id=%s | stage_difficulty_id=%s" % [
+		"当前推进：详情角色 %s | 出战角色 %s | 主线 %s / %s / %s" % [
 			detail_character,
 			battle_character,
-			chapter_id if not chapter_id.is_empty() else "(未选择)",
-			stage_id if not stage_id.is_empty() else "(未填写)",
-			stage_difficulty_id if not stage_difficulty_id.is_empty() else "(未填写)",
+			chapter_name,
+			stage_name,
+			difficulty_name,
 		],
 	]
 
 	if not battle_context_id.is_empty():
-		lines.append("当前 battle_context_id：%s（已从 Prepare 承接到战斗/结算）" % battle_context_id)
+		lines.append("当前战斗上下文已承接，可继续推进战斗和结算。")
 
 	lines.append("下一步建议：%s" % next_step)
 
@@ -651,6 +662,61 @@ func _refresh_product_pages() -> void:
 
 func _set_current_tab(page_key: String) -> void:
 	tab_container.current_tab = int(page_indices.get(page_key, 0))
+
+
+func _on_tab_changed(index: int) -> void:
+	if index == int(page_indices.get(STAGE_PAGE, -1)):
+		_auto_sync_stage_page_if_needed()
+
+
+func _can_auto_sync_stage_page() -> bool:
+	var config_values: Dictionary = config_page.get_config_values()
+	return (
+		not str(config_values.get("base_url", "")).strip_edges().is_empty()
+		and not str(config_values.get("bearer_token", "")).strip_edges().is_empty()
+	)
+
+
+func _reward_status_matches_selected_difficulty() -> bool:
+	var selected_stage_difficulty_id: String = stage_page.get_selected_stage_difficulty()
+	if selected_stage_difficulty_id.is_empty() or current_reward_status.is_empty():
+		return false
+
+	return str(current_reward_status.get("source_id", "")).strip_edges() == selected_stage_difficulty_id
+
+
+func _auto_sync_stage_page_if_needed() -> void:
+	if _stage_auto_sync_in_flight or not _can_auto_sync_stage_page():
+		return
+
+	_stage_auto_sync_in_flight = true
+	await _ensure_stage_page_progression()
+	_stage_auto_sync_in_flight = false
+
+
+func _ensure_stage_page_progression() -> void:
+	if _as_array(current_chapters.get("chapters", [])).is_empty():
+		await _on_load_chapters_pressed()
+		return
+
+	if (
+		stage_page.get_selected_chapter_id().is_empty()
+		or str(current_stages.get("chapter_id", "")).strip_edges() != stage_page.get_selected_chapter_id()
+		or (not has_loaded_stages and _as_array(current_stages.get("stages", [])).is_empty())
+	):
+		await _on_load_stages_pressed(stage_page.get_selected_chapter_id())
+		return
+
+	if (
+		stage_page.get_stage_id_text().is_empty()
+		or str(current_difficulties.get("stage_id", "")).strip_edges() != stage_page.get_stage_id_text()
+		or (not has_loaded_difficulties and _as_array(current_difficulties.get("difficulties", [])).is_empty())
+	):
+		await _on_load_difficulties_pressed()
+		return
+
+	if not stage_page.get_selected_stage_difficulty().is_empty() and not _reward_status_matches_selected_difficulty():
+		await _on_refresh_reward_status_pressed(false)
 
 
 func _focus_on_auth() -> void:
@@ -1351,9 +1417,18 @@ func _on_load_chapters_pressed() -> void:
 		current_stages = {}
 		current_difficulties = {}
 		current_reward_status = {}
+		stage_page.set_selected_chapter_id("")
+		stage_page.render_stages(current_stages)
+		stage_page.set_selected_stage_difficulty("")
+		prepare_page.set_stage_difficulty_id("")
+		settle_page.set_stage_difficulty_id("")
 		stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
-		stage_page.set_page_state("empty", "当前没有章节数据。")
+		stage_page.set_page_state("empty", "山海路暂时还没有开放章节。")
 		stage_page.set_stage_summary(0, 0, 0, current_reward_status)
+		_persist_runtime_config()
+		_refresh_recent_selectors()
+		_refresh_product_pages()
+		_refresh_flow_summary()
 		return
 
 	await _on_load_stages_pressed(stage_page.get_selected_chapter_id())
@@ -1365,7 +1440,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 		chapter_id_value = stage_page.get_selected_chapter_id()
 
 	if chapter_id_value.is_empty():
-		stage_page.set_page_state("error", "请先选择 chapter_id。")
+		stage_page.set_page_state("error", "先选一个可推进章节。")
 		return
 
 	_persist_runtime_config()
@@ -1383,6 +1458,8 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	has_loaded_difficulties = false
 	current_difficulties = {}
 	current_reward_status = {}
+	prepare_page.set_stage_difficulty_id("")
+	settle_page.set_stage_difficulty_id("")
 	stage_page.render_stages(data)
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
@@ -1393,20 +1470,23 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	)
 
 	if _as_array(data.get("stages", [])).is_empty():
-		stage_page.set_page_state("empty", "当前章节没有关卡数据。")
+		stage_page.set_page_state("empty", "这一章节暂时还没有可推进的关卡。")
 	else:
-		stage_page.set_page_state("success", "关卡列表已加载，选择关卡后会自动读取难度列表。")
+		stage_page.set_page_state("success", "当前章节已经展开，正在同步可选难度。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_product_pages()
 	_refresh_flow_summary()
 
+	if not _as_array(data.get("stages", [])).is_empty():
+		await _on_load_difficulties_pressed()
+
 
 func _on_load_difficulties_pressed() -> void:
 	var stage_id_value = stage_page.get_stage_id_text()
 	if stage_id_value.is_empty():
-		stage_page.set_page_state("error", "请先填写 stage_id。")
+		stage_page.set_page_state("error", "先选一个关卡。")
 		return
 
 	_persist_runtime_config()
@@ -1429,14 +1509,18 @@ func _on_load_difficulties_pressed() -> void:
 		current_reward_status
 	)
 	_remember_stage_id(stage_id_value)
+	var selected_stage_difficulty_id: String = stage_page.get_selected_stage_difficulty()
+	if not selected_stage_difficulty_id.is_empty():
+		prepare_page.set_stage_difficulty_id(selected_stage_difficulty_id)
+		settle_page.set_stage_difficulty_id(selected_stage_difficulty_id)
+		_remember_stage_difficulty_id(selected_stage_difficulty_id)
 
 	if _as_array(data.get("difficulties", [])).is_empty():
-		stage_page.set_page_state("empty", "当前没有难度数据。")
+		stage_page.set_page_state("empty", "这个关卡暂时还没有开放难度。")
 	else:
-		stage_page.set_page_state(
-			"success",
-			"难度列表已加载，选中后会自动带去出战确认。"
-		)
+		var reward_loaded := await _on_refresh_reward_status_pressed(false)
+		if reward_loaded:
+			stage_page.set_page_state("success", "当前关卡的难度已经展开，挑好后就能直接出战。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1457,13 +1541,13 @@ func _on_stage_selected(metadata: Dictionary) -> void:
 	await _on_load_difficulties_pressed()
 
 
-func _on_refresh_reward_status_pressed() -> bool:
+func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> bool:
 	var stage_difficulty_id_value = stage_page.get_selected_stage_difficulty()
 	if stage_difficulty_id_value.is_empty():
 		stage_difficulty_id_value = prepare_page.get_stage_difficulty_text()
 
 	if stage_difficulty_id_value.is_empty():
-		stage_page.set_page_state("error", "请先选择或读取 stage_difficulty_id。")
+		stage_page.set_page_state("error", "先选一档难度。")
 		return false
 
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
@@ -1493,15 +1577,16 @@ func _on_refresh_reward_status_pressed() -> bool:
 	elif int(current_reward_status.get("has_reward", 0)) == 1:
 		reward_status_text = "首通奖励待领取"
 
-	if str(current_reward_status.get("grant_status", "")).is_empty():
-		stage_page.set_page_state("success", "首通奖励状态已刷新：%s。" % reward_status_text)
-	else:
-		stage_page.set_page_state(
-			"success",
-			"首通奖励状态已刷新：%s。完整状态明细已写入技术详情。" % [
-				reward_status_text,
-			]
-		)
+	if show_success_message:
+		if str(current_reward_status.get("grant_status", "")).is_empty():
+			stage_page.set_page_state("success", "首通奖励状态已刷新：%s。" % reward_status_text)
+		else:
+			stage_page.set_page_state(
+				"success",
+				"首通奖励状态已刷新：%s。完整状态明细已写入技术详情。" % [
+					reward_status_text,
+				]
+			)
 
 	return true
 
@@ -1519,7 +1604,7 @@ func _on_difficulty_selected(metadata: Dictionary) -> void:
 	_refresh_recent_selectors()
 	_refresh_product_pages()
 	_refresh_flow_summary()
-	var reward_loaded := await _on_refresh_reward_status_pressed()
+	var reward_loaded := await _on_refresh_reward_status_pressed(false)
 	if not reward_loaded:
 		return
 
