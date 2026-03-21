@@ -7,6 +7,7 @@ const SMOKE_LOG_PREFIX := "[client-online-smoke]"
 const DEFAULT_BASE_URL := "http://127.0.0.1:8000"
 const DEFAULT_BEARER_TOKEN := "test-token-2001"
 const DEFAULT_SMOKE_CLASS_ID := "class_jingang"
+const READY_PROFILE := "interop"
 const EXIT_SUCCESS := 0
 const EXIT_FAILURE := 1
 const EXIT_USAGE := 2
@@ -166,58 +167,32 @@ func _activate_character(api, character_id: int) -> Dictionary:
 func _load_stage_target(api) -> Dictionary:
 	# Pick the first backend-provided chapter/stage/difficulty instead of
 	# inventing any local ordering or synthetic smoke fixture.
-	var chapters_result: Dictionary = await api.request_json("GET", "/api/chapters")
-	if not chapters_result.get("ok", false):
-		_fail("chapters.list", chapters_result)
-		return {}
-
-	var chapters := _as_array(_as_dictionary(chapters_result.get("data", {})).get("chapters", []))
-	var chapter_id := _first_identifier(chapters, "chapter_id", "chapters")
+	var chapter_id := await _load_first_chapter_id(api)
 	if chapter_id.is_empty():
 		return {}
 
-	var stages_result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id)
-	if not stages_result.get("ok", false):
-		_fail("stages.list", stages_result)
-		return {}
-
-	var stages := _as_array(_as_dictionary(stages_result.get("data", {})).get("stages", []))
-	var stage_id := _first_identifier(stages, "stage_id", "stages")
+	var stage_id := await _load_first_stage_id(api, chapter_id)
 	if stage_id.is_empty():
 		return {}
 
-	var difficulties_result: Dictionary = await api.request_json("GET", "/api/stages/%s/difficulties" % stage_id)
-	if not difficulties_result.get("ok", false):
-		_fail("difficulties.list", difficulties_result)
-		return {}
-
-	var difficulties := _as_array(_as_dictionary(difficulties_result.get("data", {})).get("difficulties", []))
-	var stage_difficulty_id := _first_identifier(
-		difficulties,
-		"stage_difficulty_id",
-		"difficulties"
-	)
+	var stage_difficulty_id := await _load_first_stage_difficulty_id(api, stage_id)
 	if stage_difficulty_id.is_empty():
 		return {}
 
-	var reward_status_before_result: Dictionary = await api.request_json(
-		"GET",
-		"/api/stage-difficulties/%s/first-clear-reward-status" % stage_difficulty_id
-	)
-	if not reward_status_before_result.get("ok", false):
-		_fail("reward_status.before", reward_status_before_result)
+	var reward_status_before := await _load_reward_status_before(api, stage_difficulty_id)
+	if reward_status_before.is_empty():
 		return {}
 
 	return {
 		"chapter_id": chapter_id,
 		"stage_id": stage_id,
 		"stage_difficulty_id": stage_difficulty_id,
-		"reward_status_before": _as_dictionary(reward_status_before_result.get("data", {})),
+		"reward_status_before": reward_status_before,
 	}
 
 
 func _ensure_ready(api) -> bool:
-	var ready_result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": "interop"})
+	var ready_result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": READY_PROFILE})
 	if not ready_result.get("ok", false):
 		_fail("readyz", ready_result)
 		return false
@@ -301,6 +276,48 @@ func _build_smoke_character_name() -> String:
 	var timestamp := Time.get_datetime_string_from_system(false, true)
 	var normalized_timestamp := timestamp.replace(":", "").replace("-", "").replace(" ", "_")
 	return "smoke_%s" % normalized_timestamp
+
+
+func _load_first_chapter_id(api) -> String:
+	var chapters_result: Dictionary = await api.request_json("GET", "/api/chapters")
+	if not chapters_result.get("ok", false):
+		_fail("chapters.list", chapters_result)
+		return ""
+
+	var chapters := _as_array(_as_dictionary(chapters_result.get("data", {})).get("chapters", []))
+	return _first_identifier(chapters, "chapter_id", "chapters")
+
+
+func _load_first_stage_id(api, chapter_id: String) -> String:
+	var stages_result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id)
+	if not stages_result.get("ok", false):
+		_fail("stages.list", stages_result)
+		return ""
+
+	var stages := _as_array(_as_dictionary(stages_result.get("data", {})).get("stages", []))
+	return _first_identifier(stages, "stage_id", "stages")
+
+
+func _load_first_stage_difficulty_id(api, stage_id: String) -> String:
+	var difficulties_result: Dictionary = await api.request_json("GET", "/api/stages/%s/difficulties" % stage_id)
+	if not difficulties_result.get("ok", false):
+		_fail("difficulties.list", difficulties_result)
+		return ""
+
+	var difficulties := _as_array(_as_dictionary(difficulties_result.get("data", {})).get("difficulties", []))
+	return _first_identifier(difficulties, "stage_difficulty_id", "difficulties")
+
+
+func _load_reward_status_before(api, stage_difficulty_id: String) -> Dictionary:
+	var reward_status_before_result: Dictionary = await api.request_json(
+		"GET",
+		"/api/stage-difficulties/%s/first-clear-reward-status" % stage_difficulty_id
+	)
+	if not reward_status_before_result.get("ok", false):
+		_fail("reward_status.before", reward_status_before_result)
+		return {}
+
+	return _as_dictionary(reward_status_before_result.get("data", {}))
 
 
 func _first_identifier(records: Array, field_name: String, label: String) -> String:

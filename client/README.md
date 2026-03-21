@@ -199,6 +199,23 @@ merge gate 固定执行以下步骤：
 - 临时启动的 backend 日志会写到 `backend/storage/logs/client-merge-gate-server.log`
 - 第 5 步是“真实 backend 在线 + 客户端 API 层”的等价 smoke，不等于 GUI 窗口逐页联调
 
+## 如何核查提交态 raw 内容
+
+如果团队要确认“脚本是否真的已经收成正常多行文本”，不要只看 IDE 视觉或工作区文件，直接核查提交态：
+
+```bash
+git show HEAD:client/phase-one-merge-gate.sh | wc -l
+git show HEAD:client/scripts/phase_one_online_smoke.gd | wc -l
+git show HEAD:client/README.md | wc -l
+git show HEAD:'client/合并前检查清单.md' | wc -l
+```
+
+推荐口径：
+
+- 先看 `HEAD` 提交态，不只看工作区
+- 如需确认远端分支，也可追加 `origin/codex/phase-one-client-round2:...`
+- 若 raw 内容重新退回极少行或压缩态，应直接视为新的合并阻塞项
+
 ## 最终合并检查前推荐执行顺序
 
 如果要进入“合并回 `main` 前最终检查”，建议从仓库根目录按以下顺序重跑：
