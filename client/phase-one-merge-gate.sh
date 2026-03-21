@@ -22,9 +22,37 @@ STARTED_SERVER=0
 SERVER_PID=""
 SERVER_LOG="${BACKEND_DIR}/storage/logs/client-merge-gate-server.log"
 
+usage() {
+  cat <<'EOF'
+Usage:
+  ./client/phase-one-merge-gate.sh
+
+Optional environment overrides:
+  BACKEND_URL=http://127.0.0.1:8000
+  BEARER_TOKEN=test-token-2001
+  MERGE_GATE_HOST=127.0.0.1
+  MERGE_GATE_PORT=8000
+  GODOT_BIN=godot
+  PHP_BIN=php
+  COMPOSER_BIN=composer
+
+The script runs, in order:
+  1. backend phase-one interop diagnose
+  2. backend contract drift guard
+  3. Godot project boot smoke
+  4. Godot main-scene headless smoke
+  5. client online smoke against the real backend
+  6. backend phase-one acceptance suite
+EOF
+}
+
+log_step() {
+  echo "[client-merge-gate] $1"
+}
+
 ensure_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "[client-merge-gate] missing command: $1" >&2
+    log_step "missing command: $1" >&2
     exit 1
   fi
 }
@@ -59,17 +87,17 @@ wait_for_backend() {
     sleep 1
   done
 
-  echo "[client-merge-gate] backend did not become ready at ${BACKEND_URL}" >&2
+  log_step "backend did not become ready at ${BACKEND_URL}" >&2
   return 1
 }
 
 start_backend_if_needed() {
   if curl -fsS "${BACKEND_URL}/up" >/dev/null 2>&1; then
-    echo "[client-merge-gate] backend already online at ${BACKEND_URL}"
+    log_step "backend already online at ${BACKEND_URL}"
     return 0
   fi
 
-  echo "[client-merge-gate] starting backend at ${BACKEND_URL}"
+  log_step "starting backend at ${BACKEND_URL}"
   (
     cd "${BACKEND_DIR}"
     "${PHP_BIN}" artisan serve --host="${MERGE_GATE_HOST}" --port="${MERGE_GATE_PORT}" \
@@ -84,40 +112,49 @@ start_backend_if_needed() {
   wait_for_backend
 }
 
-trap cleanup EXIT
+main() {
+  if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+    return 0
+  fi
 
-ensure_command curl
-ensure_command "${GODOT_BIN}"
-ensure_command "${PHP_BIN}"
-ensure_command "${COMPOSER_BIN}"
+  trap cleanup EXIT
 
-echo "[client-merge-gate] repo=${REPO_ROOT}"
-echo "[client-merge-gate] backend_url=${BACKEND_URL}"
+  ensure_command curl
+  ensure_command "${GODOT_BIN}"
+  ensure_command "${PHP_BIN}"
+  ensure_command "${COMPOSER_BIN}"
 
-echo "[client-merge-gate] backend interop diagnose"
-run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
+  log_step "repo=${REPO_ROOT}"
+  log_step "backend_url=${BACKEND_URL}"
 
-echo "[client-merge-gate] backend contract drift"
-run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
+  log_step "backend interop diagnose"
+  run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
 
-echo "[client-merge-gate] client project boot smoke"
-run_godot_command --quit
+  log_step "backend contract drift"
+  run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
 
-echo "[client-merge-gate] client main scene smoke"
-run_godot_command --scene "${MAIN_SCENE}" --quit-after 1
+  log_step "client project boot smoke"
+  run_godot_command --quit
 
-start_backend_if_needed
+  log_step "client main scene smoke"
+  run_godot_command --scene "${MAIN_SCENE}" --quit-after 1
 
-echo "[client-merge-gate] client online smoke"
-run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
-  --base-url="${BACKEND_URL}" \
-  --bearer-token="${BEARER_TOKEN}"
+  start_backend_if_needed
 
-cleanup
-STARTED_SERVER=0
-SERVER_PID=""
+  log_step "client online smoke"
+  run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
+    --base-url="${BACKEND_URL}" \
+    --bearer-token="${BEARER_TOKEN}"
 
-echo "[client-merge-gate] backend acceptance"
-run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
+  cleanup
+  STARTED_SERVER=0
+  SERVER_PID=""
 
-echo "[client-merge-gate] success"
+  log_step "backend acceptance"
+  run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
+
+  log_step "success"
+}
+
+main "$@"
