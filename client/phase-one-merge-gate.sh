@@ -48,6 +48,11 @@ The script runs, in order:
   5. client online smoke against the real backend
   6. backend phase-one acceptance suite
 
+Not covered by this script:
+  - standalone acceptance diagnose re-check
+  - non-headless GUI walkthrough
+  - git commit / push
+
 Useful follow-up checks:
   git show HEAD:client/phase-one-merge-gate.sh | wc -l
   git show HEAD:client/scripts/phase_one_online_smoke.gd | wc -l
@@ -71,6 +76,11 @@ print_runtime_context() {
   log_step "backend_url=${BACKEND_URL}"
   log_step "godot_bin=${GODOT_BIN}"
   log_step "server_log=${SERVER_LOG}"
+}
+
+print_scope_notes() {
+  log_step "coverage=headless boot + main scene + online smoke + backend acceptance"
+  log_step "follow_up_required=acceptance diagnose re-check + GUI walkthrough"
 }
 
 ensure_command() {
@@ -127,6 +137,11 @@ run_client_online_smoke() {
     --bearer-token="${BEARER_TOKEN}"
 }
 
+run_client_headless_checks() {
+  run_step "client project boot smoke" run_client_project_boot_smoke
+  run_step "client main scene smoke" run_client_main_scene_smoke
+}
+
 run_backend_interop_diagnose() {
   run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
 }
@@ -137,6 +152,11 @@ run_backend_contract_drift_check() {
 
 run_backend_acceptance_suite() {
   run_backend_command "${COMPOSER_BIN}" phase-one:acceptance
+}
+
+run_backend_gate_checks() {
+  run_step "backend interop diagnose" run_backend_interop_diagnose
+  run_step "backend contract drift" run_backend_contract_drift_check
 }
 
 wait_for_backend() {
@@ -186,14 +206,10 @@ main() {
   require_runtime_commands
 
   print_runtime_context
+  print_scope_notes
 
-  run_step "backend interop diagnose" run_backend_interop_diagnose
-
-  run_step "backend contract drift" run_backend_contract_drift_check
-
-  run_step "client project boot smoke" run_client_project_boot_smoke
-
-  run_step "client main scene smoke" run_client_main_scene_smoke
+  run_backend_gate_checks
+  run_client_headless_checks
 
   start_backend_if_needed
 

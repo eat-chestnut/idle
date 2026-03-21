@@ -11,6 +11,15 @@
 - 不复制后端掉落 / 奖励 / battle_context 规则
 - 不用客户端默认值替代真实角色、真实关卡、真实奖励状态
 
+## 当前真实基线
+
+当前真实仓库下，这 4 个关键文件在 `HEAD` 与 `origin/codex/phase-one-client-round2` 提交态里都已经是正常多行文本。
+因此，本轮不是“把单行压缩稿恢复成可读文件”，而是在已恢复的基线上继续完成：
+
+- 脚本入口说明与函数边界收口
+- 交接文档与执行清单收口
+- 合并前最终检查所需的验证顺序收口
+
 ## 这条分支解决了什么
 
 相对 `main`，`codex/phase-one-client-round2` 已经把以下客户端主链收口到真实 backend：
@@ -208,6 +217,7 @@ merge gate 固定执行以下步骤：
 - 如果 `BACKEND_URL` 不在线，merge gate 会临时启动 `php ./backend/artisan serve`
 - 临时启动的 backend 日志会写到 `backend/storage/logs/client-merge-gate-server.log`
 - 第 5 步是“真实 backend 在线 + 客户端 API 层”的等价 smoke，不等于 GUI 窗口逐页联调
+- merge gate 本身不代替单独的 `acceptance diagnose` 复核，也不代替最终 `git commit / push`
 
 ## 如何核查提交态 raw 内容
 
@@ -253,6 +263,8 @@ godot --headless --path . \
   --script ./client/scripts/phase_one_online_smoke.gd -- \
   --base-url=http://127.0.0.1:8000 \
   --bearer-token=test-token-2001
+git show HEAD:client/phase-one-merge-gate.sh | wc -l
+git show HEAD:client/scripts/phase_one_online_smoke.gd | wc -l
 ```
 
 执行口径：
@@ -262,6 +274,8 @@ godot --headless --path . \
 - `contract drift check` 用于确认 README / OpenAPI / 真实接口没有继续漂移
 - `phase-one:acceptance` 用于确认 backend 正式验收集仍然通过
 - headless online smoke 用于单独复核“真实 backend + client API 层”的最小主链
+- raw 行数检查用于确认提交态里两个关键脚本没有重新退回压缩态
+- 若本轮改到了客户端运行逻辑，还应追加一次非 headless GUI 联调，不要只依赖上面的 headless 结果
 
 ## 在线 smoke 覆盖内容
 
@@ -315,6 +329,16 @@ godot --headless --path . \
 - “未领取 -> 已领取”的首通奖励过渡仍以 backend acceptance / smoke tests 为最终真相
 - 当前 phase-one 仍不包含强化、洗练、宝石、套装、经卷、world level、商店、活动等未来系统
 - README 与检查清单中的历史验证快照只用于交接参考，不替代当前轮重新执行的真实结果
+
+## 是否已经可以进入最终合并检查
+
+本 README 只负责说明当前客户端如何联调、如何复跑和如何判断边界，不直接替代最终合并结论。
+是否已经可以进入“合并回 `main` 前最终检查”，必须同时满足：
+
+- `client/合并前检查清单.md` 的本轮复核结果为“当前阻塞合并项：无”
+- 本轮真实验证命令全部重跑通过
+- 本轮 `git commit` 与 `git push` 已完成
+- 若改到了客户端运行逻辑，GUI 联调结论也已补齐
 
 ## 合并前看哪里
 
