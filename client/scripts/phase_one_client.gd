@@ -224,7 +224,7 @@ func _set_initial_states() -> void:
 	equipment_page.set_page_state("empty", "先确认当前角色，再刷新穿戴槽。")
 	equipment_page.set_output_text("等待穿戴槽刷新。")
 
-	stage_page.set_page_state("empty", "进入主线后，会自动展开当前可推进章节。")
+	stage_page.set_page_state("empty", "进入主线后，会自动展开当前章节和可挑战关卡。")
 	stage_page.set_output_text("等待章节、关卡、难度与首通奖励状态回读。")
 
 	prepare_page.set_page_state("empty", "先确认出战角色和目标难度，再开始战斗。")
@@ -996,6 +996,8 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 				_open_stage_from_settle()
 			else:
 				_set_current_tab(STAGE_PAGE)
+		"navigate_prepare":
+			_set_current_tab(PREPARE_PAGE)
 		"load_inventory":
 			await _on_load_inventory_pressed()
 		"inventory_equipment_selected":
@@ -1471,7 +1473,7 @@ func _on_unequip_pressed() -> void:
 
 func _on_load_chapters_pressed() -> void:
 	_persist_runtime_config()
-	stage_page.set_page_state("loading", "正在读取章节列表。")
+	stage_page.set_page_state("loading", "正在展开当前可推进章节。")
 	var result: Dictionary = await api.request_json("GET", "/api/chapters")
 
 	if not result.get("ok", false):
@@ -1511,12 +1513,12 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 		chapter_id_value = stage_page.get_selected_chapter_id()
 
 	if chapter_id_value.is_empty():
-		stage_page.set_page_state("error", "先选一个可推进章节。")
+		stage_page.set_page_state("error", "先锁定一个章节。")
 		return
 
 	_persist_runtime_config()
 	stage_page.set_selected_chapter_id(chapter_id_value)
-	stage_page.set_page_state("loading", "正在读取章节关卡列表。")
+	stage_page.set_page_state("loading", "正在展开当前章节的关卡。")
 	var result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id_value)
 
 	if not result.get("ok", false):
@@ -1543,7 +1545,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	if _as_array(data.get("stages", [])).is_empty():
 		stage_page.set_page_state("empty", "这一章节暂时还没有可推进的关卡。")
 	else:
-		stage_page.set_page_state("success", "当前章节已经展开，正在同步可选难度。")
+		stage_page.set_page_state("success", "当前章节已经展开，可继续选择关卡和难度。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1557,11 +1559,11 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 func _on_load_difficulties_pressed() -> void:
 	var stage_id_value = stage_page.get_stage_id_text()
 	if stage_id_value.is_empty():
-		stage_page.set_page_state("error", "先选一个关卡。")
+		stage_page.set_page_state("error", "先选一关。")
 		return
 
 	_persist_runtime_config()
-	stage_page.set_page_state("loading", "正在读取关卡难度列表。")
+	stage_page.set_page_state("loading", "正在展开当前关卡的难度。")
 	var result: Dictionary = await api.request_json("GET", "/api/stages/%s/difficulties" % stage_id_value)
 
 	if not result.get("ok", false):
@@ -1591,7 +1593,7 @@ func _on_load_difficulties_pressed() -> void:
 	else:
 		var reward_loaded := await _on_refresh_reward_status_pressed(false)
 		if reward_loaded:
-			stage_page.set_page_state("success", "当前关卡的难度已经展开，挑好后就能直接出战。")
+			stage_page.set_page_state("success", "当前关卡的难度已经展开，选好后就能进入出战。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1618,12 +1620,12 @@ func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> boo
 		stage_difficulty_id_value = prepare_page.get_stage_difficulty_text()
 
 	if stage_difficulty_id_value.is_empty():
-		stage_page.set_page_state("error", "先选一档难度。")
+		stage_page.set_page_state("error", "先选一个难度。")
 		return false
 
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	settle_page.set_stage_difficulty_id(stage_difficulty_id_value)
-	stage_page.set_page_state("loading", "正在刷新首通奖励状态。")
+	stage_page.set_page_state("loading", "正在同步当前奖励状态。")
 	var result: Dictionary = await api.request_json(
 		"GET",
 		"/api/stage-difficulties/%s/first-clear-reward-status" % stage_difficulty_id_value
@@ -1650,11 +1652,11 @@ func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> boo
 
 	if show_success_message:
 		if str(current_reward_status.get("grant_status", "")).is_empty():
-			stage_page.set_page_state("success", "首通奖励状态已刷新：%s。" % reward_status_text)
+			stage_page.set_page_state("success", "当前奖励状态已同步：%s。" % reward_status_text)
 		else:
 			stage_page.set_page_state(
 				"success",
-				"首通奖励状态已刷新：%s。完整状态明细已写入技术详情。" % [
+				"当前奖励状态已同步：%s。完整状态明细已写入技术详情。" % [
 					reward_status_text,
 				]
 			)
@@ -1681,9 +1683,8 @@ func _on_difficulty_selected(metadata: Dictionary) -> void:
 
 	stage_page.set_page_state(
 		"success",
-		"难度已锁定，首通奖励状态也同步好了，接下来直接出战。"
+		"难度已锁定，当前奖励状态也同步好了，下一步进入出战。"
 	)
-	_set_current_tab(PREPARE_PAGE)
 
 
 func _on_prepare_pressed() -> void:
