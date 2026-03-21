@@ -3,9 +3,13 @@ extends SceneTree
 # Headless smoke that walks the real phase-one client/backend main path:
 # readyz -> character -> activate -> chapter/stage/difficulty -> prepare -> settle.
 const BackendApi = preload("res://client/scripts/backend_api.gd")
+const SMOKE_LOG_PREFIX := "[client-online-smoke]"
 const DEFAULT_BASE_URL := "http://127.0.0.1:8000"
 const DEFAULT_BEARER_TOKEN := "test-token-2001"
 const DEFAULT_SMOKE_CLASS_ID := "class_jingang"
+const EXIT_SUCCESS := 0
+const EXIT_FAILURE := 1
+const EXIT_USAGE := 2
 
 var _base_url := DEFAULT_BASE_URL
 var _bearer_token := DEFAULT_BEARER_TOKEN
@@ -14,8 +18,8 @@ var _bearer_token := DEFAULT_BEARER_TOKEN
 func _initialize() -> void:
 	var parse_error := _parse_args(OS.get_cmdline_user_args())
 	if not parse_error.is_empty():
-		printerr("[client-online-smoke] %s" % parse_error)
-		quit(2)
+		printerr("%s %s" % [SMOKE_LOG_PREFIX, parse_error])
+		quit(EXIT_USAGE)
 		return
 
 	call_deferred("_run_smoke")
@@ -27,31 +31,33 @@ func _run_smoke() -> void:
 
 
 func _execute_smoke() -> int:
+	# Keep the smoke flow aligned with the player-facing client order so the
+	# output stays useful for merge-gate triage and manual handoff.
 	var api = BackendApi.new(root, _base_url, _bearer_token)
 
 	if not await _ensure_ready(api):
-		return 1
+		return EXIT_FAILURE
 
 	var selected_character := await _select_or_create_character(api)
 	if selected_character.is_empty():
-		return 1
+		return EXIT_FAILURE
 
 	var character_id := int(selected_character.get("character_id", 0))
 	if character_id <= 0:
-		printerr("[client-online-smoke] invalid character_id in selected character payload")
+		printerr("%s invalid character_id in selected character payload" % SMOKE_LOG_PREFIX)
 		_print_json(selected_character)
-		return 1
+		return EXIT_FAILURE
 
 	if (await _activate_character(api, character_id)).is_empty():
-		return 1
+		return EXIT_FAILURE
 
 	var stage_target := await _load_stage_target(api)
 	if stage_target.is_empty():
-		return 1
+		return EXIT_FAILURE
 
 	var prepare_payload := await _prepare_battle(api, character_id, stage_target)
 	if prepare_payload.is_empty():
-		return 1
+		return EXIT_FAILURE
 
 	var settle_data := await _settle_battle(
 		api,
@@ -61,7 +67,7 @@ func _execute_smoke() -> int:
 		_as_array(prepare_payload.get("monster_ids", []))
 	)
 	if settle_data.is_empty():
-		return 1
+		return EXIT_FAILURE
 
 	var summary := _build_success_summary(
 		character_id,
@@ -71,9 +77,9 @@ func _execute_smoke() -> int:
 		settle_data
 	)
 
-	print("[client-online-smoke] success")
+	print("%s success" % SMOKE_LOG_PREFIX)
 	_print_json(summary)
-	return 0
+	return EXIT_SUCCESS
 
 
 func _parse_args(args: Array) -> String:
@@ -128,7 +134,7 @@ func _select_or_create_character(api) -> Dictionary:
 	var create_data := _as_dictionary(create_result.get("data", {}))
 	selected_character = _as_dictionary(create_data.get("character", {}))
 	if selected_character.is_empty():
-		printerr("[client-online-smoke] characters.create returned empty character payload")
+		printerr("%s characters.create returned empty character payload" % SMOKE_LOG_PREFIX)
 
 	return selected_character
 
@@ -150,7 +156,7 @@ func _activate_character(api, character_id: int) -> Dictionary:
 	var characters := _as_array(_as_dictionary(refreshed_list_result.get("data", {})).get("characters", []))
 	var selected_character := _find_character(characters, character_id)
 	if int(selected_character.get("is_active", 0)) != 1:
-		printerr("[client-online-smoke] activate did not leave selected character in active state")
+		printerr("%s activate did not leave selected character in active state" % SMOKE_LOG_PREFIX)
 		_print_json(selected_character)
 		return {}
 
@@ -158,19 +164,16 @@ func _activate_character(api, character_id: int) -> Dictionary:
 
 
 func _load_stage_target(api) -> Dictionary:
+	# Pick the first backend-provided chapter/stage/difficulty instead of
+	# inventing any local ordering or synthetic smoke fixture.
 	var chapters_result: Dictionary = await api.request_json("GET", "/api/chapters")
 	if not chapters_result.get("ok", false):
 		_fail("chapters.list", chapters_result)
 		return {}
 
 	var chapters := _as_array(_as_dictionary(chapters_result.get("data", {})).get("chapters", []))
-	if chapters.is_empty():
-		printerr("[client-online-smoke] chapters list is empty")
-		return {}
-
-	var chapter_id := str(_as_dictionary(chapters[0]).get("chapter_id", "")).strip_edges()
+	var chapter_id := _first_identifier(chapters, "chapter_id", "chapters")
 	if chapter_id.is_empty():
-		printerr("[client-online-smoke] chapter_id is empty")
 		return {}
 
 	var stages_result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id)
@@ -179,13 +182,8 @@ func _load_stage_target(api) -> Dictionary:
 		return {}
 
 	var stages := _as_array(_as_dictionary(stages_result.get("data", {})).get("stages", []))
-	if stages.is_empty():
-		printerr("[client-online-smoke] stages list is empty")
-		return {}
-
-	var stage_id := str(_as_dictionary(stages[0]).get("stage_id", "")).strip_edges()
+	var stage_id := _first_identifier(stages, "stage_id", "stages")
 	if stage_id.is_empty():
-		printerr("[client-online-smoke] stage_id is empty")
 		return {}
 
 	var difficulties_result: Dictionary = await api.request_json("GET", "/api/stages/%s/difficulties" % stage_id)
@@ -194,13 +192,12 @@ func _load_stage_target(api) -> Dictionary:
 		return {}
 
 	var difficulties := _as_array(_as_dictionary(difficulties_result.get("data", {})).get("difficulties", []))
-	if difficulties.is_empty():
-		printerr("[client-online-smoke] difficulties list is empty")
-		return {}
-
-	var stage_difficulty_id := str(_as_dictionary(difficulties[0]).get("stage_difficulty_id", "")).strip_edges()
+	var stage_difficulty_id := _first_identifier(
+		difficulties,
+		"stage_difficulty_id",
+		"difficulties"
+	)
 	if stage_difficulty_id.is_empty():
-		printerr("[client-online-smoke] stage_difficulty_id is empty")
 		return {}
 
 	var reward_status_before_result: Dictionary = await api.request_json(
@@ -227,7 +224,7 @@ func _ensure_ready(api) -> bool:
 
 	var ready_data := _as_dictionary(ready_result.get("data", {}))
 	if not bool(ready_data.get("ready", false)):
-		printerr("[client-online-smoke] readyz returned ready=false")
+		printerr("%s readyz returned ready=false" % SMOKE_LOG_PREFIX)
 		_print_json(ready_data)
 		return false
 
@@ -247,7 +244,7 @@ func _prepare_battle(api, character_id: int, stage_target: Dictionary) -> Dictio
 	var battle_context_id := str(prepare_data.get("battle_context_id", "")).strip_edges()
 	var monster_ids := _extract_monster_ids(prepare_data)
 	if battle_context_id.is_empty() or monster_ids.is_empty():
-		printerr("[client-online-smoke] prepare payload missing battle_context_id or monster_list")
+		printerr("%s prepare payload missing battle_context_id or monster_list" % SMOKE_LOG_PREFIX)
 		_print_json(prepare_data)
 		return {}
 
@@ -306,6 +303,19 @@ func _build_smoke_character_name() -> String:
 	return "smoke_%s" % normalized_timestamp
 
 
+func _first_identifier(records: Array, field_name: String, label: String) -> String:
+	if records.is_empty():
+		printerr("%s %s list is empty" % [SMOKE_LOG_PREFIX, label])
+		return ""
+
+	var identifier := str(_as_dictionary(records[0]).get(field_name, "")).strip_edges()
+	if identifier.is_empty():
+		printerr("%s %s is empty" % [SMOKE_LOG_PREFIX, field_name])
+		return ""
+
+	return identifier
+
+
 func _find_character(records: Array, character_id: int) -> Dictionary:
 	for record in records:
 		var entry := _as_dictionary(record)
@@ -327,7 +337,8 @@ func _extract_monster_ids(payload: Dictionary) -> Array:
 
 func _fail(step: String, result: Dictionary) -> int:
 	printerr(
-		"[client-online-smoke] %s failed: kind=%s code=%s http_status=%s message=%s" % [
+		"%s %s failed: kind=%s code=%s http_status=%s message=%s" % [
+			SMOKE_LOG_PREFIX,
 			step,
 			str(result.get("kind", "unknown")),
 			str(result.get("code", -1)),

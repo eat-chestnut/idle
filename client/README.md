@@ -199,6 +199,29 @@ merge gate 固定执行以下步骤：
 - 临时启动的 backend 日志会写到 `backend/storage/logs/client-merge-gate-server.log`
 - 第 5 步是“真实 backend 在线 + 客户端 API 层”的等价 smoke，不等于 GUI 窗口逐页联调
 
+## 最终合并检查前推荐执行顺序
+
+如果要进入“合并回 `main` 前最终检查”，建议从仓库根目录按以下顺序重跑：
+
+```bash
+./client/phase-one-merge-gate.sh
+php ./backend/artisan phase-one:diagnose --profile=acceptance --json
+php ./backend/artisan phase-one:contract-drift-check --json
+composer --working-dir=./backend phase-one:acceptance
+godot --headless --path . \
+  --script ./client/scripts/phase_one_online_smoke.gd -- \
+  --base-url=http://127.0.0.1:8000 \
+  --bearer-token=test-token-2001
+```
+
+执行口径：
+
+- `merge gate` 是统一入口，优先用于发现端到端阻塞项
+- `acceptance diagnose` 用于单独确认最终验收前置是否完好
+- `contract drift check` 用于确认 README / OpenAPI / 真实接口没有继续漂移
+- `phase-one:acceptance` 用于确认 backend 正式验收集仍然通过
+- headless online smoke 用于单独复核“真实 backend + client API 层”的最小主链
+
 ## 在线 smoke 覆盖内容
 
 `client/scripts/phase_one_online_smoke.gd` 当前固定覆盖：
@@ -250,6 +273,7 @@ merge gate 固定执行以下步骤：
 - 如果本地账号已经领过首通奖励，在线 smoke 可能验证到“已领取状态回读”，而不是“首次发奖状态变化”
 - “未领取 -> 已领取”的首通奖励过渡仍以 backend acceptance / smoke tests 为最终真相
 - 当前 phase-one 仍不包含强化、洗练、宝石、套装、经卷、world level、商店、活动等未来系统
+- README 与检查清单中的历史验证快照只用于交接参考，不替代当前轮重新执行的真实结果
 
 ## 合并前看哪里
 

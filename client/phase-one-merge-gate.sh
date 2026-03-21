@@ -4,6 +4,7 @@ set -euo pipefail
 
 # Usage: run from the repository root with ./client/phase-one-merge-gate.sh
 
+# Resolve repository-relative paths once so the script works from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
@@ -50,6 +51,12 @@ log_step() {
   echo "[client-merge-gate] $1"
 }
 
+print_runtime_context() {
+  log_step "repo=${REPO_ROOT}"
+  log_step "backend_url=${BACKEND_URL}"
+  log_step "godot_bin=${GODOT_BIN}"
+}
+
 ensure_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     log_step "missing command: $1" >&2
@@ -64,6 +71,8 @@ cleanup() {
   fi
 }
 
+# Keep backend invocations anchored to backend/ so artisan and composer behave
+# the same way whether the script starts them or the developer does.
 run_backend_command() {
   (
     cd "${BACKEND_DIR}"
@@ -71,11 +80,27 @@ run_backend_command() {
   )
 }
 
+# Keep Godot invocations anchored to the repository root so scene/script paths
+# stay identical between local runs and CI-like headless runs.
 run_godot_command() {
   (
     cd "${REPO_ROOT}"
     "${GODOT_BIN}" --headless --path . "$@"
   )
+}
+
+run_client_project_boot_smoke() {
+  run_godot_command --quit
+}
+
+run_client_main_scene_smoke() {
+  run_godot_command --scene "${MAIN_SCENE}" --quit-after 1
+}
+
+run_client_online_smoke() {
+  run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
+    --base-url="${BACKEND_URL}" \
+    --bearer-token="${BEARER_TOKEN}"
 }
 
 wait_for_backend() {
@@ -97,6 +122,7 @@ start_backend_if_needed() {
     return 0
   fi
 
+  mkdir -p "$(dirname "${SERVER_LOG}")"
   log_step "starting backend at ${BACKEND_URL}"
   (
     cd "${BACKEND_DIR}"
@@ -125,8 +151,7 @@ main() {
   ensure_command "${PHP_BIN}"
   ensure_command "${COMPOSER_BIN}"
 
-  log_step "repo=${REPO_ROOT}"
-  log_step "backend_url=${BACKEND_URL}"
+  print_runtime_context
 
   log_step "backend interop diagnose"
   run_backend_command "${PHP_BIN}" artisan phase-one:diagnose --profile=interop --json
@@ -135,17 +160,15 @@ main() {
   run_backend_command "${PHP_BIN}" artisan phase-one:contract-drift-check --json
 
   log_step "client project boot smoke"
-  run_godot_command --quit
+  run_client_project_boot_smoke
 
   log_step "client main scene smoke"
-  run_godot_command --scene "${MAIN_SCENE}" --quit-after 1
+  run_client_main_scene_smoke
 
   start_backend_if_needed
 
   log_step "client online smoke"
-  run_godot_command --script "${ONLINE_SMOKE_SCRIPT}" -- \
-    --base-url="${BACKEND_URL}" \
-    --bearer-token="${BEARER_TOKEN}"
+  run_client_online_smoke
 
   cleanup
   STARTED_SERVER=0
