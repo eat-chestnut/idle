@@ -8,6 +8,7 @@ const InventoryPageScript = preload("res://client/scripts/pages/phase_one_invent
 const EquipmentPageScript = preload("res://client/scripts/pages/phase_one_equipment_page.gd")
 const StagePageScript = preload("res://client/scripts/pages/phase_one_stage_page.gd")
 const PreparePageScript = preload("res://client/scripts/pages/phase_one_prepare_page.gd")
+const BattlePageScript = preload("res://client/scripts/pages/phase_one_battle_page.gd")
 const SettlePageScript = preload("res://client/scripts/pages/phase_one_settle_page.gd")
 
 const CONFIG_PAGE := "config"
@@ -16,6 +17,7 @@ const INVENTORY_PAGE := "inventory"
 const EQUIPMENT_PAGE := "equipment"
 const STAGE_PAGE := "stage"
 const PREPARE_PAGE := "prepare"
+const BATTLE_PAGE := "battle"
 const SETTLE_PAGE := "settle"
 const CLIENT_SUBTITLE := (
 	"真实角色、真实主线、真实战斗承接："
@@ -38,6 +40,7 @@ var inventory_page
 var equipment_page
 var stage_page
 var prepare_page
+var battle_page
 var settle_page
 
 var current_character_list: Dictionary = {}
@@ -65,10 +68,16 @@ func _ready() -> void:
 	_apply_saved_config()
 	_set_initial_states()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
 func _build_ui() -> void:
+	var background := ColorRect.new()
+	background.color = Color(0.05, 0.07, 0.10, 1.0)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(background)
+
 	var root := MarginContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("margin_left", 16)
@@ -77,14 +86,48 @@ func _build_ui() -> void:
 	root.add_theme_constant_override("margin_bottom", 16)
 	add_child(root)
 
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(center)
+
+	var frame := PanelContainer.new()
+	frame.custom_minimum_size = Vector2(430, 820)
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var frame_style := StyleBoxFlat.new()
+	frame_style.bg_color = Color(0.07, 0.10, 0.15, 0.98)
+	frame_style.border_color = Color(0.24, 0.31, 0.44, 1.0)
+	frame_style.border_width_left = 1
+	frame_style.border_width_top = 1
+	frame_style.border_width_right = 1
+	frame_style.border_width_bottom = 1
+	frame_style.corner_radius_top_left = 24
+	frame_style.corner_radius_top_right = 24
+	frame_style.corner_radius_bottom_right = 24
+	frame_style.corner_radius_bottom_left = 24
+	frame_style.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
+	frame_style.shadow_size = 8
+	frame_style.shadow_offset = Vector2(0, 6)
+	frame.add_theme_stylebox_override("panel", frame_style)
+	center.add_child(frame)
+
+	var frame_margin := MarginContainer.new()
+	frame_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	frame_margin.add_theme_constant_override("margin_left", 18)
+	frame_margin.add_theme_constant_override("margin_top", 18)
+	frame_margin.add_theme_constant_override("margin_right", 18)
+	frame_margin.add_theme_constant_override("margin_bottom", 18)
+	frame.add_child(frame_margin)
+
 	var shell := VBoxContainer.new()
 	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	shell.add_theme_constant_override("separation", 12)
-	root.add_child(shell)
+	shell.add_theme_constant_override("separation", 14)
+	frame_margin.add_child(shell)
 
 	var title := Label.new()
-	title.text = "《山海巡厄录》Phase-one 正式主流程客户端"
+	title.text = "《山海巡厄录》竖版主流程原型"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 24)
 	shell.add_child(title)
@@ -93,11 +136,34 @@ func _build_ui() -> void:
 	subtitle.text = CLIENT_SUBTITLE
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	subtitle.modulate = Color(0.74, 0.80, 0.88, 1.0)
 	shell.add_child(subtitle)
+
+	var flow_panel := PanelContainer.new()
+	var flow_style := StyleBoxFlat.new()
+	flow_style.bg_color = Color(0.10, 0.14, 0.20, 0.98)
+	flow_style.border_color = Color(0.22, 0.28, 0.40, 1.0)
+	flow_style.border_width_left = 1
+	flow_style.border_width_top = 1
+	flow_style.border_width_right = 1
+	flow_style.border_width_bottom = 1
+	flow_style.corner_radius_top_left = 18
+	flow_style.corner_radius_top_right = 18
+	flow_style.corner_radius_bottom_right = 18
+	flow_style.corner_radius_bottom_left = 18
+	flow_panel.add_theme_stylebox_override("panel", flow_style)
+	shell.add_child(flow_panel)
+
+	var flow_margin := MarginContainer.new()
+	flow_margin.add_theme_constant_override("margin_left", 14)
+	flow_margin.add_theme_constant_override("margin_top", 12)
+	flow_margin.add_theme_constant_override("margin_right", 14)
+	flow_margin.add_theme_constant_override("margin_bottom", 12)
+	flow_panel.add_child(flow_margin)
 
 	flow_summary_label = Label.new()
 	flow_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	shell.add_child(flow_summary_label)
+	flow_margin.add_child(flow_summary_label)
 
 	tab_container = TabContainer.new()
 	tab_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -110,6 +176,7 @@ func _build_ui() -> void:
 	equipment_page = EquipmentPageScript.new()
 	stage_page = StagePageScript.new()
 	prepare_page = PreparePageScript.new()
+	battle_page = BattlePageScript.new()
 	settle_page = SettlePageScript.new()
 
 	_register_page(CONFIG_PAGE, config_page)
@@ -118,6 +185,7 @@ func _build_ui() -> void:
 	_register_page(EQUIPMENT_PAGE, equipment_page)
 	_register_page(STAGE_PAGE, stage_page)
 	_register_page(PREPARE_PAGE, prepare_page)
+	_register_page(BATTLE_PAGE, battle_page)
 	_register_page(SETTLE_PAGE, settle_page)
 
 
@@ -158,6 +226,9 @@ func _set_initial_states() -> void:
 
 	prepare_page.set_page_state("empty", "请先确认出战角色与难度，再开始战斗准备。")
 	prepare_page.set_output_text("等待 battle prepare 请求。")
+
+	battle_page.set_page_state("empty", "请先完成出战确认，再进入战斗空间。")
+	battle_page.set_output_text("等待 battle prepare 承接。")
 
 	settle_page.set_page_state("empty", "请先完成 battle prepare，再进入结算。")
 	settle_page.set_output_text("等待 battle settle 请求。")
@@ -443,11 +514,13 @@ func _refresh_flow_summary() -> void:
 		next_step = "选择难度，系统会同步首通奖励状态。"
 	elif battle_context_id.is_empty():
 		next_step = "执行 battle prepare。"
+	elif current_settle_result.is_empty():
+		next_step = "进入战斗页推进走位并完成结算。"
 	else:
-		next_step = "Prepare 已完成，可直接提交 battle settle。"
+		next_step = "查看战斗结果，并决定返回主线还是去背包。"
 
 	var lines := [
-		"正式主流程：1 角色 -> 2 背包/穿戴 -> 3 章节/关卡/难度 -> 4 战斗准备 -> 5 战斗结算",
+		"正式主流程：1 角色主页 -> 2 背包/穿戴 -> 3 主线推进 -> 4 出战确认 -> 5 战斗 -> 6 结果页",
 		"当前主路径：详情角色 %s | 出战角色 %s | chapter_id=%s | stage_id=%s | stage_difficulty_id=%s" % [
 			detail_character,
 			battle_character,
@@ -458,7 +531,7 @@ func _refresh_flow_summary() -> void:
 	]
 
 	if not battle_context_id.is_empty():
-		lines.append("当前 battle_context_id：%s（已从 Prepare 承接到结算页）" % battle_context_id)
+		lines.append("当前 battle_context_id：%s（已从 Prepare 承接到战斗/结算）" % battle_context_id)
 
 	lines.append("下一步建议：%s" % next_step)
 
@@ -496,6 +569,84 @@ func _describe_character(character_id: String) -> String:
 			return "%s #%s" % [str(entry.get("character_name", "角色")), normalized_id]
 
 	return "#%s" % normalized_id
+
+
+func _find_character_record(character_id: String) -> Dictionary:
+	var normalized_id := character_id.strip_edges()
+	if normalized_id.is_empty():
+		return {}
+
+	for record in _as_array(current_character_list.get("characters", [])):
+		var listed_entry := _as_dictionary(record)
+		if _normalize_id_string(listed_entry.get("character_id", "")) == normalized_id:
+			return listed_entry
+
+	var detail_character := _as_dictionary(current_character_detail.get("character", {}))
+	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
+		return detail_character
+
+	var prepare_character := _as_dictionary(current_prepare_result.get("character", {}))
+	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
+		return prepare_character
+
+	for record in _as_array(saved_config.get("recent_characters", [])):
+		var entry := _as_dictionary(record)
+		if _normalize_id_string(entry.get("character_id", "")) == normalized_id:
+			return entry
+
+	return {}
+
+
+func _find_selected_chapter_context() -> Dictionary:
+	var selected_chapter_id: String = stage_page.get_selected_chapter_id()
+	for chapter in _as_array(current_chapters.get("chapters", [])):
+		var entry := _as_dictionary(chapter)
+		if str(entry.get("chapter_id", "")) == selected_chapter_id:
+			return entry
+	return {}
+
+
+func _find_selected_stage_context() -> Dictionary:
+	var selected_stage_id: String = stage_page.get_stage_id_text()
+	for stage in _as_array(current_stages.get("stages", [])):
+		var entry := _as_dictionary(stage)
+		if str(entry.get("stage_id", "")) == selected_stage_id:
+			return entry
+	return {}
+
+
+func _find_stage_difficulty_context(stage_difficulty_id: String) -> Dictionary:
+	for difficulty in _as_array(current_difficulties.get("difficulties", [])):
+		var entry := _as_dictionary(difficulty)
+		if str(entry.get("stage_difficulty_id", "")) == stage_difficulty_id:
+			return entry
+	return {}
+
+
+func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
+	var chapter := _find_selected_chapter_context()
+	var stage := _find_selected_stage_context()
+	var difficulty := _find_stage_difficulty_context(stage_difficulty_id if not stage_difficulty_id.is_empty() else prepare_page.get_stage_difficulty_text())
+
+	return {
+		"chapter_id": str(chapter.get("chapter_id", "")),
+		"chapter_name": str(chapter.get("chapter_name", "章节待选择")),
+		"stage_id": str(stage.get("stage_id", stage_page.get_stage_id_text())),
+		"stage_name": str(stage.get("stage_name", "关卡待选择")),
+		"stage_difficulty_id": str(difficulty.get("stage_difficulty_id", stage_difficulty_id)),
+		"difficulty_key": str(difficulty.get("difficulty_key", "")),
+		"difficulty_name": str(difficulty.get("difficulty_name", "难度待选择")),
+		"recommended_power": difficulty.get("recommended_power", "-"),
+	}
+
+
+func _refresh_product_pages() -> void:
+	character_page.show_character_summary(_find_character_record(character_page.get_character_id_text()))
+
+	var battle_character := _find_character_record(prepare_page.get_character_id_text())
+	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
+	prepare_page.render_prepare_context(battle_character, route_context, current_reward_status)
+	settle_page.render_settle_context(battle_character, route_context)
 
 
 func _set_current_tab(page_key: String) -> void:
@@ -567,6 +718,7 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 
 	_refresh_runtime_config_snapshot()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -590,6 +742,12 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			await _on_activate_current_character_pressed()
 		"sync_current_character":
 			_on_sync_current_character_pressed()
+		"navigate_inventory":
+			_set_current_tab(INVENTORY_PAGE)
+		"navigate_equipment":
+			_set_current_tab(EQUIPMENT_PAGE)
+		"navigate_stage":
+			_set_current_tab(STAGE_PAGE)
 		"load_inventory":
 			await _on_load_inventory_pressed()
 		"inventory_equipment_selected":
@@ -618,6 +776,10 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			await _on_activate_battle_character_pressed()
 		"prepare":
 			await _on_prepare_pressed()
+		"battle_request_settle":
+			await _on_battle_request_settle(payload)
+		"retry_battle":
+			await _on_retry_battle_pressed()
 		"fill_prepared_monsters":
 			_on_fill_prepared_monsters_pressed()
 		"settle":
@@ -651,6 +813,7 @@ func _on_fill_default_config_pressed() -> void:
 
 	_refresh_runtime_config_snapshot()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 	config_page.set_page_state("success", "已填入联调默认值，记得点击“保存配置”。")
 	config_page.set_output_text(DEFAULT_CONFIG_NOTE)
@@ -659,6 +822,7 @@ func _on_fill_default_config_pressed() -> void:
 func _on_save_config_pressed() -> void:
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 	config_page.set_page_state("success", "配置已保存到 user://phase_one_client.cfg。")
 	config_page.set_output_json(saved_config)
@@ -741,6 +905,7 @@ func _on_load_characters_pressed() -> void:
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -786,6 +951,7 @@ func _on_create_character_pressed() -> void:
 	character_page.set_output_json(data)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -825,6 +991,7 @@ func _on_load_character_pressed() -> void:
 	character_page.set_output_json(data)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -885,6 +1052,7 @@ func _activate_character(page, character_id_value: int, success_message: String)
 	page.set_page_state("success", success_message)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -913,6 +1081,7 @@ func _on_sync_current_character_pressed() -> void:
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -1118,6 +1287,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -1158,6 +1328,7 @@ func _on_load_difficulties_pressed() -> void:
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 
 
@@ -1169,6 +1340,7 @@ func _on_stage_selected(metadata: Dictionary) -> void:
 	stage_page.set_stage_id(stage_id_value)
 	_remember_stage_id(stage_id_value)
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 	await _on_load_difficulties_pressed()
 
@@ -1234,6 +1406,7 @@ func _on_difficulty_selected(metadata: Dictionary) -> void:
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
 	var reward_loaded := await _on_refresh_reward_status_pressed()
 	if not reward_loaded:
@@ -1281,6 +1454,14 @@ func _on_prepare_pressed() -> void:
 	current_settle_result = {}
 	current_prepared_monster_ids = _extract_monster_ids(data)
 	prepare_page.show_prepare_summary(data)
+	var battle_route_context := _build_route_context(stage_difficulty_id_value)
+	var prepared_stage_difficulty := _as_dictionary(data.get("stage_difficulty", {}))
+	if not prepared_stage_difficulty.is_empty():
+		battle_route_context["stage_difficulty_id"] = str(prepared_stage_difficulty.get("stage_difficulty_id", stage_difficulty_id_value))
+		battle_route_context["difficulty_key"] = str(prepared_stage_difficulty.get("difficulty_key", battle_route_context.get("difficulty_key", "")))
+		battle_route_context["difficulty_name"] = str(prepared_stage_difficulty.get("difficulty_name", battle_route_context.get("difficulty_name", "难度待选择")))
+		battle_route_context["recommended_power"] = prepared_stage_difficulty.get("recommended_power", battle_route_context.get("recommended_power", "-"))
+	battle_page.load_battle(data, battle_route_context, current_reward_status)
 
 	var battle_context_id = str(data.get("battle_context_id", ""))
 	settle_page.set_battle_context_id(battle_context_id)
@@ -1298,13 +1479,15 @@ func _on_prepare_pressed() -> void:
 	)
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
-	prepare_page.set_page_state("success", "battle prepare 成功，已自动承接到结算页。")
-	settle_page.set_page_state("success", "已承接本次 Prepare，可直接提交结算。")
+	prepare_page.set_page_state("success", "battle prepare 成功，已进入战斗页。")
+	battle_page.set_page_state("success", "战斗空间已准备完成，可以开始走位与处理敌人。")
+	settle_page.set_page_state("success", "已承接本次 Prepare，等待战斗结束后自动进入结果页。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
-	_set_current_tab(SETTLE_PAGE)
+	_set_current_tab(BATTLE_PAGE)
 
 
 func _on_fill_prepared_monsters_pressed() -> void:
@@ -1322,29 +1505,94 @@ func _on_fill_prepared_monsters_pressed() -> void:
 	settle_page.set_page_state("success", "已填入 Prepare 阶段的 monster_id 列表。")
 
 
+func _on_battle_request_settle(payload: Dictionary) -> void:
+	var character_id_value = _parse_character_id(str(payload.get("character_id", "")))
+	var stage_difficulty_id_value = str(payload.get("stage_difficulty_id", "")).strip_edges()
+	var battle_context_id_value = str(payload.get("battle_context_id", "")).strip_edges()
+	var killed_monsters = _as_array(payload.get("killed_monsters", []))
+	var is_cleared_value := int(payload.get("is_cleared", 0)) == 1
+
+	await _submit_settle_request(
+		character_id_value,
+		stage_difficulty_id_value,
+		battle_context_id_value,
+		killed_monsters,
+		is_cleared_value,
+		true
+	)
+
+
+func _on_retry_battle_pressed() -> void:
+	if prepare_page.get_character_id_text().strip_edges().is_empty() or prepare_page.get_stage_difficulty_text().strip_edges().is_empty():
+		settle_page.set_page_state("error", "请先确保角色与难度已锁定，再来一场。")
+		return
+
+	current_prepare_result = {}
+	current_settle_result = {}
+	current_prepared_monster_ids = PackedStringArray()
+	battle_page.reset_battle_space()
+	await _on_prepare_pressed()
+
+
 func _on_settle_pressed() -> void:
 	var character_id_value = _parse_character_id(settle_page.get_character_id_text())
 	var stage_difficulty_id_value = settle_page.get_stage_difficulty_text()
 	var battle_context_id_value = settle_page.get_battle_context_text()
 	var killed_monsters = _parse_killed_monsters(settle_page.get_killed_monster_text())
 
+	await _submit_settle_request(
+		character_id_value,
+		stage_difficulty_id_value,
+		battle_context_id_value,
+		killed_monsters,
+		settle_page.is_cleared(),
+		false
+	)
+
+
+func _submit_settle_request(
+	character_id_value: int,
+	stage_difficulty_id_value: String,
+	battle_context_id_value: String,
+	killed_monsters: Array,
+	is_cleared_value: bool,
+	from_battle_page: bool
+) -> void:
 	if character_id_value <= 0:
-		settle_page.set_page_state("error", "请先填写有效的 character_id。")
+		var invalid_character_message := "请先填写有效的 character_id。"
+		settle_page.set_page_state("error", invalid_character_message)
+		if from_battle_page:
+			battle_page.allow_retry_settle()
+			battle_page.set_page_state("error", invalid_character_message)
 		return
 	if stage_difficulty_id_value.is_empty():
-		settle_page.set_page_state("error", "请先填写 stage_difficulty_id。")
+		var invalid_stage_message := "请先填写 stage_difficulty_id。"
+		settle_page.set_page_state("error", invalid_stage_message)
+		if from_battle_page:
+			battle_page.allow_retry_settle()
+			battle_page.set_page_state("error", invalid_stage_message)
 		return
 	if battle_context_id_value.is_empty():
-		settle_page.set_page_state("error", "请先填写 battle_context_id。")
+		var invalid_context_message := "请先填写 battle_context_id。"
+		settle_page.set_page_state("error", invalid_context_message)
+		if from_battle_page:
+			battle_page.allow_retry_settle()
+			battle_page.set_page_state("error", invalid_context_message)
 		return
 	if killed_monsters.is_empty():
-		settle_page.set_page_state("error", "请先填写至少一个 killed_monsters。")
+		var invalid_monster_message := "请先填写至少一个 killed_monsters。"
+		settle_page.set_page_state("error", invalid_monster_message)
+		if from_battle_page:
+			battle_page.allow_retry_settle()
+			battle_page.set_page_state("error", invalid_monster_message)
 		return
 
 	prepare_page.set_character_id(str(character_id_value))
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	stage_page.set_selected_stage_difficulty(stage_difficulty_id_value)
 	_persist_runtime_config()
+	if from_battle_page:
+		battle_page.set_page_state("settling", "战斗结束，正在提交正式结算。")
 	settle_page.set_page_state("settling", "正在执行 battle settle。")
 	var result: Dictionary = await api.request_json(
 		"POST",
@@ -1353,12 +1601,15 @@ func _on_settle_pressed() -> void:
 			"character_id": character_id_value,
 			"stage_difficulty_id": stage_difficulty_id_value,
 			"battle_context_id": battle_context_id_value,
-			"is_cleared": 1 if settle_page.is_cleared() else 0,
+			"is_cleared": 1 if is_cleared_value else 0,
 			"killed_monsters": killed_monsters,
 		}
 	)
 
 	if not result.get("ok", false):
+		if from_battle_page:
+			battle_page.allow_retry_settle()
+			_handle_failure(battle_page, result, "battle settle 失败。")
 		_handle_failure(settle_page, result, "battle settle 失败。")
 		return
 
@@ -1366,7 +1617,9 @@ func _on_settle_pressed() -> void:
 	current_settle_result = data
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
 	settle_page.show_settlement_summary(data)
-	settle_page.set_page_state("success", "battle settle 成功，可返回背包或穿戴查看本轮结果。")
+	if from_battle_page:
+		battle_page.set_page_state("success", "战斗已收束，结果页已生成。")
+	settle_page.set_page_state("success", "battle settle 成功，可返回主线或去背包查看本轮结果。")
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
@@ -1375,7 +1628,10 @@ func _on_settle_pressed() -> void:
 		current_reward_status
 	)
 	stage_page.set_page_state("success", "结算完成，首通奖励状态已回写到主线路径。")
+	_refresh_recent_selectors()
+	_refresh_product_pages()
 	_refresh_flow_summary()
+	_set_current_tab(SETTLE_PAGE)
 
 
 func _remember_character(character: Dictionary) -> void:

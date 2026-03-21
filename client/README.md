@@ -8,7 +8,7 @@
 - 角色列表、角色创建、角色详情、角色激活
 - 背包读取、穿戴槽读取、装备穿戴与卸下
 - 章节、关卡、难度、首通奖励状态读取
-- `battle prepare -> battle settle` 的真实链路承接
+- `battle prepare -> 竖版战斗页 -> battle settle` 的真实链路承接
 - headless boot smoke、main-scene smoke、online smoke、merge gate
 
 当前目录不负责：
@@ -89,12 +89,15 @@ GUI 联调建议顺序：
 7. 读取背包与穿戴槽
 8. 在主线页按“章节 -> 关卡 -> 难度”顺序选择目标
 9. 刷新首通奖励状态
-10. 先跑 `battle prepare`，再跑 `battle settle`
+10. 在“出战”页执行 `battle prepare`
+11. 进入竖版战斗页完成走位与击杀
+12. 自动进入“结算”页查看掉落、奖励与入包结果
 
 当前联调策略：
 
 - 客户端不伪造 `battle_context_id`，必须承接 prepare 返回值
 - 客户端不猜测奖励状态，必须以后端返回的 `first_clear_reward_status` 为准
+- GUI 主流程以“角色 -> 主线 -> 出战 -> 战斗 -> 结算”的竖版路径为主
 - online smoke 固定只选第一个章节、第一个关卡、第一个难度，目标是最小正式闭环
 - 角色为空时，smoke 只通过正式 `POST /api/characters` 创建最小合法角色
 
@@ -166,4 +169,5 @@ merge gate 固定执行以下顺序：
 - online smoke 依赖 phase-one seed 数据与 `test-token-2001`
 - 如果账号已经领过首通奖励，smoke 可能读到“已领取状态回读”，这不等于奖励链有问题
 - 当前客户端仍以单条正式竖切为主，不追求多章节、多角色、多异常分支的全量覆盖
-- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`，战斗页额外处理 `preparing / settling`
+- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`，战斗相关页额外处理 `preparing / settling`
+- 新增战斗页只负责竖版空间体验与正式 settle 承接，不复制后端 battle 业务真相

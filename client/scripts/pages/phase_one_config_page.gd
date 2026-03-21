@@ -7,7 +7,7 @@ var token_input: LineEdit
 
 func _init() -> void:
 	setup_page(
-		"环境与 Token",
+		"环境",
 		[
 			"保存 backend 地址与 Bearer Token，并补一个最小 /readyz 联调预检。",
 			"当前本地联调默认建议：127.0.0.1:8000 + test-token-2001。",

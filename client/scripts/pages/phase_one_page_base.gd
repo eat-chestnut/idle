@@ -7,20 +7,26 @@ signal action_requested(action: String, payload: Dictionary)
 signal context_changed(context: String, payload: Dictionary)
 
 const STATUS_COLORS := {
-	"empty": Color(0.75, 0.75, 0.75),
-	"loading": Color(0.95, 0.83, 0.40),
-	"preparing": Color(0.95, 0.83, 0.40),
-	"settling": Color(0.95, 0.83, 0.40),
-	"success": Color(0.55, 0.85, 0.55),
-	"error": Color(1.0, 0.62, 0.62),
-	"unauthorized": Color(1.0, 0.75, 0.45),
+	"empty": Color(0.72, 0.74, 0.79),
+	"loading": Color(0.94, 0.79, 0.35),
+	"preparing": Color(0.94, 0.79, 0.35),
+	"settling": Color(0.94, 0.79, 0.35),
+	"success": Color(0.42, 0.83, 0.58),
+	"error": Color(0.97, 0.52, 0.52),
+	"unauthorized": Color(0.97, 0.66, 0.36),
 }
+
+const CARD_BACKGROUND := Color(0.09, 0.12, 0.18, 0.96)
+const CARD_BORDER := Color(0.22, 0.29, 0.42, 1.0)
+const CARD_TEXT_MUTED := Color(0.68, 0.73, 0.81, 1.0)
+const BODY_TEXT := Color(0.93, 0.95, 0.98, 1.0)
 
 var _shell: VBoxContainer
 var _body: VBoxContainer
 var _state_label: Label
 var _summary_label: Label
 var _output_box: TextEdit
+var _output_toggle: Button
 var _built := false
 
 
@@ -32,46 +38,106 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	name = tab_title
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
+	clip_contents = true
+
+	var page_margin := MarginContainer.new()
+	page_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_margin.add_theme_constant_override("margin_left", 2)
+	page_margin.add_theme_constant_override("margin_top", 4)
+	page_margin.add_theme_constant_override("margin_right", 2)
+	page_margin.add_theme_constant_override("margin_bottom", 20)
+	add_child(page_margin)
 
 	_shell = VBoxContainer.new()
 	_shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_shell.add_theme_constant_override("separation", 10)
-	add_child(_shell)
+	_shell.add_theme_constant_override("separation", 14)
+	page_margin.add_child(_shell)
 
-	for hint in hints:
-		add_note(hint, _shell)
+	if not hints.is_empty():
+		var intro_card := add_card("本页说明", "")
+		for hint in hints:
+			add_note(hint, intro_card)
+
+	var status_card := add_card("当前状态", "所有页面都保留 loading / success / empty / error / unauthorized。")
 
 	_state_label = Label.new()
 	_state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_shell.add_child(_state_label)
+	_state_label.modulate = STATUS_COLORS.get("empty", BODY_TEXT)
+	status_card.add_child(_state_label)
 
 	_summary_label = Label.new()
 	_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_summary_label.modulate = CARD_TEXT_MUTED
 	_summary_label.visible = false
-	_shell.add_child(_summary_label)
+	status_card.add_child(_summary_label)
 
 	_body = VBoxContainer.new()
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_body.add_theme_constant_override("separation", 10)
+	_body.add_theme_constant_override("separation", 14)
 	_shell.add_child(_body)
+
+	var output_card := add_card("技术详情", "调试数据仍保留，但默认下沉到次级区域。")
+	_output_toggle = Button.new()
+	_output_toggle.toggle_mode = true
+	_output_toggle.text = "展开技术详情"
+	_output_toggle.pressed.connect(_on_output_toggle_pressed)
+	output_card.add_child(_output_toggle)
 
 	_output_box = TextEdit.new()
 	_output_box.editable = false
-	_output_box.custom_minimum_size = Vector2(0, 260)
+	_output_box.visible = false
+	_output_box.custom_minimum_size = Vector2(0, 220)
 	_output_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_output_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_shell.add_child(_output_box)
+	output_card.add_child(_output_box)
 
 
 func get_body() -> VBoxContainer:
 	return _body
 
 
+func add_card(title: String = "", subtitle: String = "", parent: Control = null) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _create_card_style())
+	_resolve_parent(parent).add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 10)
+	margin.add_child(body)
+
+	if not title.strip_edges().is_empty():
+		var title_label := Label.new()
+		title_label.text = title
+		title_label.modulate = BODY_TEXT
+		title_label.add_theme_font_size_override("font_size", 18)
+		body.add_child(title_label)
+
+	if not subtitle.strip_edges().is_empty():
+		var subtitle_label := Label.new()
+		subtitle_label.text = subtitle
+		subtitle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		subtitle_label.modulate = CARD_TEXT_MUTED
+		body.add_child(subtitle_label)
+
+	return body
+
+
 func add_note(text: String, parent: Control = null) -> Label:
 	var label := Label.new()
-	label.text = text
+	label.text = "• %s" % text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.modulate = CARD_TEXT_MUTED
 	_resolve_parent(parent).add_child(label)
 	return label
 
@@ -80,6 +146,7 @@ func add_section_title(text: String, parent: Control = null) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", 16)
+	label.modulate = BODY_TEXT
 	_resolve_parent(parent).add_child(label)
 	return label
 
@@ -94,6 +161,7 @@ func add_labeled_input(label_text: String, default_value: String = "", parent: C
 	var input := LineEdit.new()
 	input.text = default_value
 	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	input.placeholder_text = label_text
 	_resolve_parent(parent).add_child(_wrap_labeled_control(label_text, input))
 	return input
 
@@ -129,6 +197,7 @@ func add_check_box(text: String, pressed: bool = false, parent: Control = null) 
 func add_button_row(parent: Control = null) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	row.add_theme_constant_override("separation", 8)
 	_resolve_parent(parent).add_child(row)
 	return row
@@ -204,9 +273,43 @@ func select_option_by_value(button: OptionButton, selected_value: Variant) -> bo
 	return false
 
 
+func clear_container(container: Node) -> void:
+	for child in container.get_children():
+		child.queue_free()
+
+
+func create_pill(text: String, tint: Color) -> PanelContainer:
+	var pill := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(tint.r, tint.g, tint.b, 0.18)
+	style.border_color = Color(tint.r, tint.g, tint.b, 0.65)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 12
+	style.corner_radius_top_right = 12
+	style.corner_radius_bottom_right = 12
+	style.corner_radius_bottom_left = 12
+	pill.add_theme_stylebox_override("panel", style)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 4)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 4)
+	pill.add_child(margin)
+
+	var label := Label.new()
+	label.text = text
+	label.modulate = tint.lightened(0.25)
+	margin.add_child(label)
+	return pill
+
+
 func set_page_state(status: String, message: String) -> void:
 	_state_label.text = "状态：%s\n%s" % [status, message]
-	_state_label.modulate = STATUS_COLORS.get(status, Color.WHITE)
+	_state_label.modulate = STATUS_COLORS.get(status, BODY_TEXT)
 
 
 func set_summary_text(text: String) -> void:
@@ -216,6 +319,11 @@ func set_summary_text(text: String) -> void:
 
 func set_output_text(text: String) -> void:
 	_output_box.text = text
+	_output_toggle.visible = not text.strip_edges().is_empty()
+	if text.strip_edges().is_empty():
+		_output_box.visible = false
+		_output_toggle.button_pressed = false
+		_output_toggle.text = "展开技术详情"
 
 
 func set_output_json(payload: Variant) -> void:
@@ -231,19 +339,49 @@ func _emit_context(context: String, payload: Dictionary = {}) -> void:
 
 
 func _resolve_parent(parent: Control) -> Control:
-	return parent if parent != null else _body
+	if parent != null:
+		return parent
+	if _body != null:
+		return _body
+	if _shell != null:
+		return _shell
+	return self
 
 
 func _wrap_labeled_control(label_text: String, control: Control) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+	box.add_theme_constant_override("separation", 6)
 
 	var label := Label.new()
 	label.text = label_text
+	label.modulate = CARD_TEXT_MUTED
 	box.add_child(label)
 	box.add_child(control)
 	return box
+
+
+func _create_card_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = CARD_BACKGROUND
+	style.border_color = CARD_BORDER
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 18
+	style.corner_radius_top_right = 18
+	style.corner_radius_bottom_right = 18
+	style.corner_radius_bottom_left = 18
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.25)
+	style.shadow_size = 6
+	style.shadow_offset = Vector2(0, 4)
+	return style
+
+
+func _on_output_toggle_pressed() -> void:
+	_output_box.visible = _output_toggle.button_pressed
+	_output_toggle.text = "收起技术详情" if _output_toggle.button_pressed else "展开技术详情"
 
 
 func _as_dictionary(value: Variant) -> Dictionary:
