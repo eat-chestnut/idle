@@ -34,6 +34,81 @@
   ],
   "paths": {
     "/api/characters": {
+      "get": {
+        "tags": [
+          "Character"
+        ],
+        "summary": "获取当前用户角色列表",
+        "operationId": "listCharacters",
+        "responses": {
+          "200": {
+            "description": "成功返回当前用户全部角色列表；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CharacterListSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "characters": [
+                          {
+                            "character_id": 1001,
+                            "character_name": "青山",
+                            "class_id": "class_jingang",
+                            "class_name": "金刚",
+                            "level": 1,
+                            "exp": 0,
+                            "is_active": 1,
+                            "unspent_stat_points": 0,
+                            "added_strength": 0,
+                            "added_mana": 0,
+                            "added_constitution": 0,
+                            "added_dexterity": 0,
+                            "long_term_growth_stage": null
+                          },
+                          {
+                            "character_id": 1002,
+                            "character_name": "白露",
+                            "class_id": "class_fashi",
+                            "class_name": "法师",
+                            "level": 1,
+                            "exp": 0,
+                            "is_active": 0,
+                            "unspent_stat_points": 0,
+                            "added_strength": 0,
+                            "added_mana": 0,
+                            "added_constitution": 0,
+                            "added_dexterity": 0,
+                            "long_term_growth_stage": null
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "unauthorized": {
+                    "value": {
+                      "code": 10002,
+                      "message": "未登录或登录失效",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Character"
@@ -194,6 +269,71 @@
                       "code": 10101,
                       "message": "角色不存在",
                       "data": null
+                    }
+                  },
+                  "forbidden": {
+                    "value": {
+                      "code": 10102,
+                      "message": "无权访问该角色",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/characters/{character_id}/activate": {
+      "post": {
+        "tags": [
+          "Character"
+        ],
+        "summary": "切换当前启用角色",
+        "operationId": "activateCharacter",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/character_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功后返回当前启用角色摘要；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CharacterDetailSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "character": {
+                          "character_id": 1002,
+                          "character_name": "白露",
+                          "class_id": "class_fashi",
+                          "class_name": "法师",
+                          "level": 1,
+                          "exp": 0,
+                          "is_active": 1,
+                          "unspent_stat_points": 0,
+                          "added_strength": 0,
+                          "added_mana": 0,
+                          "added_constitution": 0,
+                          "added_dexterity": 0,
+                          "long_term_growth_stage": null
+                        }
+                      }
                     }
                   },
                   "forbidden": {
@@ -616,6 +756,69 @@
                     "value": {
                       "code": 10002,
                       "message": "未登录或登录失效",
+                      "data": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chapters/{chapter_id}/stages": {
+      "get": {
+        "tags": [
+          "Stage"
+        ],
+        "summary": "获取章节下的关卡列表",
+        "operationId": "getChapterStages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/chapter_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回指定章节下的启用关卡；失败仍使用统一错误外壳。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ChapterStageListSuccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    }
+                  ]
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "code": 0,
+                      "message": "ok",
+                      "data": {
+                        "chapter_id": "chapter_nanshan_001",
+                        "stages": [
+                          {
+                            "stage_id": "stage_nanshan_001",
+                            "stage_name": "招摇山",
+                            "stage_order": 1
+                          },
+                          {
+                            "stage_id": "stage_nanshan_002",
+                            "stage_name": "堂庭山",
+                            "stage_order": 2
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "not_found": {
+                    "value": {
+                      "code": 10301,
+                      "message": "章节不存在",
                       "data": null
                     }
                   }
@@ -1170,6 +1373,14 @@
           "minimum": 1
         }
       },
+      "chapter_id": {
+        "name": "chapter_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
       "stage_id": {
         "name": "stage_id",
         "in": "path",
@@ -1323,6 +1534,25 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ChapterStageSummary": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "stage_name",
+          "stage_order"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string"
+          },
+          "stage_name": {
+            "type": "string"
+          },
+          "stage_order": {
+            "type": "integer"
           }
         }
       },
@@ -2071,6 +2301,20 @@
           }
         }
       },
+      "CharacterListData": {
+        "type": "object",
+        "required": [
+          "characters"
+        ],
+        "properties": {
+          "characters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CharacterSummary"
+            }
+          }
+        }
+      },
       "EquipmentSlotListData": {
         "type": "object",
         "required": [
@@ -2099,6 +2343,24 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChapterSummary"
+            }
+          }
+        }
+      },
+      "ChapterStageListData": {
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "stages"
+        ],
+        "properties": {
+          "chapter_id": {
+            "type": "string"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChapterStageSummary"
             }
           }
         }
@@ -2146,6 +2408,21 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/CharacterDetailData"
+              }
+            }
+          }
+        ]
+      },
+      "CharacterListSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CharacterListData"
               }
             }
           }
@@ -2206,6 +2483,21 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/ChapterListData"
+              }
+            }
+          }
+        ]
+      },
+      "ChapterStageListSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiSuccessEnvelope"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ChapterStageListData"
               }
             }
           }

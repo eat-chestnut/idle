@@ -24,15 +24,15 @@
 
 ## 2. 最小联调前提
 
-从 `backend/` 目录执行：
+以下命令默认从仓库根目录执行：
 
 ```bash
-cp .env.example .env
-touch database/database.sqlite
-composer install
-php artisan key:generate
-php artisan migrate --seed
-php artisan serve
+cp ./backend/.env.example ./backend/.env
+touch ./backend/database/database.sqlite
+composer --working-dir=./backend install
+php ./backend/artisan key:generate
+php ./backend/artisan migrate --seed
+php ./backend/artisan serve
 ```
 
 如果不是 SQLite，请先把 `.env` 中 `DB_*` 改成真实数据库。
@@ -70,9 +70,9 @@ php artisan serve
 ### phase-one 可联调
 
 - `GET /readyz`
-- `php artisan phase-one:diagnose --profile=interop`
-- `php artisan phase-one:diagnose --profile=interop --json`
-- `php artisan phase-one:contract-drift-check --json`
+- `php ./backend/artisan phase-one:diagnose --profile=interop`
+- `php ./backend/artisan phase-one:diagnose --profile=interop --json`
+- `php ./backend/artisan phase-one:contract-drift-check --json`
 
 检查项包括：
 
@@ -96,7 +96,7 @@ php artisan serve
 ### phase-one 可验收
 
 - `GET /readyz?profile=acceptance`
-- `php artisan phase-one:diagnose --profile=acceptance`
+- `php ./backend/artisan phase-one:diagnose --profile=acceptance`
 
 会在“可联调”基础上增加：
 
@@ -106,28 +106,37 @@ php artisan serve
 注意：
 
 - `/readyz` 是运维与联调入口，不属于 phase-one 前台业务 OpenAPI 契约。
-- `composer phase-one:acceptance` 当前会先执行 `php artisan phase-one:diagnose --profile=acceptance`，再跑定向验收测试。
+- `composer --working-dir=./backend phase-one:acceptance` 当前会先执行 `php ./backend/artisan phase-one:diagnose --profile=acceptance`，再跑定向验收测试。
 
 ## 5. 当前收口后的强相关口径
 
 以下以真实 backend 代码为准：
 
 - `POST /api/characters` 当前真实存在。
+- `GET /api/characters` 当前真实返回当前认证用户名下全部角色，不引入分页。
+- `POST /api/characters/{character_id}/activate` 当前真实会切换当前用户唯一启用角色。
 - `GET /api/inventory` 当前真实实现返回全量摘要，不返回 `pagination`；`page/page_size` 仅保留接收。
 - `GET /api/chapters` 当前 seed 下 `chapter_desc`、`chapter_group`、`unlock_condition` 为 `null`。
+- `GET /api/chapters/{chapter_id}/stages` 当前真实返回章节下启用关卡列表，不引入额外筛选。
 - `GET /api/stages/{stage_id}/difficulties` 当前 seed 下 `stage_nanshan_001_normal` 与 `stage_nanshan_001_hard` 都绑定 `reward_first_clear_001`。
+- 当前角色创建真实行为为：首个角色默认激活，后续角色默认 `is_active=0`；battle 仍要求使用启用角色。
 - 错误码必须以 `App\Support\ErrorCode` 与《错误码总表》为准。
 
 ## 6. 推荐联调顺序
 
-1. `php artisan phase-one:diagnose --profile=service --json`
-2. `php artisan phase-one:diagnose --profile=interop --json`
-3. `php artisan phase-one:contract-drift-check --json`
-4. `php artisan workflow-lock:check --json`
-5. `POST /api/characters`
-6. `POST /api/characters/{character_id}/equip`
-7. `POST /api/battles/prepare`
-8. `POST /api/battles/settle`
+1. `php ./backend/artisan phase-one:diagnose --profile=service --json`
+2. `php ./backend/artisan phase-one:diagnose --profile=interop --json`
+3. `php ./backend/artisan phase-one:contract-drift-check --json`
+4. `php ./backend/artisan workflow-lock:check --json`
+5. `GET /api/characters`
+6. `POST /api/characters`
+7. `POST /api/characters/{character_id}/activate`
+8. `GET /api/chapters`
+9. `GET /api/chapters/{chapter_id}/stages`
+10. `GET /api/stages/{stage_id}/difficulties`
+11. `POST /api/characters/{character_id}/equip`
+12. `POST /api/battles/prepare`
+13. `POST /api/battles/settle`
 
 完整闭环基线可直接参考：
 

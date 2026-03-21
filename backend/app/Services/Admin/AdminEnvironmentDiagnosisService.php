@@ -701,8 +701,10 @@ class AdminEnvironmentDiagnosisService
         return [
             'GET' => [
                 '/api/chapters',
+                '/api/chapters/{chapter_id}/stages',
                 '/api/stages/{stage_id}/difficulties',
                 '/api/stage-difficulties/{stage_difficulty_id}/first-clear-reward-status',
+                '/api/characters',
                 '/api/characters/{character_id}',
                 '/api/characters/{character_id}/equipment-slots',
                 '/api/inventory',
@@ -711,6 +713,7 @@ class AdminEnvironmentDiagnosisService
                 '/api/battles/prepare',
                 '/api/battles/settle',
                 '/api/characters',
+                '/api/characters/{character_id}/activate',
                 '/api/characters/{character_id}/equip',
                 '/api/characters/{character_id}/unequip',
             ],

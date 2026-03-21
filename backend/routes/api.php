@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:api'])->group(function (): void {
     Route::get('chapters', [StageController::class, 'chapters']);
+    Route::get('chapters/{chapter_id}/stages', [StageController::class, 'stages']);
     Route::get('stages/{stage_id}/difficulties', [StageController::class, 'difficulties']);
     Route::get(
         'stage-difficulties/{stage_difficulty_id}/first-clear-reward-status',
@@ -21,8 +22,11 @@ Route::middleware(['auth:api'])->group(function (): void {
     });
 
     Route::prefix('characters')->group(function (): void {
+        Route::get('', [CharacterController::class, 'index']);
         Route::post('', [CharacterController::class, 'store']);
         Route::get('{character_id}', [CharacterController::class, 'show'])
+            ->whereNumber('character_id');
+        Route::post('{character_id}/activate', [CharacterController::class, 'activate'])
             ->whereNumber('character_id');
         Route::get('{character_id}/equipment-slots', [CharacterController::class, 'equipmentSlots'])
             ->whereNumber('character_id');
