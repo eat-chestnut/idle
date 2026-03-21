@@ -14,14 +14,13 @@ const DROP_MARKER_SIZE := Vector2(96.0, 34.0)
 const PLAYER_MOVE_LERP := 10.0
 const PLAYER_ATTACK_RANGE_X := 84.0
 const PLAYER_ATTACK_RANGE_Y := 138.0
-const MONSTER_ATTACK_RANGE_X := 72.0
-const MONSTER_ATTACK_RANGE_Y := 126.0
+const MONSTER_PRESSURE_RANGE_X := 72.0
+const MONSTER_PRESSURE_RANGE_Y := 126.0
 const PLAYER_HIT_FEEDBACK_SECONDS := 0.22
 const PLAYER_ATTACK_FEEDBACK_SECONDS := 0.18
 const MONSTER_DEATH_FEEDBACK_SECONDS := 0.34
 const FINISH_PAUSE_SECONDS := 0.90
 const MESSAGE_COOLDOWN_SECONDS := 0.38
-const HP_BAR_SEGMENTS := 10
 
 var route_title_label: Label
 var route_meta_label: Label
@@ -35,7 +34,7 @@ var battle_view: Control
 var battle_world: Control
 var drop_status_label: Label
 var movement_status_label: Label
-var player_hp_label: Label
+var player_feedback_label: Label
 var player_status_label: Label
 var player_position_label: Label
 var control_hint_label: Label
@@ -56,8 +55,6 @@ var _lane_half_width := 82.0
 var _player_position := Vector2(180.0, 660.0)
 var _player_visual_position := Vector2(180.0, 660.0)
 var _camera_y := 0.0
-var _player_hp_max := 0.0
-var _player_hp_current := 0.0
 var _player_hit_timer := 0.0
 var _player_attack_burst_timer := 0.0
 var _screen_shake_timer := 0.0
@@ -67,6 +64,7 @@ var _battle_phase := "idle"
 var _battle_state_text := "等待战斗"
 var _player_status_text := "等待 Prepare"
 var _drop_preview_count := 0
+var _presentation_dirty := false
 var _settle_requested := false
 var _finish_sequence_id := 0
 
@@ -134,15 +132,15 @@ func _init() -> void:
 	movement_status_label.modulate = CARD_TEXT_MUTED
 	arena_card.add_child(movement_status_label)
 
-	var action_card := add_card("底部操作", "底部只保留 HP、状态、站位和最关键按钮，让战斗区保持够高。")
+	var action_card := add_card("底部操作", "底部只保留状态、站位和最关键按钮，让战斗区保持够高。")
 	battle_context_label = Label.new()
 	battle_context_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	battle_context_label.modulate = CARD_TEXT_MUTED
 	action_card.add_child(battle_context_label)
 
-	player_hp_label = Label.new()
-	player_hp_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	action_card.add_child(player_hp_label)
+	player_feedback_label = Label.new()
+	player_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	action_card.add_child(player_feedback_label)
 
 	player_status_label = Label.new()
 	player_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -227,11 +225,10 @@ func reset_battle_space() -> void:
 	_settle_requested = false
 	_finish_sequence_id += 1
 	_drop_preview_count = 0
+	_presentation_dirty = false
 	_battle_phase = "idle"
 	_battle_state_text = "等待战斗"
 	_player_status_text = "等待 Prepare"
-	_player_hp_max = 0.0
-	_player_hp_current = 0.0
 	_player_hit_timer = 0.0
 	_player_attack_burst_timer = 0.0
 	_screen_shake_timer = 0.0
@@ -246,7 +243,7 @@ func reset_battle_space() -> void:
 	drop_status_label.text = "掉落出现区：战斗开始后，敌人倒下时会先出现战利品影子。"
 	movement_status_label.text = "前压、横移和攻击会在出战确认完成后解锁。"
 	battle_context_label.text = "本次 battle_context 尚未生成。"
-	player_hp_label.text = "HP：等待战斗开始。"
+	player_feedback_label.text = "前线反馈：等待战斗开始。"
 	player_status_label.text = "状态：先在出战页确认角色与难度。"
 	player_position_label.text = "当前位置：等待 Battle 页承接。"
 	control_hint_label.text = "Battle 页只保留最关键的站位、攻击与收束，不扩未来系统按钮。"
@@ -260,7 +257,7 @@ func allow_retry_settle() -> void:
 	if _prepare_payload.is_empty():
 		return
 
-	_battle_phase = "finish_pause" if _alive_monster_count() == 0 else "engaging"
+	_battle_phase = "finish_pause" if _alive_monster_count() == 0 else "interactive"
 	_battle_state_text = "可再次收束"
 	_player_status_text = "正式结算未完成，可继续提交"
 	movement_status_label.text = "正式结算没有完成，可以继续收束或回到安全状态后再试一次。"
@@ -273,13 +270,14 @@ func _build_monster_states() -> void:
 	_feedback_nodes.clear()
 	_drop_nodes.clear()
 	_drop_preview_count = 0
+	_presentation_dirty = false
 	_player_hit_timer = 0.0
 	_player_attack_burst_timer = 0.0
 	_screen_shake_timer = 0.0
 	_screen_shake_strength = 0.0
 	_message_cooldown = 0.0
-	_battle_phase = "engaging"
-	_battle_state_text = "接敌中"
+	_battle_phase = "interactive"
+	_battle_state_text = "已承接战场"
 	_player_status_text = "整队推进"
 
 	var visible_height: float = maxf(battle_view.size.y, 560.0)
@@ -290,10 +288,6 @@ func _build_monster_states() -> void:
 	_player_position = Vector2(_lane_center_x, _world_height * 0.78)
 	_player_visual_position = _player_position
 	_camera_y = clampf(_player_position.y - visible_height * 0.70, 0.0, _world_height - visible_height)
-
-	var character_stats := _as_dictionary(_prepare_payload.get("character_stats", {}))
-	_player_hp_max = maxf(_variant_to_float(character_stats.get("hp", 30), 30.0), 1.0)
-	_player_hp_current = _player_hp_max
 
 	var monsters: Array = _prepare_payload.get("monster_list", []) if typeof(_prepare_payload.get("monster_list", [])) == TYPE_ARRAY else []
 	var spread_divisor := float(maxi(monsters.size() - 1, 1))
@@ -310,29 +304,24 @@ func _build_monster_states() -> void:
 		var spawn_position := Vector2(_lane_center_x + x_offset, _world_height * spawn_ratio)
 		var monster_role := str(entry.get("monster_role", "normal_enemy"))
 		var fallback_move_speed := 90.0 if monster_role == "boss_enemy" else 108.0
-		var fallback_attack_interval := 1.35 if monster_role == "boss_enemy" else 1.12
 
 		_monster_states.append({
 			"monster_id": str(entry.get("monster_id", "")),
 			"monster_name": str(entry.get("monster_name", "敌人")),
 			"monster_role": monster_role,
 			"wave_no": int(entry.get("wave_no", 1)),
-			"base_hp": int(entry.get("base_hp", 0)),
-			"base_attack": int(entry.get("base_attack", 0)),
 			"alive": true,
 			"dying": false,
 			"drop_spawned": false,
 			"spawn_position": spawn_position,
 			"world_position": spawn_position,
 			"approach_speed": maxf(_variant_to_float(entry.get("move_speed", 0.0), fallback_move_speed), 72.0),
-			"attack_interval": maxf(_variant_to_float(entry.get("attack_interval", 0.0), fallback_attack_interval), 0.85),
-			"attack_cooldown": 0.55 + float(index) * 0.12,
 			"pressure_gap": 122.0 + float(maxi(int(entry.get("wave_no", 1)) - 1, 0)) * 18.0 + float(index % 2) * 12.0,
 			"max_advance": 220.0 + float(maxi(int(entry.get("wave_no", 1)), 1)) * 24.0,
 			"lane_bias": x_offset * 0.45,
+			"pressure_feedback_played": false,
 			"hit_timer": 0.0,
 			"death_timer": 0.0,
-			"attack_pulse": 0.0,
 		})
 
 
@@ -610,6 +599,7 @@ func _move_player(delta: Vector2, label_text: String) -> void:
 		return
 
 	_player_position = next_position
+	_presentation_dirty = true
 	if delta.y < 0.0:
 		_player_status_text = "前压找机会"
 	elif delta.y > 0.0:
@@ -617,7 +607,7 @@ func _move_player(delta: Vector2, label_text: String) -> void:
 	else:
 		_player_status_text = "横移调整角度"
 
-	_battle_state_text = "接敌压近"
+	_battle_state_text = "保持压近"
 	movement_status_label.text = "%s | 当前站位 y=%.0f / %.0f" % [
 		label_text,
 		_player_position.y,
@@ -654,13 +644,13 @@ func _use_skill() -> void:
 	target["dying"] = true
 	target["death_timer"] = MONSTER_DEATH_FEEDBACK_SECONDS
 	target["hit_timer"] = PLAYER_ATTACK_FEEDBACK_SECONDS
-	target["attack_cooldown"] = maxf(float(target.get("attack_interval", 1.0)), 0.85)
 	target["world_position"] = Vector2(world_position.x + hit_shift, world_position.y - 14.0)
 	_monster_states[target_index] = target
 
+	_presentation_dirty = true
 	_player_attack_burst_timer = PLAYER_ATTACK_FEEDBACK_SECONDS
 	_player_status_text = "命中得手，继续推进"
-	_battle_state_text = "出手命中"
+	_battle_state_text = "命中反馈"
 	movement_status_label.text = "%s 被命中，战线被向前撕开。" % str(target.get("monster_name", "敌人"))
 	_spawn_float_text(
 		"命中",
@@ -720,7 +710,7 @@ func _request_settle(is_cleared: bool) -> void:
 
 	if killed_monsters.is_empty():
 		_settle_requested = false
-		_battle_phase = "engaging"
+		_battle_phase = "interactive"
 		_battle_state_text = "尚未形成有效击杀"
 		set_page_state("error", "至少击败一个敌人后，才能提交当前战斗的正式结算。")
 		movement_status_label.text = "先继续前压或攻击，形成最小合法结算结果。"
@@ -781,11 +771,7 @@ func _refresh_drop_status() -> void:
 
 
 func _refresh_status_panels() -> void:
-	player_hp_label.text = "HP：%s %d / %d" % [
-		_build_hp_bar(),
-		int(round(_player_hp_current)),
-		int(round(_player_hp_max)),
-	]
+	player_feedback_label.text = "前线反馈：%s" % _describe_player_feedback()
 	player_status_label.text = "状态：%s" % _describe_player_status()
 	player_position_label.text = "当前位置：%s" % _describe_player_position()
 	target_status_label.text = "当前目标：%s" % _describe_target_state()
@@ -796,29 +782,45 @@ func _refresh_status_panels() -> void:
 func _describe_battle_state() -> String:
 	if _prepare_payload.is_empty():
 		return "等待 Prepare"
-	if _settle_requested:
+	if _battle_phase == "settling" or _settle_requested:
 		return "正式结算提交中"
 	if _battle_phase == "finish_pause":
 		return "敌方清空，战场收束中"
 	if _alive_monster_count() == 0:
 		return "敌方已清空"
 	if _find_attack_target_index() >= 0:
-		return "贴身交火"
+		return "已接敌，可继续出手"
 
 	return _battle_state_text
+
+
+func _describe_player_feedback() -> String:
+	if _prepare_payload.is_empty():
+		return "等待战斗开始。"
+	if _battle_phase == "settling" or _settle_requested:
+		return "已锁定收束，等待正式结算返回。"
+	if _battle_phase == "finish_pause":
+		return "最后一击后的短暂停顿已触发。"
+	if _player_hit_timer > 0.0:
+		return "前线受压反馈已播放，不承载本地掉血。"
+	if _player_attack_burst_timer > 0.0:
+		return "命中演出进行中。"
+	if _alive_monster_count() == 0:
+		return "敌方已清空，等待正式收束。"
+	if _find_attack_target_index() >= 0:
+		return "已进入出手机会。"
+	return "以站位推进和轻量演出反馈为主。"
 
 
 func _describe_player_status() -> String:
 	if _prepare_payload.is_empty():
 		return "等待战斗开始"
-	if _settle_requested:
+	if _battle_phase == "settling" or _settle_requested:
 		return "已锁定收束，等待正式结算"
-
-	var hp_ratio := clampf(_player_hp_current / maxf(_player_hp_max, 1.0), 0.0, 1.0)
 	if _battle_phase == "finish_pause":
-		return "清场完成，战斗完成感已经建立"
-	if hp_ratio < 0.35:
-		return "%s，前线压力偏高" % _player_status_text
+		return "清场完成，等待正式结算"
+	if _player_hit_timer > 0.0:
+		return "%s，前线受压反馈已出现" % _player_status_text
 	if _find_attack_target_index() >= 0:
 		return "%s，已进入出手机会" % _player_status_text
 	return _player_status_text
@@ -854,11 +856,11 @@ func _describe_target_state() -> String:
 	var dx := absf(world_position.x - _player_position.x)
 	var dy := _player_position.y - world_position.y
 	var in_attack_range := dx <= PLAYER_ATTACK_RANGE_X and dy >= -20.0 and absf(dy) <= PLAYER_ATTACK_RANGE_Y
-	var enemy_threat := dx <= MONSTER_ATTACK_RANGE_X and dy >= 14.0 and dy <= MONSTER_ATTACK_RANGE_Y
+	var enemy_pressing := dx <= MONSTER_PRESSURE_RANGE_X and dy >= 14.0 and dy <= MONSTER_PRESSURE_RANGE_Y
 
 	var range_text := "已经进入出手机会"
-	if not in_attack_range and enemy_threat:
-		range_text = "已经压到我方脸前"
+	if not in_attack_range and enemy_pressing:
+		range_text = "已经逼近我方前线"
 	elif not in_attack_range:
 		range_text = "还需要再前压一点"
 
@@ -899,7 +901,6 @@ func _update_monster_motion(delta: float) -> void:
 
 func _update_alive_monster_state(monster_state: Dictionary, delta: float) -> Dictionary:
 	monster_state["hit_timer"] = maxf(float(monster_state.get("hit_timer", 0.0)) - delta, 0.0)
-	monster_state["attack_pulse"] = maxf(float(monster_state.get("attack_pulse", 0.0)) - delta, 0.0)
 
 	var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
 	var spawn_position: Vector2 = monster_state.get("spawn_position", world_position)
@@ -923,10 +924,9 @@ func _update_alive_monster_state(monster_state: Dictionary, delta: float) -> Dic
 	world_position.x = lerpf(world_position.x, desired_x, clampf(delta * 2.2, 0.0, 1.0))
 	monster_state["world_position"] = world_position
 
-	var attack_cooldown := maxf(float(monster_state.get("attack_cooldown", 0.0)) - delta, 0.0)
-	monster_state["attack_cooldown"] = attack_cooldown
-	if _monster_is_in_attack_range(monster_state) and attack_cooldown <= 0.0 and not _settle_requested:
-		monster_state = _apply_monster_attack(monster_state)
+	if _battle_phase == "interactive" and not bool(monster_state.get("pressure_feedback_played", false)) and _monster_is_pressuring(monster_state):
+		monster_state["pressure_feedback_played"] = true
+		_play_player_pressure_feedback(str(monster_state.get("monster_name", "敌人")))
 
 	return monster_state
 
@@ -950,37 +950,29 @@ func _update_dying_monster_state(monster_state: Dictionary, delta: float) -> Dic
 	return monster_state
 
 
-func _monster_is_in_attack_range(monster_state: Dictionary) -> bool:
+func _monster_is_pressuring(monster_state: Dictionary) -> bool:
 	var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
 	var dx := absf(world_position.x - _player_position.x)
 	var dy := _player_position.y - world_position.y
-	return dx <= MONSTER_ATTACK_RANGE_X and dy >= 14.0 and dy <= MONSTER_ATTACK_RANGE_Y
+	return dx <= MONSTER_PRESSURE_RANGE_X and dy >= 14.0 and dy <= MONSTER_PRESSURE_RANGE_Y
 
 
-func _apply_monster_attack(monster_state: Dictionary) -> Dictionary:
-	monster_state["attack_cooldown"] = maxf(float(monster_state.get("attack_interval", 1.1)), 0.85)
-	monster_state["attack_pulse"] = 0.16
-
-	var raw_damage := _variant_to_float(monster_state.get("base_attack", 8), 8.0) * 0.25
-	var damage := int(round(clampf(raw_damage, 3.0, 12.0)))
-	_player_hp_current = maxf(_player_hp_current - float(damage), 1.0)
+func _play_player_pressure_feedback(monster_name: String) -> void:
+	_presentation_dirty = true
 	_player_hit_timer = PLAYER_HIT_FEEDBACK_SECONDS
-	_player_status_text = "受击后稳住阵线"
-	_battle_state_text = "短兵相接"
-	_player_position.y = clampf(_player_position.y + 10.0, 112.0, _world_height - 92.0)
+	_player_status_text = "前线受压，先稳住站位"
+	_battle_state_text = "前线受压"
 
 	_spawn_float_text(
-		"-%d" % damage,
+		"受压",
 		_player_visual_position + Vector2(0.0, -54.0),
-		Color(1.0, 0.64, 0.64, 1.0),
+		Color(1.0, 0.72, 0.72, 1.0),
 		0.74
 	)
-	_bump_screen_shake(4.0, PLAYER_HIT_FEEDBACK_SECONDS)
+	_bump_screen_shake(2.6, PLAYER_HIT_FEEDBACK_SECONDS)
 	if _message_cooldown <= 0.0:
-		movement_status_label.text = "%s 顶到前线，我方吃到一次短促受击。" % str(monster_state.get("monster_name", "敌人"))
+		movement_status_label.text = "%s 已逼近我方前线，当前只保留受压反馈，正式真相仍以后端链路为准。" % monster_name
 		_message_cooldown = MESSAGE_COOLDOWN_SECONDS
-
-	return monster_state
 
 
 func _spawn_drop_preview(monster_state: Dictionary) -> void:
@@ -1008,6 +1000,7 @@ func _spawn_drop_preview(monster_state: Dictionary) -> void:
 		"ttl": 1.12,
 	})
 
+	_presentation_dirty = true
 	_drop_preview_count += 1
 	_spawn_float_text(
 		"掉落",
@@ -1097,12 +1090,12 @@ func _update_drop_nodes(delta: float) -> void:
 
 
 func _interaction_locked() -> bool:
-	return _settle_requested or _battle_phase == "finish_pause"
+	return _battle_phase == "settling" or _battle_phase == "finish_pause"
 
 
 func _update_interaction_state() -> void:
 	if skill_button != null:
-		skill_button.disabled = _prepare_payload.is_empty() or _settle_requested or _alive_monster_count() == 0 or _battle_phase == "finish_pause"
+		skill_button.disabled = _prepare_payload.is_empty() or _battle_phase != "interactive" or _alive_monster_count() == 0
 
 
 func _start_finish_sequence() -> void:
@@ -1129,19 +1122,6 @@ func _run_finish_sequence(sequence_id: int) -> void:
 		return
 
 	_request_settle(true)
-
-
-func _build_hp_bar() -> String:
-	if _player_hp_max <= 0.0:
-		return "[----------]"
-
-	var ratio := clampf(_player_hp_current / _player_hp_max, 0.0, 1.0)
-	var filled := mini(int(round(ratio * float(HP_BAR_SEGMENTS))), HP_BAR_SEGMENTS)
-	var result := "["
-	for index in range(HP_BAR_SEGMENTS):
-		result += "#" if index < filled else "-"
-	result += "]"
-	return result
 
 
 func _add_zone_label(text: String, y_position: float) -> void:
@@ -1174,9 +1154,10 @@ func _on_battle_view_resized() -> void:
 		return
 
 	var can_reflow_clean := (
-		_drop_preview_count == 0
+		not _presentation_dirty
+		and _drop_preview_count == 0
 		and _alive_monster_count() == _monster_states.size()
-		and is_equal_approx(_player_hp_current, _player_hp_max)
+		and _battle_phase == "interactive"
 	)
 	if can_reflow_clean:
 		_build_monster_states()
