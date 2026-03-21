@@ -1,35 +1,33 @@
 # Phase-one Godot Client
 
-## 本分支解决了什么
+## 当前范围
 
-`codex/phase-one-client-round2` 的目标不是继续补系统，而是把第一阶段客户端收口到可以联调、可以复核、可以进入最终合并检查的工程状态。
+本目录提供《山海巡厄录》第一阶段 Godot 客户端最小可玩竖切，当前正式覆盖：
 
-这条分支当前负责收口的内容只有真实 phase-one 客户端主链：
-
+- 环境与 Bearer Token 配置
 - 角色列表、角色创建、角色详情、角色激活
 - 背包读取、穿戴槽读取、装备穿戴与卸下
 - 章节、关卡、难度、首通奖励状态读取
 - `battle prepare -> battle settle` 的真实链路承接
 - headless boot smoke、main-scene smoke、online smoke、merge gate
-- 客户端交接文档、合并前检查清单、提交态 raw 复核方式
 
-这条分支明确不负责：
+当前目录不负责：
 
-- 再补新的 backend 接口
+- 新增 backend 接口
 - 在 client 里复制掉落、奖励、battle context 的业务真相
-- 提前实现强化、洗练、宝石、套装、经卷、world level、商店、活动等未来系统
+- 强化、洗练、宝石、套装、经卷、world level、商店、活动等未来系统
 
-## 当前真实 backend / client 基线
+## 契约来源
 
-当前 client 的真实契约来源按以下顺序使用：
+当前 client 的正式契约来源按以下顺序使用：
 
-1. `backend/routes/api.php`、`ApiRequest`、`Resource`、Feature Tests
+1. `backend/routes/api.php`、各 `ApiRequest`、各 `Resource`、相关 Feature Tests
 2. `backend/docs/api/phase-one-frontend.openapi.json`
 3. `backend/docs/api/README.md`
 4. `doc/codex/接口示例文档.md`
 5. `doc/codex/认证与接口公共规则.md`
 
-当前客户端强相关的真实接口基线是：
+当前强相关正式接口包括：
 
 - `GET /readyz?profile=interop`
 - `GET /api/characters`
@@ -47,7 +45,7 @@
 - `POST /api/battles/prepare`
 - `POST /api/battles/settle`
 
-当前客户端关键入口文件：
+## 关键入口
 
 - Godot 工程入口：`project.godot`
 - 主场景：`client/scenes/PhaseOneClient.tscn`
@@ -55,15 +53,14 @@
 - API 封装：`client/scripts/backend_api.gd`
 - merge gate：`client/phase-one-merge-gate.sh`
 - online smoke：`client/scripts/phase_one_online_smoke.gd`
-- 合并前检查：`client/合并前检查清单.md`
 
-当前最小联调固定值：
+当前最小本地联调固定值：
 
 - `BACKEND_URL=http://127.0.0.1:8000`
 - `BEARER_TOKEN=test-token-2001`
 - 对应测试用户：`users.id = 2001`
 
-## 当前如何联调
+## 本地联调
 
 以下命令默认从仓库根目录执行。
 
@@ -81,29 +78,27 @@ cd ./backend
 php artisan serve
 ```
 
-也可以直接运行 merge gate，让脚本按需临时启动本地 backend。
+GUI 联调建议顺序：
 
-### GUI 联调顺序
+1. 打开根目录 Godot 工程 `project.godot`
+2. 运行主场景 `client/scenes/PhaseOneClient.tscn`
+3. 在“环境与 Token”页确认 `Backend Base URL` 与 `Bearer Token`
+4. 执行 `/readyz?profile=interop`
+5. 读取角色列表；若列表为空，再创建角色
+6. 激活联调角色
+7. 读取背包与穿戴槽
+8. 在主线页按“章节 -> 关卡 -> 难度”顺序选择目标
+9. 刷新首通奖励状态
+10. 先跑 `battle prepare`，再跑 `battle settle`
 
-1. 打开根目录 Godot 工程 `project.godot`。
-2. 运行主场景 `client/scenes/PhaseOneClient.tscn`。
-3. 在“环境与 Token”页确认 `Backend Base URL` 与 `Bearer Token`。
-4. 执行 `/readyz?profile=interop`，确认环境可联调。
-5. 读取角色列表；若列表为空，再创建角色。
-6. 激活本次联调使用的角色。
-7. 读取背包与穿戴槽，确认当前角色上下文已同步。
-8. 进入主线页，按“章节 -> 关卡 -> 难度”顺序选择目标。
-9. 刷新首通奖励状态。
-10. 先跑 `battle prepare`，再跑 `battle settle`，确认结算结果与奖励状态同步展示。
+当前联调策略：
 
-### 当前联调策略
+- 客户端不伪造 `battle_context_id`，必须承接 prepare 返回值
+- 客户端不猜测奖励状态，必须以后端返回的 `first_clear_reward_status` 为准
+- online smoke 固定只选第一个章节、第一个关卡、第一个难度，目标是最小正式闭环
+- 角色为空时，smoke 只通过正式 `POST /api/characters` 创建最小合法角色
 
-- 客户端不伪造 `battle_context_id`，必须承接 prepare 返回值。
-- 客户端不猜测奖励状态，必须以后端返回的 `first_clear_reward_status` 为准。
-- online smoke 只选第一个章节、第一个关卡、第一个难度，目标是最小正式闭环，不是全量覆盖。
-- 角色为空时，smoke 只通过正式 `POST /api/characters` 创建一个最小合法角色，不写任何本地假数据。
-
-## 当前如何运行 merge gate
+## Merge Gate 与 Smoke
 
 统一入口：
 
@@ -134,16 +129,7 @@ merge gate 固定执行以下顺序：
 5. `godot --headless --path . --script ./client/scripts/phase_one_online_smoke.gd -- --base-url=... --bearer-token=...`
 6. `composer --working-dir=./backend phase-one:acceptance`
 
-运行说明：
-
-- 如果 `BACKEND_URL` 已在线，merge gate 会直接复用现有 backend。
-- 如果 `BACKEND_URL` 不在线，merge gate 会临时启动 `php artisan serve`。
-- 临时服务日志会写到 `backend/storage/logs/client-merge-gate-server.log`。
-- merge gate 不替代单独的 acceptance diagnose，也不替代 GUI 人工联调。
-
-## 当前 online smoke 覆盖内容
-
-`client/scripts/phase_one_online_smoke.gd` 固定覆盖以下真实主链：
+`client/scripts/phase_one_online_smoke.gd` 固定覆盖：
 
 1. `GET /readyz?profile=interop`
 2. `GET /api/characters`
@@ -156,56 +142,28 @@ merge gate 固定执行以下顺序：
 9. `POST /api/battles/prepare`
 10. `POST /api/battles/settle`
 
-成功后脚本会打印摘要，至少包含：
+运行说明：
 
-- `character_id`
-- `chapter_id`
-- `stage_id`
-- `stage_difficulty_id`
-- `battle_context_id`
-- `monster_count`
-- `drop_count`
-- `reward_count`
-- `reward_status_before`
-- `reward_status_after`
+- 如果 `BACKEND_URL` 已在线，merge gate 会直接复用现有 backend
+- 如果 `BACKEND_URL` 不在线，merge gate 会临时启动 `php artisan serve`
+- 临时服务日志会写到 `backend/storage/logs/client-merge-gate-server.log`
+- merge gate 不替代单独的 acceptance diagnose，也不替代 GUI 联调
 
-## 当前限制与边界
+## 验证建议
 
-- 当前 backend 最小客户端友好接口已经补齐；本分支不再新增接口。
-- 当前工作只覆盖 phase-one 正式主链，不扩展未来系统。
-- merge gate 与 online smoke 只能证明 headless 主链可跑，不能替代 GUI 页面级联调。
-- online smoke 依赖 phase-one seed 数据与 `test-token-2001`。
-- 如果账号已经领过首通奖励，smoke 可能读到“已领取状态回读”，这不等于奖励链有问题。
-- 当前客户端仍以单条正式竖切为主，不追求多章节、多角色、多异常分支的全量覆盖。
-- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`，战斗页额外处理 `preparing / settling`。
-
-## 提交态 raw 如何复核
-
-不要只看 IDE 视觉，也不要只看 `wc -l`。建议直接检查提交态原文片段：
-
-```bash
-git show HEAD:client/phase-one-merge-gate.sh | sed -n '1,80p'
-git show HEAD:client/scripts/phase_one_online_smoke.gd | sed -n '1,120p'
-git show HEAD:client/README.md | sed -n '1,120p'
-git show HEAD:'client/合并前检查清单.md' | sed -n '1,160p'
-```
-
-如果提交态片段重新呈现压缩态、极少行态或函数边界不清晰，应直接视为新的合并阻塞项。
-
-## 最终合并前推荐执行顺序
-
-建议从仓库根目录按以下顺序执行，并把结果回写到 `client/合并前检查清单.md`：
+建议从仓库根目录按以下顺序验证：
 
 1. `./client/phase-one-merge-gate.sh`
 2. `php ./backend/artisan phase-one:diagnose --profile=acceptance --json`
 3. `php ./backend/artisan phase-one:contract-drift-check --json`
 4. `composer --working-dir=./backend phase-one:acceptance`
-5. `godot --headless --path . --script ./client/scripts/phase_one_online_smoke.gd -- --base-url=http://127.0.0.1:8000 --bearer-token=test-token-2001`
-6. `git show HEAD:client/phase-one-merge-gate.sh | sed -n '1,80p'`
-7. `git show HEAD:client/scripts/phase_one_online_smoke.gd | sed -n '1,120p'`
-8. `git show HEAD:client/README.md | sed -n '1,120p'`
-9. `git show HEAD:'client/合并前检查清单.md' | sed -n '1,160p'`
-10. 如本轮改到了运行逻辑，再补一次非 headless GUI 联调
-11. 执行 `git commit` 与 `git push`
+5. 再补一次非 headless GUI 联调
 
-最终是否可进入“合并回 main 前最终检查”，以 `client/合并前检查清单.md` 的本轮复核结论为准。
+## 当前限制与边界
+
+- 当前目录只覆盖 phase-one 正式主链，不扩展未来系统
+- merge gate 与 online smoke 只能证明 headless 主链可跑，不能替代 GUI 页面级联调
+- online smoke 依赖 phase-one seed 数据与 `test-token-2001`
+- 如果账号已经领过首通奖励，smoke 可能读到“已领取状态回读”，这不等于奖励链有问题
+- 当前客户端仍以单条正式竖切为主，不追求多章节、多角色、多异常分支的全量覆盖
+- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`，战斗页额外处理 `preparing / settling`
