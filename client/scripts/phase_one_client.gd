@@ -218,7 +218,7 @@ func _set_initial_states() -> void:
 	character_page.set_page_state("empty", "先进入角色页确认当前角色；如果还没有角色，就先创建一个。")
 	character_page.set_output_text("等待角色列表、角色创建或详情读取。")
 
-	inventory_page.set_page_state("empty", "先锁定当前角色，再来看背包。")
+	inventory_page.set_page_state("empty", "锁定角色或打完一场后，这里会先帮你整理本轮收益。")
 	inventory_page.set_output_text("等待背包请求。")
 
 	equipment_page.set_page_state("empty", "先确认当前角色，再刷新穿戴槽。")
@@ -679,7 +679,11 @@ func _refresh_product_pages() -> void:
 	character_page.show_character_summary(current_character)
 
 	var battle_character := _find_character_record(prepare_page.get_character_id_text())
+	var inventory_character := current_character if not current_character.is_empty() else battle_character
+	if not current_settle_result.is_empty() and not battle_character.is_empty():
+		inventory_character = battle_character
 	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
+	inventory_page.render_inventory_context(inventory_character, current_settle_result)
 	prepare_page.render_prepare_context(battle_character, route_context, current_reward_status)
 	prepare_page.show_prepare_summary(current_prepare_result)
 	settle_page.render_settle_context(battle_character, route_context)
@@ -799,22 +803,22 @@ func _focus_on_auth() -> void:
 func _open_inventory_from_settle() -> void:
 	_set_current_tab(INVENTORY_PAGE)
 	if current_settle_result.is_empty():
-		inventory_page.set_page_state("empty", "本轮收益还没生成，先完成一次正式结算。")
-		inventory_page.show_handoff_summary("本轮收益还没生成，先完成一次正式结算，再回背包看结果。")
+		inventory_page.set_page_state("empty", "这轮收益还没生成，先完成正式结算，再回来整理背包。")
+		inventory_page.show_handoff_summary("这轮收益还没生成；先完成结算，再回背包看新装备和关键材料。")
 		return
 
 	var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
 	var stack_results := _as_array(inventory_results.get("stack_results", []))
 	var equipment_results := _as_array(inventory_results.get("equipment_instance_results", []))
-	inventory_page.set_page_state("success", "已承接本轮结算，建议先确认新增材料和装备实例。")
-	inventory_page.set_summary_text("本轮结算承接：掉落 %d | 奖励 %d | 入包 %d | 新装备 %d" % [
+	inventory_page.set_page_state("success", "本轮收益已经承接到背包，新增装备和关键材料会优先显示。")
+	inventory_page.set_summary_text("本轮收获：掉落 %d | 奖励 %d | 入包 %d | 新装备 %d" % [
 		_as_array(current_settle_result.get("drop_results", [])).size(),
 		_as_array(current_settle_result.get("reward_results", [])).size(),
 		stack_results.size(),
 		equipment_results.size(),
 	])
 	inventory_page.show_handoff_summary(
-		"已带着本轮结算结果来到背包；先看新增装备实例，再决定去穿戴还是回角色，会更顺。"
+		"已带着本轮结果来到背包；先看新装备和关键材料，再决定去穿戴、回角色还是继续主线，会更顺。"
 	)
 
 
@@ -1356,9 +1360,9 @@ func _on_load_inventory_pressed() -> void:
 	var stack_items: Array = _as_array(data.get("stack_items", []))
 	var equipment_items: Array = _as_array(data.get("equipment_items", []))
 	if stack_items.is_empty() and equipment_items.is_empty():
-		inventory_page.set_page_state("empty", "背包为空。")
+		inventory_page.set_page_state("empty", "当前背包还是空的。")
 	else:
-		inventory_page.set_page_state("success", "背包已加载，可选择装备实例带入穿戴页。")
+		inventory_page.set_page_state("success", "背包已加载，本轮新增和新装备会优先排在前面。")
 
 
 func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
