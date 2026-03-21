@@ -33,12 +33,12 @@ func _init() -> void:
 	setup_page(
 		"出战",
 		[
-			"Prepare 页只负责把真实角色、真实关卡难度和敌方信息收完整，再发起 battle prepare。",
-			"battle_context_id 仍会承接，但它已经下沉为技术详情，不再作为主要操作入口。",
+			"出战页会把当前角色、目标难度和敌方信息收齐，再进入正式战斗。",
+			"战斗上下文编号会继续保留，但只放在技术详情里，不再抢主视线。",
 		]
 	)
 
-	var character_card := add_card("当前出战角色", "Battle 角色仍必须是后端真实 `is_active=1` 的当前启用角色。")
+	var character_card := add_card("当前出战角色", "当前出战角色必须是后端真实生效的启用角色。")
 	character_name_label = Label.new()
 	character_name_label.add_theme_font_size_override("font_size", 22)
 	character_card.add_child(character_name_label)
@@ -56,7 +56,7 @@ func _init() -> void:
 
 	var character_buttons := add_button_row(character_card)
 	add_action_button(character_buttons, "激活当前出战角色", "activate_battle_character")
-	add_action_button(character_buttons, "返回主线页", "navigate_stage")
+	add_action_button(character_buttons, "回主线", "navigate_stage")
 
 	var route_card := add_card("本次目标", "默认承接主线页已选中的章节、关卡和难度，不让玩家重复输入。")
 	route_title_label = Label.new()
@@ -79,7 +79,7 @@ func _init() -> void:
 	recent_stage_difficulty_selector = add_labeled_option_button("当前已选难度 / 最近难度", route_card)
 	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
 
-	var stats_card := add_card("战斗预览", "Battle prepare 成功后会把角色属性和敌方列表补全到这里。")
+	var stats_card := add_card("战斗预览", "出战确认完成后，这里会补齐角色属性和敌方列表。")
 	stat_rows_box = VBoxContainer.new()
 	stat_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stat_rows_box.add_theme_constant_override("separation", 8)
@@ -293,7 +293,7 @@ func show_prepare_summary(payload: Dictionary) -> void:
 		wave_numbers.size(),
 		boss_count,
 	]
-	technical_note_label.text = "本次出战信息已经锁定，battle_context 与完整返回体可在技术详情查看。"
+	technical_note_label.text = "本次出战信息已经锁定；完整上下文编号和返回体仍保留在技术详情里。"
 	set_summary_text("出战确认完成 | 敌方 %d 名 | 难度 %s" % [
 		monster_list.size(),
 		str(stage_difficulty_data.get("difficulty_name", stage_difficulty_data.get("stage_difficulty_id", ""))),
@@ -353,10 +353,7 @@ func _format_reward_status(reward_status: Dictionary) -> String:
 	if int(reward_status.get("has_reward", 0)) == 0:
 		return "首通奖励状态：这个难度没有首通奖励，正常推进即可。"
 	if int(reward_status.get("has_granted", 0)) == 1:
-		var grant_status := str(reward_status.get("grant_status", "")).strip_edges()
-		if grant_status.is_empty():
-			return "首通奖励状态：已经领过，本次重点看掉落与入包。"
-		return "首通奖励状态：已经领过，本次不会重复新增；grant_status=%s。" % grant_status
+		return "首通奖励状态：已经领过，本次重点看掉落与入包，不会重复新增。"
 	return "首通奖励状态：首次通关后会在结算页展示。"
 
 

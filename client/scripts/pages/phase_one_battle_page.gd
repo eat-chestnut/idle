@@ -44,7 +44,7 @@ func _init() -> void:
 		]
 	)
 
-	var header_card := add_card("战场信息", "角色会尽量保持在屏幕中下区域，前方保留视野。")
+	var header_card := add_card("战场信息", "角色会尽量停在屏幕中下方，方便辨认当前位置和前方目标。")
 	route_title_label = Label.new()
 	route_title_label.add_theme_font_size_override("font_size", 22)
 	header_card.add_child(route_title_label)
@@ -60,15 +60,17 @@ func _init() -> void:
 
 	progress_label = Label.new()
 	progress_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	progress_label.add_theme_font_size_override("font_size", 18)
 	header_card.add_child(progress_label)
 
 	player_position_label = Label.new()
 	player_position_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	player_position_label.modulate = BODY_TEXT
 	header_card.add_child(player_position_label)
 
 	target_status_label = Label.new()
 	target_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	target_status_label.modulate = CARD_TEXT_MUTED
+	target_status_label.modulate = BODY_TEXT
 	header_card.add_child(target_status_label)
 
 	var arena_card := add_card("竖版战斗空间", "地图高度约为视区的 1.4 倍，角色前进时镜头会轻微跟随。")
@@ -88,7 +90,7 @@ func _init() -> void:
 	movement_status_label.modulate = CARD_TEXT_MUTED
 	arena_card.add_child(movement_status_label)
 
-	var action_card := add_card("技能与操作", "先做最小战斗闭环：位移、技能、撤退/收束，避免把战斗页继续做成表单。")
+	var action_card := add_card("技能与操作", "底部区域只保留最关键的位移、攻击和安全收束，让战斗页更清楚。")
 	battle_context_label = Label.new()
 	battle_context_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	battle_context_label.modulate = CARD_TEXT_MUTED
@@ -100,23 +102,23 @@ func _init() -> void:
 	action_card.add_child(control_hint_label)
 
 	var movement_buttons := add_button_row(action_card)
-	add_button(movement_buttons, "侧移左", func() -> void:
+	add_button(movement_buttons, "向左闪避", func() -> void:
 		_move_player(Vector2(-38.0, 0.0), "侧移避让")
 	)
 	add_button(movement_buttons, "前压", func() -> void:
 		_move_player(Vector2(0.0, -56.0), "向前推进")
 	)
-	add_button(movement_buttons, "侧移右", func() -> void:
+	add_button(movement_buttons, "向右闪避", func() -> void:
 		_move_player(Vector2(38.0, 0.0), "侧移拉扯")
 	)
-	add_button(movement_buttons, "后撤", func() -> void:
+	add_button(movement_buttons, "后撤调整", func() -> void:
 		_move_player(Vector2(0.0, 40.0), "后撤调整站位")
 	)
 
 	var battle_buttons := add_button_row(action_card)
-	skill_button = add_button(battle_buttons, "释放技能", _use_skill)
+	skill_button = add_button(battle_buttons, "攻击当前目标", _use_skill)
 	style_primary_button(skill_button)
-	add_button(battle_buttons, "安全撤离", func() -> void:
+	add_button(battle_buttons, "安全收束", func() -> void:
 		_request_settle(false)
 	)
 
@@ -131,7 +133,7 @@ func load_battle(payload: Dictionary, route_context: Dictionary, reward_status: 
 	_build_monster_states()
 	_sync_header()
 	_sync_world()
-	set_page_state("success", "Prepare 已承接到战斗页，可以先走位，再处理敌人。")
+	set_page_state("success", "出战信息已承接到战斗页，可以先走位并锁定当前目标。")
 	set_output_json(payload)
 
 
@@ -143,14 +145,14 @@ func reset_battle_space() -> void:
 	_marker_nodes = {}
 	_settle_requested = false
 	route_title_label.text = "等待战斗上下文"
-	route_meta_label.text = "先在出战确认页完成 prepare，再进入战斗空间。"
-	battle_hint_label.text = "当前没有战斗地图。"
+	route_meta_label.text = "先回出战页锁定角色和难度，再进入战斗空间。"
+	battle_hint_label.text = "出战确认完成后，这里会承接战场信息。"
 	progress_label.text = "战场进度：还没有敌方数据。"
 	player_position_label.text = "当前位置：等待战斗开始。"
 	target_status_label.text = "当前目标：等待 Prepare 承接敌方信息。"
 	battle_context_label.text = "本次战斗上下文尚未生成。"
 	control_hint_label.text = "先在出战页锁定角色和难度，战斗页会自动承接路线与敌方信息。"
-	movement_status_label.text = "前进、横移和技能会在 prepare 成功后解锁。"
+	movement_status_label.text = "前进、闪避和攻击会在出战确认完成后解锁。"
 	clear_container(battle_world)
 	set_output_json({})
 
@@ -212,8 +214,8 @@ func _sync_header() -> void:
 	else:
 		battle_hint_label.text = "首通奖励状态：未领取，若首通成功会在结算页展示。"
 
-	battle_context_label.text = "战斗上下文已锁定；完整 battle_context_id 可在技术详情查看。"
-	control_hint_label.text = "战斗区负责推进与找目标，底部操作区负责位移、出手和安全收束。"
+	battle_context_label.text = "本次路线已经锁定；完整上下文编号仍保留在技术详情里。"
+	control_hint_label.text = "上方战斗区负责看位置和目标，底部操作区负责走位、出手和安全收束。"
 	_refresh_progress_text()
 	_refresh_status_panels()
 
@@ -245,6 +247,10 @@ func _sync_world() -> void:
 		mark.position = Vector2(_lane_center_x - 6.0, float(lane_index) * (_world_height / 5.0) + 36.0)
 		mark.size = Vector2(12.0, 80.0)
 		battle_world.add_child(mark)
+
+	_add_zone_label("前线", 112.0)
+	_add_zone_label("接敌区", _world_height * 0.46)
+	_add_zone_label("后排", _world_height - 124.0)
 
 	for monster_state in _monster_states:
 		var monster_id := str(monster_state.get("monster_id", ""))
@@ -298,6 +304,7 @@ func _refresh_world_positions() -> void:
 	var target_camera_y: float = clampf(_player_position.y - visible_height * 0.68, 0.0, _world_height - visible_height)
 	_camera_y = lerpf(_camera_y, target_camera_y, 0.4)
 	battle_world.position = Vector2(0.0, -_camera_y)
+	var focus_target_id := str(_find_next_target().get("monster_id", ""))
 
 	for monster_state in _monster_states:
 		var monster_id := str(monster_state.get("monster_id", ""))
@@ -307,11 +314,15 @@ func _refresh_world_positions() -> void:
 		var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
 		marker.position = Vector2(world_position.x - marker.size.x * 0.5, world_position.y - marker.size.y * 0.5)
 		marker.visible = bool(monster_state.get("alive", false))
+		marker.scale = Vector2(1.08, 1.08) if marker.visible and monster_id == focus_target_id else Vector2.ONE
+		marker.z_index = 2 if marker.visible and monster_id == focus_target_id else 0
+		marker.modulate = Color(1.0, 1.0, 1.0, 1.0) if marker.visible and monster_id == focus_target_id else Color(0.92, 0.95, 1.0, 1.0)
 
 	_player_node.position = Vector2(
 		_player_position.x - _player_node.size.x * 0.5,
 		_player_position.y - _player_node.size.y * 0.5
 	)
+	_player_node.z_index = 3
 
 
 func _move_player(delta: Vector2, label_text: String) -> void:
@@ -476,6 +487,14 @@ func _find_next_target() -> Dictionary:
 			best_target = monster_state
 
 	return best_target
+
+
+func _add_zone_label(text: String, y_position: float) -> void:
+	var zone_label := Label.new()
+	zone_label.text = text
+	zone_label.modulate = Color(0.83, 0.90, 0.98, 0.45)
+	zone_label.position = Vector2(18.0, clampf(y_position, 24.0, _world_height - 36.0))
+	battle_world.add_child(zone_label)
 
 
 func _on_battle_view_resized() -> void:

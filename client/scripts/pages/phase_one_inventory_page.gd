@@ -4,13 +4,14 @@ class_name PhaseOneInventoryPage
 var tab_selector: OptionButton
 var stack_item_list: ItemList
 var equipment_item_list: ItemList
+var handoff_label: Label
 
 
 func _init() -> void:
 	setup_page(
 		"背包",
 		[
-			"背包页真实接 GET /api/inventory，并把装备实例选择带到穿戴页。",
+			"背包页会承接最近一次结算收益，也能把装备实例直接带到穿戴页。",
 		]
 	)
 
@@ -29,9 +30,22 @@ func _init() -> void:
 	var buttons := add_button_row()
 	add_action_button(buttons, "读取背包", "load_inventory")
 
+	var handoff_card := add_card("背包承接", "打完一场后通常先看这里，再决定去穿戴、回角色还是继续主线。")
+	handoff_label = Label.new()
+	handoff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	handoff_label.modulate = CARD_TEXT_MUTED
+	handoff_card.add_child(handoff_label)
+
+	var handoff_buttons := add_button_row(handoff_card)
+	add_action_button(handoff_buttons, "去穿戴", "navigate_equipment")
+	add_action_button(handoff_buttons, "回角色看成长", "navigate_character")
+	add_action_button(handoff_buttons, "继续主线", "navigate_stage")
+
 	stack_item_list = add_labeled_item_list("堆叠物摘要", 120)
 	equipment_item_list = add_labeled_item_list("装备实例", 180)
 	equipment_item_list.item_selected.connect(_on_equipment_selected)
+
+	show_handoff_summary("背包会承接最近一次结算收益；如果想继续成长，通常是先看装备实例，再去穿戴。")
 
 
 func get_selected_tab() -> String:
@@ -67,8 +81,12 @@ func render_inventory(payload: Dictionary) -> void:
 		equipment_item_list.add_item(label)
 		equipment_item_list.set_item_metadata(equipment_item_list.item_count - 1, entry)
 
-	set_summary_text("stack_items=%d | equipment_items=%d" % [stack_count, equipment_count])
+	set_summary_text("背包总览：堆叠物 %d | 装备实例 %d" % [stack_count, equipment_count])
 	set_output_json(payload)
+
+
+func show_handoff_summary(text: String) -> void:
+	handoff_label.text = text
 
 
 func _on_equipment_selected(index: int) -> void:

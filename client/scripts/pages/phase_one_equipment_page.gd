@@ -6,35 +6,51 @@ var character_id_input: LineEdit
 var slot_list: ItemList
 var target_slot_selector: OptionButton
 var equipment_instance_input: LineEdit
+var handoff_label: Label
+var equip_button: Button
 
 
 func _init() -> void:
 	setup_page(
 		"穿戴",
 		[
-			"穿戴页真实接 GET/POST 装备槽与 equip/unequip。",
-			"客户端只提交 equipment_instance_id 与 target_slot_key，不复制后端槽位兼容规则。",
+			"穿戴页直接承接真实装备槽接口，不额外发明本地穿戴规则。",
+			"客户端只带当前装备和目标槽位，槽位兼容仍以服务端结果为准。",
 		]
 	)
 
 	recent_character_selector = add_labeled_option_button("当前角色 / 真实角色列表")
 	recent_character_selector.item_selected.connect(_on_recent_character_selected)
-	character_id_input = add_labeled_input("character_id", "")
+	character_id_input = add_labeled_input("当前角色编号", "")
 	character_id_input.text_changed.connect(_on_character_id_changed)
 
+	var handoff_card := add_card("穿戴承接", "从背包或结算页来到这里时，会继续保留当前角色和装备上下文。")
+	handoff_label = Label.new()
+	handoff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	handoff_label.modulate = CARD_TEXT_MUTED
+	handoff_card.add_child(handoff_label)
+
+	var handoff_buttons := add_button_row(handoff_card)
+	add_action_button(handoff_buttons, "回背包", "navigate_inventory")
+	add_action_button(handoff_buttons, "回角色看成长", "navigate_character")
+	add_action_button(handoff_buttons, "继续主线", "navigate_stage")
+
 	var read_buttons := add_button_row()
-	add_action_button(read_buttons, "读取穿戴槽", "load_slots")
+	add_action_button(read_buttons, "刷新穿戴槽", "load_slots")
 
 	slot_list = add_labeled_item_list("当前槽位快照", 180)
 	slot_list.item_selected.connect(_on_slot_selected)
-	target_slot_selector = add_labeled_option_button("target_slot_key")
-	replace_options(target_slot_selector, [], "请先读取穿戴槽")
+	target_slot_selector = add_labeled_option_button("目标槽位")
+	replace_options(target_slot_selector, [], "请先刷新穿戴槽")
 
-	equipment_instance_input = add_labeled_input("equipment_instance_id", "")
+	equipment_instance_input = add_labeled_input("装备实例编号", "")
 
 	var action_buttons := add_button_row()
-	add_action_button(action_buttons, "执行 Equip", "equip")
-	add_action_button(action_buttons, "执行 Unequip", "unequip")
+	equip_button = add_action_button(action_buttons, "穿上所选装备", "equip")
+	style_primary_button(equip_button)
+	add_action_button(action_buttons, "卸下当前槽位", "unequip")
+
+	show_handoff_summary("刷新穿戴槽后，可以把背包或结算页带来的装备直接试穿到当前角色身上。")
 
 
 func get_character_id_text() -> String:
@@ -72,8 +88,10 @@ func set_selected_equipment_instance(equipment_instance_id: String, equipment_na
 	equipment_instance_input.text = normalize_id_string(equipment_instance_id)
 	if equipment_name.is_empty():
 		set_summary_text("待穿戴装备实例 #%s" % equipment_instance_input.text)
+		show_handoff_summary("已带入装备实例 #%s；刷新穿戴槽后即可试穿。" % equipment_instance_input.text)
 	else:
 		set_summary_text("待穿戴装备：%s #%s" % [equipment_name, equipment_instance_input.text])
+		show_handoff_summary("已带入 %s；刷新穿戴槽后即可试穿到当前角色。" % equipment_name)
 
 
 func render_slots(payload: Dictionary) -> void:
@@ -97,13 +115,17 @@ func render_slots(payload: Dictionary) -> void:
 			"value": slot_key,
 		})
 
-	replace_options(target_slot_selector, slot_options, "请先读取穿戴槽")
-	set_summary_text("character_id=%s | slots=%d | equipped=%d" % [
+	replace_options(target_slot_selector, slot_options, "请先刷新穿戴槽")
+	set_summary_text("穿戴总览：角色 #%s | 槽位 %d | 已穿戴 %d" % [
 		normalize_id_string(payload.get("character_id", "")),
 		slot_list.item_count,
 		filled_slots,
 	])
 	set_output_json(payload)
+
+
+func show_handoff_summary(text: String) -> void:
+	handoff_label.text = text
 
 
 func get_target_slot_key() -> String:

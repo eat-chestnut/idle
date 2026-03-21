@@ -21,7 +21,7 @@ const BATTLE_PAGE := "battle"
 const SETTLE_PAGE := "settle"
 const CLIENT_SUBTITLE := (
 	"真实角色、真实主线、真实战斗承接："
-	+ "从角色创建到 battle settle 的 phase-one 玩家路径"
+	+ "从角色创建到正式结算的 phase-one 玩家路径"
 )
 const DEFAULT_CONFIG_NOTE := (
 	"默认值来自当前正式文档与最小联调 seed，只作为联调兜底；"
@@ -218,20 +218,20 @@ func _set_initial_states() -> void:
 	inventory_page.set_page_state("empty", "先锁定当前角色，再来看背包。")
 	inventory_page.set_output_text("等待背包请求。")
 
-	equipment_page.set_page_state("empty", "先确认当前角色，再读取穿戴槽。")
-	equipment_page.set_output_text("等待穿戴槽请求。")
+	equipment_page.set_page_state("empty", "先确认当前角色，再刷新穿戴槽。")
+	equipment_page.set_output_text("等待穿戴槽刷新。")
 
 	stage_page.set_page_state("empty", "先进入主线页读取章节。")
 	stage_page.set_output_text("等待章节、关卡和难度请求。")
 
 	prepare_page.set_page_state("empty", "先确认出战角色和目标难度，再开始战斗。")
-	prepare_page.set_output_text("等待 battle prepare 请求。")
+	prepare_page.set_output_text("等待出战确认。")
 
 	battle_page.set_page_state("empty", "先完成出战确认，再进入战斗空间。")
-	battle_page.set_output_text("等待 battle prepare 承接。")
+	battle_page.set_output_text("等待出战页承接。")
 
 	settle_page.set_page_state("empty", "先完成出战准备，再进入结算。")
-	settle_page.set_output_text("等待 battle settle 请求。")
+	settle_page.set_output_text("等待结算结果回流。")
 
 
 func _refresh_runtime_config_snapshot() -> void:
@@ -513,7 +513,7 @@ func _refresh_flow_summary() -> void:
 	elif stage_difficulty_id.is_empty():
 		next_step = "选择难度，系统会同步首通奖励状态。"
 	elif battle_context_id.is_empty():
-		next_step = "执行 battle prepare。"
+		next_step = "进入出战页，锁定本次战斗信息。"
 	elif current_settle_result.is_empty():
 		next_step = "进入战斗页推进走位并完成结算。"
 	else:
@@ -662,18 +662,22 @@ func _open_inventory_from_settle() -> void:
 	_set_current_tab(INVENTORY_PAGE)
 	if current_settle_result.is_empty():
 		inventory_page.set_page_state("empty", "本轮收益还没生成，先完成一次正式结算。")
+		inventory_page.show_handoff_summary("本轮收益还没生成，先完成一次正式结算，再回背包看结果。")
 		return
 
 	var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
 	var stack_results := _as_array(inventory_results.get("stack_results", []))
 	var equipment_results := _as_array(inventory_results.get("equipment_instance_results", []))
 	inventory_page.set_page_state("success", "已承接本轮结算，建议先确认新增材料和装备实例。")
-	inventory_page.set_summary_text("本轮结算承接 | 掉落 %d | 奖励 %d | stack_writes %d | equipment_writes %d" % [
+	inventory_page.set_summary_text("本轮结算承接：掉落 %d | 奖励 %d | 入包 %d | 新装备 %d" % [
 		_as_array(current_settle_result.get("drop_results", [])).size(),
 		_as_array(current_settle_result.get("reward_results", [])).size(),
 		stack_results.size(),
 		equipment_results.size(),
 	])
+	inventory_page.show_handoff_summary(
+		"已带着本轮结算结果来到背包；先看新增装备实例，再决定去穿戴还是回角色，会更顺。"
+	)
 
 
 func _open_equipment_from_settle() -> void:
@@ -687,29 +691,56 @@ func _open_equipment_from_settle() -> void:
 	var latest_equipment: Dictionary = _latest_created_equipment_instance()
 	if latest_equipment.is_empty():
 		equipment_page.set_page_state("empty", "本轮没有新增装备可直接试穿。")
-		equipment_page.set_summary_text("当前角色上下文已保留，你仍可读取穿戴槽查看现有装备。")
+		equipment_page.set_summary_text("当前角色上下文已保留，你仍可刷新穿戴槽查看现有装备。")
+		equipment_page.show_handoff_summary("这轮没有新装备可直达试穿，但当前角色上下文还在，你可以继续查看现有穿戴。")
 		return
 
 	equipment_page.set_selected_equipment_instance(
 		_normalize_id_string(latest_equipment.get("equipment_instance_id", "")),
 		str(latest_equipment.get("item_name", latest_equipment.get("item_id", "新装备")))
 	)
-	equipment_page.set_page_state("success", "已带上本轮新装备，读取穿戴槽后可直接试装。")
+	equipment_page.set_page_state("success", "已带上本轮新装备，刷新穿戴槽后可直接试装。")
+	equipment_page.show_handoff_summary("已承接本轮新装备；刷新穿戴槽后就能直接试装到当前角色。")
 
 
-func _open_character_from_settle() -> void:
+func _open_character_page(from_settle: bool = false) -> void:
 	_set_current_tab(CHARACTER_PAGE)
-	var current_character_id: String = settle_page.get_character_id_text()
+	var current_character_id := ""
+	if from_settle:
+		current_character_id = settle_page.get_character_id_text()
+		if current_character_id.is_empty():
+			current_character_id = prepare_page.get_character_id_text()
+	else:
+		current_character_id = character_page.get_character_id_text()
+		if current_character_id.is_empty():
+			current_character_id = equipment_page.get_character_id_text()
+		if current_character_id.is_empty():
+			current_character_id = prepare_page.get_character_id_text()
+		if current_character_id.is_empty():
+			current_character_id = settle_page.get_character_id_text()
+
 	if not current_character_id.is_empty():
 		character_page.set_character_id(current_character_id)
 
 	var character_record: Dictionary = _find_character_record(current_character_id)
 	if character_record.is_empty():
-		character_page.set_page_state("success", "已回到角色页，当前出战角色和主线路径都已保留。")
+		character_page.set_page_state("success", "已回到角色页，当前主流程上下文都已保留。")
+		character_page.show_growth_handoff(
+			"当前角色上下文已保留；接下来可以去背包、穿戴，或直接继续主线。"
+		)
 		return
 
 	character_page.show_character_summary(character_record)
-	character_page.set_page_state("success", "已回到角色页，可以继续查看本轮战后成长。")
+	if from_settle:
+		character_page.set_page_state("success", "已回到角色页，可以继续查看本轮战后成长。")
+		character_page.show_growth_handoff(
+			"这轮结果已经回流到角色页；你可以继续去穿戴试装，或直接回主线再打一场。"
+		)
+	else:
+		character_page.set_page_state("success", "已回到角色页，当前角色和成长入口都已就位。")
+		character_page.show_growth_handoff(
+			"角色页会承接你当前的成长上下文；接下来去背包、穿戴或主线都可以。"
+		)
 
 
 func _open_stage_from_settle() -> void:
@@ -822,7 +853,7 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			else:
 				_set_current_tab(EQUIPMENT_PAGE)
 		"navigate_character":
-			_open_character_from_settle()
+			_open_character_page(str(payload.get("source", "")) == "settle")
 		"navigate_stage":
 			if str(payload.get("source", "")) == "settle":
 				_open_stage_from_settle()
@@ -1091,13 +1122,13 @@ func _on_activate_current_character_pressed() -> void:
 func _on_activate_battle_character_pressed() -> void:
 	var character_id_value = _parse_character_id(prepare_page.get_character_id_text())
 	if character_id_value <= 0:
-		prepare_page.set_page_state("error", "请先选择有效的 Battle character_id。")
+		prepare_page.set_page_state("error", "请先选择有效的出战角色。")
 		return
 
 	await _activate_character(
 		prepare_page,
 		character_id_value,
-		"当前 Battle 角色已激活，可继续执行 battle prepare。"
+		"当前出战角色已激活，可以直接开始战斗。"
 	)
 
 
@@ -1199,22 +1230,23 @@ func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
 		equipment_instance_id,
 		str(metadata.get("item_name", ""))
 	)
-	equipment_page.set_page_state("success", "已从背包选中装备实例，接下来请选择槽位并执行 Equip。")
+	equipment_page.show_handoff_summary("已从背包带入一件装备；刷新穿戴槽后即可把它试装到当前角色。")
+	equipment_page.set_page_state("success", "已从背包选中装备实例，接下来请选择槽位并完成穿戴。")
 	_set_current_tab(EQUIPMENT_PAGE)
 
 
 func _on_load_slots_pressed() -> void:
 	var character_id_value = _parse_character_id(equipment_page.get_character_id_text())
 	if character_id_value <= 0:
-		equipment_page.set_page_state("error", "请先在角色页或穿戴页填写有效的 character_id。")
+		equipment_page.set_page_state("error", "请先在角色页或穿戴页确认有效的角色编号。")
 		return
 
 	_persist_runtime_config()
-	equipment_page.set_page_state("loading", "正在读取穿戴槽。")
+	equipment_page.set_page_state("loading", "正在刷新穿戴槽。")
 	var result: Dictionary = await api.request_json("GET", "/api/characters/%d/equipment-slots" % character_id_value)
 
 	if not result.get("ok", false):
-		_handle_failure(equipment_page, result, "读取穿戴槽失败。")
+		_handle_failure(equipment_page, result, "刷新穿戴槽失败。")
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
@@ -1224,7 +1256,7 @@ func _on_load_slots_pressed() -> void:
 	if _as_array(data.get("slots", [])).is_empty():
 		equipment_page.set_page_state("empty", "当前角色没有可显示的槽位。")
 	else:
-		equipment_page.set_page_state("success", "穿戴槽已加载，可执行 equip/unequip。")
+		equipment_page.set_page_state("success", "穿戴槽已刷新，可以继续穿上或卸下装备。")
 
 
 func _on_equip_pressed() -> void:
@@ -1233,17 +1265,17 @@ func _on_equip_pressed() -> void:
 	var target_slot = equipment_page.get_target_slot_key()
 
 	if character_id_value <= 0:
-		equipment_page.set_page_state("error", "请先填写有效的 character_id。")
+		equipment_page.set_page_state("error", "请先填写有效的角色编号。")
 		return
 	if equipment_instance_id_value <= 0:
-		equipment_page.set_page_state("error", "请先填写有效的 equipment_instance_id。")
+		equipment_page.set_page_state("error", "请先填写有效的装备实例编号。")
 		return
 	if target_slot.is_empty():
-		equipment_page.set_page_state("error", "请先读取穿戴槽并选择 target_slot_key。")
+		equipment_page.set_page_state("error", "请先刷新穿戴槽并选中目标槽位。")
 		return
 
 	_persist_runtime_config()
-	equipment_page.set_page_state("loading", "正在执行 equip。")
+	equipment_page.set_page_state("loading", "正在穿戴装备。")
 	var result: Dictionary = await api.request_json(
 		"POST",
 		"/api/characters/%d/equip" % character_id_value,
@@ -1254,7 +1286,7 @@ func _on_equip_pressed() -> void:
 	)
 
 	if not result.get("ok", false):
-		_handle_failure(equipment_page, result, "执行 equip 失败。")
+		_handle_failure(equipment_page, result, "穿戴失败。")
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
@@ -1263,7 +1295,7 @@ func _on_equip_pressed() -> void:
 		"slots": _as_array(data.get("slot_snapshot", [])),
 	}
 	equipment_page.render_slots(current_slots)
-	equipment_page.set_page_state("success", "equip 成功，已刷新槽位快照。")
+	equipment_page.set_page_state("success", "穿戴完成，槽位快照已刷新。")
 
 
 func _on_unequip_pressed() -> void:
@@ -1271,14 +1303,14 @@ func _on_unequip_pressed() -> void:
 	var target_slot = equipment_page.get_target_slot_key()
 
 	if character_id_value <= 0:
-		equipment_page.set_page_state("error", "请先填写有效的 character_id。")
+		equipment_page.set_page_state("error", "请先填写有效的角色编号。")
 		return
 	if target_slot.is_empty():
-		equipment_page.set_page_state("error", "请先读取穿戴槽并选择 target_slot_key。")
+		equipment_page.set_page_state("error", "请先刷新穿戴槽并选中目标槽位。")
 		return
 
 	_persist_runtime_config()
-	equipment_page.set_page_state("loading", "正在执行 unequip。")
+	equipment_page.set_page_state("loading", "正在卸下装备。")
 	var result: Dictionary = await api.request_json(
 		"POST",
 		"/api/characters/%d/unequip" % character_id_value,
@@ -1288,7 +1320,7 @@ func _on_unequip_pressed() -> void:
 	)
 
 	if not result.get("ok", false):
-		_handle_failure(equipment_page, result, "执行 unequip 失败。")
+		_handle_failure(equipment_page, result, "卸下失败。")
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
@@ -1297,7 +1329,7 @@ func _on_unequip_pressed() -> void:
 		"slots": _as_array(data.get("slot_snapshot", [])),
 	}
 	equipment_page.render_slots(current_slots)
-	equipment_page.set_page_state("success", "unequip 成功，已刷新槽位快照。")
+	equipment_page.set_page_state("success", "卸下完成，槽位快照已刷新。")
 
 
 func _on_load_chapters_pressed() -> void:
@@ -1466,7 +1498,7 @@ func _on_refresh_reward_status_pressed() -> bool:
 	else:
 		stage_page.set_page_state(
 			"success",
-			"首通奖励状态已刷新：%s。完整 grant_status 已写入技术详情。" % [
+			"首通奖励状态已刷新：%s。完整状态明细已写入技术详情。" % [
 				reward_status_text,
 			]
 		)

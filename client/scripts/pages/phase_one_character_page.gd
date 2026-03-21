@@ -8,10 +8,12 @@ var hero_name_label: Label
 var hero_meta_label: Label
 var hero_progress_label: Label
 var hero_tag_row: HBoxContainer
+var growth_hint_label: Label
 var character_cards_box: VBoxContainer
 var class_input: LineEdit
 var name_input: LineEdit
 var character_id_input: LineEdit
+var stage_entry_button: Button
 
 var _current_records: Array = []
 
@@ -43,15 +45,21 @@ func _init() -> void:
 	hero_tag_row.add_theme_constant_override("separation", 8)
 	hero_card.add_child(hero_tag_row)
 
+	growth_hint_label = Label.new()
+	growth_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	growth_hint_label.modulate = CARD_TEXT_MUTED
+	hero_card.add_child(growth_hint_label)
+
 	var hero_buttons := add_button_row(hero_card)
 	add_action_button(hero_buttons, "查看角色详情", "load_character")
-	add_action_button(hero_buttons, "激活当前角色", "activate_current_character")
-	add_action_button(hero_buttons, "同步到背包与主线", "sync_current_character")
+	add_action_button(hero_buttons, "设为当前出战角色", "activate_current_character")
+	add_action_button(hero_buttons, "同步到主流程", "sync_current_character")
 
 	var entry_buttons := add_button_row(hero_card)
-	add_action_button(entry_buttons, "前往背包", "navigate_inventory")
-	add_action_button(entry_buttons, "前往穿戴", "navigate_equipment")
-	add_action_button(entry_buttons, "进入主线", "navigate_stage")
+	add_action_button(entry_buttons, "去背包", "navigate_inventory")
+	add_action_button(entry_buttons, "去穿戴", "navigate_equipment")
+	stage_entry_button = add_action_button(entry_buttons, "继续主线", "navigate_stage")
+	style_primary_button(stage_entry_button)
 
 	var list_card := add_card("角色切换", "真实角色列表会优先展示当前启用角色，并保留创建后的快速回跳。")
 	var list_buttons := add_button_row(list_card)
@@ -77,6 +85,7 @@ func _init() -> void:
 
 	show_character_summary({})
 	set_character_list([], "")
+	show_growth_handoff("当前角色页是成长回流入口：确认角色后，可以继续去背包、穿戴或主线。")
 
 
 func apply_config(values: Dictionary) -> void:
@@ -192,6 +201,10 @@ func show_character_summary(character: Dictionary) -> void:
 		hero_tag_row.add_child(create_pill("已激活，可直接出战", ACTIVE_TINT))
 	else:
 		hero_tag_row.add_child(create_pill("未激活，需要先切换出战角色", Color(0.95, 0.68, 0.38, 1.0)))
+
+
+func show_growth_handoff(text: String) -> void:
+	growth_hint_label.text = text
 
 
 func _build_character_card(entry: Dictionary) -> PanelContainer:

@@ -485,10 +485,7 @@ func _reward_status_text(reward_status: Dictionary) -> String:
 	if int(reward_status.get("has_reward", 0)) == 0:
 		return "首通奖励状态：当前难度没有首通奖励。"
 	if int(reward_status.get("has_granted", 0)) == 1:
-		var grant_status := str(reward_status.get("grant_status", "")).strip_edges()
-		if grant_status.is_empty():
-			return "首通奖励状态：已领取。"
-		return "首通奖励状态：已领取，grant_status=%s。" % grant_status
+		return "首通奖励状态：已领取，不会重复新增。"
 	return "首通奖励状态：可领取，尚未发放。"
 
 
