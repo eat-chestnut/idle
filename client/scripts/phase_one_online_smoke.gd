@@ -2,6 +2,10 @@ extends SceneTree
 
 const BackendApi = preload("res://client/scripts/backend_api.gd")
 
+
+# ------------------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------------------
 const SMOKE_LOG_PREFIX := "[client-online-smoke]"
 const DEFAULT_BASE_URL := "http://127.0.0.1:8000"
 const DEFAULT_BEARER_TOKEN := "test-token-2001"
@@ -11,8 +15,13 @@ const READY_PROFILE := "interop"
 const EXIT_SUCCESS := 0
 const EXIT_FAILURE := 1
 const EXIT_USAGE := 2
+
 const HELP_FLAGS := ["--help", "-h"]
 
+
+# ------------------------------------------------------------------------------
+# Runtime state
+# ------------------------------------------------------------------------------
 var _base_url := DEFAULT_BASE_URL
 var _bearer_token := DEFAULT_BEARER_TOKEN
 var _should_print_help := false
@@ -23,6 +32,7 @@ var _should_print_help := false
 # ------------------------------------------------------------------------------
 func _initialize() -> void:
 	var parse_error := _parse_args(OS.get_cmdline_user_args())
+
 	if _should_print_help:
 		_print_usage()
 		quit(EXIT_SUCCESS)
@@ -46,10 +56,12 @@ func _execute_smoke() -> int:
 	var api = BackendApi.new(root, _base_url, _bearer_token)
 	_print_runtime_context()
 
+	# Phase 1: readiness / interop prerequisites.
 	_log_phase("ready")
 	if not await _ensure_ready(api):
 		return EXIT_FAILURE
 
+	# Phase 2: select an existing character or create the smallest legal one.
 	_log_phase("character")
 	var selected_character := await _select_or_create_character(api)
 	if selected_character.is_empty():
@@ -59,39 +71,46 @@ func _execute_smoke() -> int:
 	if character_id <= 0:
 		return EXIT_FAILURE
 
+	# Phase 3: keep the smoke chain aligned with the real active-character flow.
+	_log_phase("activate")
 	var active_character := await _activate_character(api, character_id)
 	if active_character.is_empty():
 		return EXIT_FAILURE
 
+	# Phase 4: walk the first backend-provided chapter -> stage -> difficulty path.
 	_log_phase("stage")
 	var stage_target := await _load_stage_target(api)
 	if stage_target.is_empty():
 		return EXIT_FAILURE
 
+	# Phase 5: prepare a real battle context through the formal backend API.
 	_log_phase("prepare")
 	var prepare_payload := await _prepare_battle(api, character_id, stage_target)
 	if prepare_payload.is_empty():
 		return EXIT_FAILURE
 
+	# Phase 6: settle the prepared battle with the real battle context id.
 	_log_phase("settle")
 	var battle_context_id := str(prepare_payload.get("battle_context_id", ""))
 	var monster_ids := _as_array(prepare_payload.get("monster_ids", []))
-	var settle_data := await _settle_battle(
+	var settle_payload := await _settle_battle(
 		api,
 		character_id,
 		stage_target,
 		battle_context_id,
 		monster_ids
 	)
-	if settle_data.is_empty():
+	if settle_payload.is_empty():
 		return EXIT_FAILURE
 
+	# Phase 7: print a compact, machine-friendly success summary.
+	_log_phase("summary")
 	var summary := _build_success_summary(
 		character_id,
 		stage_target,
 		battle_context_id,
 		monster_ids,
-		settle_data
+		settle_payload
 	)
 
 	print("%s success" % SMOKE_LOG_PREFIX)
@@ -100,10 +119,11 @@ func _execute_smoke() -> int:
 
 
 # ------------------------------------------------------------------------------
-# CLI and runtime context
+# CLI parsing and usage
 # ------------------------------------------------------------------------------
 func _parse_args(args: Array) -> String:
 	var index := 0
+
 	while index < args.size():
 		var arg := str(args[index])
 
@@ -130,6 +150,7 @@ func _parse_args(args: Array) -> String:
 
 	if _base_url.is_empty():
 		return "base_url is required"
+
 	if _bearer_token.is_empty():
 		return "bearer_token is required"
 
@@ -154,22 +175,18 @@ func _print_usage() -> void:
 			"",
 			"Notes:",
 			"  - Reuses an active character when available.",
-			"  - Creates the smallest legal character only when the account is empty.",
-			"  - Selects the first backend-provided chapter, stage, and difficulty.",
+			"  - Creates a smallest legal character only when the account is empty.",
+			"  - Always uses the first backend-provided chapter, stage, and difficulty.",
+			"  - Does not invent battle_context_id or reward status locally.",
 		])
 	)
 
 
 func _print_runtime_context() -> void:
-	print(
-		"%s base_url=%s ready_profile=%s smoke_class_id=%s token_length=%s" % [
-			SMOKE_LOG_PREFIX,
-			_base_url,
-			READY_PROFILE,
-			DEFAULT_SMOKE_CLASS_ID,
-			str(_bearer_token.length()),
-		]
-	)
+	print("%s base_url=%s" % [SMOKE_LOG_PREFIX, _base_url])
+	print("%s ready_profile=%s" % [SMOKE_LOG_PREFIX, READY_PROFILE])
+	print("%s smoke_class_id=%s" % [SMOKE_LOG_PREFIX, DEFAULT_SMOKE_CLASS_ID])
+	print("%s bearer_token_length=%s" % [SMOKE_LOG_PREFIX, str(_bearer_token.length())])
 
 
 func _log_phase(phase_name: String) -> void:
@@ -180,7 +197,11 @@ func _log_phase(phase_name: String) -> void:
 # Ready check
 # ------------------------------------------------------------------------------
 func _ensure_ready(api) -> bool:
-	var ready_result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": READY_PROFILE})
+	var ready_result: Dictionary = await api.request_public_json(
+		"GET",
+		"/readyz",
+		{"profile": READY_PROFILE}
+	)
 	if not ready_result.get("ok", false):
 		_fail("readyz", ready_result)
 		return false
@@ -207,6 +228,10 @@ func _select_or_create_character(api) -> Dictionary:
 	var selected_character := _pick_character_candidate(characters)
 	if not selected_character.is_empty():
 		print("%s selected_character_strategy=reuse" % SMOKE_LOG_PREFIX)
+		_print_json({
+			"character_id": int(selected_character.get("character_id", 0)),
+			"is_active": int(selected_character.get("is_active", 0)),
+		})
 		return selected_character
 
 	var create_result: Dictionary = await api.request_json("POST", "/api/characters", {
@@ -223,6 +248,10 @@ func _select_or_create_character(api) -> Dictionary:
 		return {}
 
 	print("%s selected_character_strategy=create" % SMOKE_LOG_PREFIX)
+	_print_json({
+		"character_id": int(selected_character.get("character_id", 0)),
+		"is_active": int(selected_character.get("is_active", 0)),
+	})
 	return selected_character
 
 
@@ -279,7 +308,7 @@ func _build_smoke_character_name() -> String:
 
 
 # ------------------------------------------------------------------------------
-# Stage flow
+# Stage target flow
 # ------------------------------------------------------------------------------
 func _load_stage_target(api) -> Dictionary:
 	var chapter_id := await _load_first_chapter_id(api)
@@ -363,6 +392,7 @@ func _prepare_battle(api, character_id: int, stage_target: Dictionary) -> Dictio
 	var prepare_data := _as_dictionary(prepare_result.get("data", {}))
 	var battle_context_id := str(prepare_data.get("battle_context_id", "")).strip_edges()
 	var monster_ids := _extract_monster_ids(prepare_data)
+
 	if battle_context_id.is_empty() or monster_ids.is_empty():
 		printerr("%s prepare payload missing battle_context_id or monster_list" % SMOKE_LOG_PREFIX)
 		_print_json(prepare_data)
@@ -395,6 +425,9 @@ func _settle_battle(
 	return _as_dictionary(settle_result.get("data", {}))
 
 
+# ------------------------------------------------------------------------------
+# Success summary
+# ------------------------------------------------------------------------------
 func _build_success_summary(
 	character_id: int,
 	stage_target: Dictionary,
@@ -403,6 +436,7 @@ func _build_success_summary(
 	settle_data: Dictionary
 ) -> Dictionary:
 	var settlement_summary := _as_dictionary(settle_data.get("settlement_summary", {}))
+
 	return {
 		"base_url": _base_url,
 		"character_id": character_id,
@@ -413,7 +447,9 @@ func _build_success_summary(
 		"monster_count": monster_ids.size(),
 		"drop_count": _as_array(settle_data.get("drop_results", [])).size(),
 		"reward_count": _as_array(settle_data.get("reward_results", [])).size(),
-		"created_equipment_instance_count": int(settlement_summary.get("created_equipment_instance_count", 0)),
+		"created_equipment_instance_count": int(
+			settlement_summary.get("created_equipment_instance_count", 0)
+		),
 		"reward_status_before": _as_dictionary(stage_target.get("reward_status_before", {})),
 		"reward_status_after": _as_dictionary(settle_data.get("first_clear_reward_status", {})),
 		"settlement_summary": settlement_summary,
@@ -447,6 +483,7 @@ func _find_character(records: Array, character_id: int) -> Dictionary:
 
 func _extract_monster_ids(payload: Dictionary) -> Array:
 	var result: Array = []
+
 	for monster in _as_array(payload.get("monster_list", [])):
 		var monster_id := str(_as_dictionary(monster).get("monster_id", "")).strip_edges()
 		if not monster_id.is_empty():
