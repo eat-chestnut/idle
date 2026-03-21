@@ -135,7 +135,7 @@ func _apply_saved_config() -> void:
 	stage_page.apply_config(saved_config)
 	prepare_page.apply_config(saved_config)
 	settle_page.apply_config(saved_config)
-	equipment_page.set_character_id(str(saved_config.get("character_id", "1001")))
+	equipment_page.set_character_id(_normalize_id_string(saved_config.get("character_id", "1001")))
 	_is_applying_config = false
 	_refresh_runtime_config_snapshot()
 
@@ -270,7 +270,7 @@ func _records_contain_character(records: Array, character_id: String) -> bool:
 
 	for record in records:
 		var entry := _as_dictionary(record)
-		if str(entry.get("character_id", "")).strip_edges() == normalized_id:
+		if _normalize_id_string(entry.get("character_id", "")) == normalized_id:
 			return true
 
 	return false
@@ -281,7 +281,7 @@ func _sync_primary_character_from_list(records: Array) -> void:
 	if active_character.is_empty():
 		return
 
-	var active_character_id = str(active_character.get("character_id", "")).strip_edges()
+	var active_character_id = _normalize_id_string(active_character.get("character_id", ""))
 	if active_character_id.is_empty():
 		return
 
@@ -301,11 +301,11 @@ func _runtime_character_stub(character_id: String, fallback_name: String) -> Dic
 		return {}
 
 	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
-	if str(detail_character.get("character_id", "")) == normalized_id:
+	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
 		return detail_character
 
 	var prepare_character = _as_dictionary(current_prepare_result.get("character", {}))
-	if str(prepare_character.get("character_id", "")) == normalized_id:
+	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
 		return prepare_character
 
 	return {
@@ -315,14 +315,14 @@ func _runtime_character_stub(character_id: String, fallback_name: String) -> Dic
 
 
 func _prepend_character_record(records: Array, character: Dictionary) -> Array:
-	var character_id = str(character.get("character_id", "")).strip_edges()
+	var character_id = _normalize_id_string(character.get("character_id", ""))
 	if character_id.is_empty():
 		return records
 
 	var merged: Array = [character]
 	for record in records:
 		var entry := _as_dictionary(record)
-		if str(entry.get("character_id", "")) == character_id:
+		if _normalize_id_string(entry.get("character_id", "")) == character_id:
 			continue
 		merged.append(entry)
 		if merged.size() >= 8:
@@ -355,13 +355,13 @@ func _upsert_character_in_current_list(character: Dictionary) -> void:
 		_remember_character(character)
 		return
 
-	var character_id = str(character.get("character_id", "")).strip_edges()
+	var character_id = _normalize_id_string(character.get("character_id", ""))
 	var merged: Array = []
 	var found := false
 
 	for record in _as_array(current_character_list.get("characters", [])):
 		var entry := _as_dictionary(record)
-		if str(entry.get("character_id", "")).strip_edges() == character_id:
+		if _normalize_id_string(entry.get("character_id", "")) == character_id:
 			merged.append(character)
 			found = true
 		else:
@@ -375,7 +375,7 @@ func _upsert_character_in_current_list(character: Dictionary) -> void:
 
 
 func _apply_active_character(character: Dictionary) -> void:
-	var active_character_id = str(character.get("character_id", "")).strip_edges()
+	var active_character_id = _normalize_id_string(character.get("character_id", ""))
 	if active_character_id.is_empty():
 		return
 
@@ -389,7 +389,7 @@ func _apply_active_character(character: Dictionary) -> void:
 	var found := false
 	for record in source_records:
 		var entry := _as_dictionary(record).duplicate(true)
-		if str(entry.get("character_id", "")).strip_edges() == active_character_id:
+		if _normalize_id_string(entry.get("character_id", "")) == active_character_id:
 			var active_entry = character.duplicate(true)
 			active_entry["is_active"] = 1
 			merged.append(active_entry)
@@ -412,7 +412,7 @@ func _apply_active_character(character: Dictionary) -> void:
 	if detail_character.is_empty():
 		return
 
-	if str(detail_character.get("character_id", "")).strip_edges() == active_character_id:
+	if _normalize_id_string(detail_character.get("character_id", "")) == active_character_id:
 		current_character_detail = {"character": character}
 	else:
 		detail_character["is_active"] = 0
@@ -479,20 +479,20 @@ func _describe_character(character_id: String) -> String:
 
 	for record in _as_array(current_character_list.get("characters", [])):
 		var listed_entry := _as_dictionary(record)
-		if str(listed_entry.get("character_id", "")).strip_edges() == normalized_id:
+		if _normalize_id_string(listed_entry.get("character_id", "")) == normalized_id:
 			return "%s #%s" % [str(listed_entry.get("character_name", "角色")), normalized_id]
 
 	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
-	if str(detail_character.get("character_id", "")) == normalized_id:
+	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
 		return "%s #%s" % [str(detail_character.get("character_name", "角色")), normalized_id]
 
 	var prepare_character = _as_dictionary(current_prepare_result.get("character", {}))
-	if str(prepare_character.get("character_id", "")) == normalized_id:
+	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
 		return "%s #%s" % [str(prepare_character.get("character_name", "角色")), normalized_id]
 
 	for record in _as_array(saved_config.get("recent_characters", [])):
 		var entry := _as_dictionary(record)
-		if str(entry.get("character_id", "")) == normalized_id:
+		if _normalize_id_string(entry.get("character_id", "")) == normalized_id:
 			return "%s #%s" % [str(entry.get("character_name", "角色")), normalized_id]
 
 	return "#%s" % normalized_id
@@ -533,14 +533,14 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 
 	match context:
 		"detail_character_changed":
-			var character_id = str(payload.get("character_id", "")).strip_edges()
+			var character_id = _normalize_id_string(payload.get("character_id", ""))
 			if not character_id.is_empty():
 				if character_page.get_character_id_text() != character_id:
 					character_page.set_character_id(character_id)
 				if equipment_page.get_character_id_text() != character_id:
 					equipment_page.set_character_id(character_id)
 		"battle_character_changed":
-			var battle_character_id = str(payload.get("character_id", "")).strip_edges()
+			var battle_character_id = _normalize_id_string(payload.get("character_id", ""))
 			if not battle_character_id.is_empty():
 				if prepare_page.get_character_id_text() != battle_character_id:
 					prepare_page.set_character_id(battle_character_id)
@@ -722,7 +722,7 @@ func _on_load_characters_pressed() -> void:
 	var active_character: Dictionary = _find_active_character(characters)
 	var preferred_character_id = character_page.get_character_id_text()
 	if preferred_character_id.is_empty() and not active_character.is_empty():
-		preferred_character_id = str(active_character.get("character_id", ""))
+		preferred_character_id = _normalize_id_string(active_character.get("character_id", ""))
 
 	_store_character_list(data)
 	_sync_primary_character_from_list(characters)
@@ -755,7 +755,7 @@ func _on_create_character_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	var character: Dictionary = _as_dictionary(data.get("character", {}))
-	var created_character_id = str(character.get("character_id", ""))
+	var created_character_id = _normalize_id_string(character.get("character_id", ""))
 	var is_active = int(character.get("is_active", 0)) == 1
 
 	current_character_detail = {"character": character}
@@ -869,7 +869,7 @@ func _activate_character(page, character_id_value: int, success_message: String)
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	var character: Dictionary = _as_dictionary(data.get("character", {}))
-	var character_id_text = str(character.get("character_id", character_id_value))
+	var character_id_text = _normalize_id_string(character.get("character_id", character_id_value))
 
 	_apply_active_character(character)
 	prepare_page.set_character_id(character_id_text)
@@ -894,7 +894,7 @@ func _on_sync_current_character_pressed() -> void:
 		return
 
 	var character: Dictionary = _as_dictionary(current_character_detail.get("character", {}))
-	var current_character_id = str(character.get("character_id", ""))
+	var current_character_id = _normalize_id_string(character.get("character_id", ""))
 	if current_character_id.is_empty():
 		character_page.set_page_state("error", "当前角色详情里没有 character_id。")
 		return
@@ -942,7 +942,7 @@ func _on_load_inventory_pressed() -> void:
 
 
 func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
-	var equipment_instance_id = str(metadata.get("equipment_instance_id", ""))
+	var equipment_instance_id = _normalize_id_string(metadata.get("equipment_instance_id", ""))
 	if equipment_instance_id.is_empty():
 		return
 
@@ -1415,10 +1415,14 @@ func _extract_monster_ids(payload: Dictionary) -> PackedStringArray:
 
 
 func _parse_character_id(text: String) -> int:
-	var trimmed := text.strip_edges()
+	var trimmed := _normalize_id_string(text)
 	if trimmed.is_empty() or not trimmed.is_valid_int():
 		return -1
 	return int(trimmed)
+
+
+func _normalize_id_string(value: Variant) -> String:
+	return ClientConfigStoreScript.normalize_id_string(value)
 
 
 func _parse_killed_monsters(raw_text: String) -> Array:

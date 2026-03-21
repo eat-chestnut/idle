@@ -61,7 +61,7 @@ func render_inventory(payload: Dictionary) -> void:
 		equipment_count += 1
 		var label = "%s #%s [%s]" % [
 			str(entry.get("item_name", "")),
-			str(entry.get("equipment_instance_id", "")),
+			normalize_id_string(entry.get("equipment_instance_id", "")),
 			str(entry.get("equipment_slot", "")),
 		]
 		equipment_item_list.add_item(label)

@@ -1,6 +1,8 @@
 extends ScrollContainer
 class_name PhaseOnePageBase
 
+const ClientConfigStoreScript = preload("res://client/scripts/client_config_store.gd")
+
 signal action_requested(action: String, payload: Dictionary)
 signal context_changed(context: String, payload: Dictionary)
 
@@ -248,3 +250,7 @@ func _as_dictionary(value: Variant) -> Dictionary:
 	if typeof(value) == TYPE_DICTIONARY:
 		return value
 	return {}
+
+
+func normalize_id_string(value: Variant) -> String:
+	return ClientConfigStoreScript.normalize_id_string(value)

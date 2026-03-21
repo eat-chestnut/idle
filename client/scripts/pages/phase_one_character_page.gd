@@ -44,7 +44,7 @@ func _init() -> void:
 func apply_config(values: Dictionary) -> void:
 	class_input.text = str(values.get("class_id", "class_jingang"))
 	name_input.text = str(values.get("character_name", "联调角色"))
-	character_id_input.text = str(values.get("character_id", "1001"))
+	character_id_input.text = normalize_id_string(values.get("character_id", "1001"))
 
 
 func get_create_payload() -> Dictionary:
@@ -59,7 +59,7 @@ func get_character_id_text() -> String:
 
 
 func set_character_id(character_id: String) -> void:
-	character_id_input.text = character_id
+	character_id_input.text = normalize_id_string(character_id)
 
 
 func set_character_list(records: Array, current_character_id: String) -> String:
@@ -71,7 +71,7 @@ func set_character_list(records: Array, current_character_id: String) -> String:
 
 	for character in records:
 		var entry = character if typeof(character) == TYPE_DICTIONARY else {}
-		var character_id = str(entry.get("character_id", ""))
+		var character_id = normalize_id_string(entry.get("character_id", ""))
 		if character_id.is_empty():
 			continue
 
@@ -98,14 +98,14 @@ func set_character_list(records: Array, current_character_id: String) -> String:
 		else:
 			var first_entry = character_list.get_item_metadata(0)
 			if typeof(first_entry) == TYPE_DICTIONARY:
-				selected_character_id = str(first_entry.get("character_id", ""))
+				selected_character_id = normalize_id_string(first_entry.get("character_id", ""))
 
 	if selected_index < 0 and not selected_character_id.is_empty():
 		for index in range(character_list.item_count):
 			var metadata = character_list.get_item_metadata(index)
 			if typeof(metadata) != TYPE_DICTIONARY:
 				continue
-			if str(metadata.get("character_id", "")) == selected_character_id:
+			if normalize_id_string(metadata.get("character_id", "")) == selected_character_id:
 				selected_index = index
 				break
 
@@ -114,7 +114,7 @@ func set_character_list(records: Array, current_character_id: String) -> String:
 			var metadata = character_list.get_item_metadata(index)
 			if typeof(metadata) != TYPE_DICTIONARY:
 				continue
-			if str(metadata.get("character_id", "")) == active_character_id:
+			if normalize_id_string(metadata.get("character_id", "")) == active_character_id:
 				selected_index = index
 				selected_character_id = active_character_id
 				break
@@ -123,7 +123,7 @@ func set_character_list(records: Array, current_character_id: String) -> String:
 		selected_index = 0
 		var selected_entry = character_list.get_item_metadata(0)
 		if typeof(selected_entry) == TYPE_DICTIONARY:
-			selected_character_id = str(selected_entry.get("character_id", ""))
+			selected_character_id = normalize_id_string(selected_entry.get("character_id", ""))
 
 	if selected_index >= 0:
 		character_list.select(selected_index)
@@ -163,7 +163,7 @@ func show_character_summary(character: Dictionary) -> void:
 	set_summary_text(
 		"当前角色：%s #%s | 职业：%s | 等级：%s | %s" % [
 			str(character.get("character_name", "角色")),
-			str(character.get("character_id", "")),
+			normalize_id_string(character.get("character_id", "")),
 			str(character.get("class_name", character.get("class_id", ""))),
 			str(character.get("level", "")),
 			active_text,
@@ -176,7 +176,7 @@ func _on_character_selected(index: int) -> void:
 	if typeof(metadata) != TYPE_DICTIONARY:
 		return
 
-	var character_id = str(metadata.get("character_id", ""))
+	var character_id = normalize_id_string(metadata.get("character_id", ""))
 	if character_id.is_empty():
 		return
 
