@@ -18,9 +18,12 @@ var character_tag_row: HBoxContainer
 var route_title_label: Label
 var route_meta_label: Label
 var reward_status_label: Label
+var route_tag_row: HBoxContainer
 var stat_rows_box: VBoxContainer
+var enemy_summary_label: Label
 var monster_rows_box: VBoxContainer
 var technical_note_label: Label
+var primary_prepare_button: Button
 
 var _route_context: Dictionary = {}
 var _reward_status: Dictionary = {}
@@ -69,6 +72,10 @@ func _init() -> void:
 	reward_status_label.modulate = CARD_TEXT_MUTED
 	route_card.add_child(reward_status_label)
 
+	route_tag_row = HBoxContainer.new()
+	route_tag_row.add_theme_constant_override("separation", 8)
+	route_card.add_child(route_tag_row)
+
 	recent_stage_difficulty_selector = add_labeled_option_button("当前已选难度 / 最近难度", route_card)
 	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
 
@@ -79,6 +86,11 @@ func _init() -> void:
 	stats_card.add_child(stat_rows_box)
 
 	var monster_card := add_card("敌方阵容", "敌方信息完全来自 prepare 返回的 monster_list。")
+	enemy_summary_label = Label.new()
+	enemy_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	enemy_summary_label.modulate = CARD_TEXT_MUTED
+	monster_card.add_child(enemy_summary_label)
+
 	monster_rows_box = VBoxContainer.new()
 	monster_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	monster_rows_box.add_theme_constant_override("separation", 10)
@@ -108,7 +120,8 @@ func _init() -> void:
 	action_card.add_child(technical_note_label)
 
 	var buttons := add_button_row(action_card)
-	add_action_button(buttons, "开始战斗", "prepare")
+	primary_prepare_button = add_action_button(buttons, "开始战斗", "prepare")
+	style_primary_button(primary_prepare_button)
 
 	render_prepare_context({}, {}, {})
 	show_prepare_summary({})
@@ -154,13 +167,20 @@ func render_prepare_context(character: Dictionary, route_context: Dictionary, re
 	var stage_name := str(route_context.get("stage_name", "关卡待选择"))
 	var difficulty_name := str(route_context.get("difficulty_name", "难度待选择"))
 	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
-	route_meta_label.text = "chapter_id=%s | stage_id=%s | stage_difficulty_id=%s | 推荐战力 %s" % [
+	route_meta_label.text = "当前目标：章节 %s | 关卡 %s | 难度 %s | 推荐战力 %s" % [
 		str(route_context.get("chapter_id", "(未选择)")),
 		str(route_context.get("stage_id", "(未选择)")),
 		str(route_context.get("stage_difficulty_id", get_stage_difficulty_text())),
 		str(route_context.get("recommended_power", "-")),
 	]
 	reward_status_label.text = _format_reward_status(reward_status)
+
+	clear_container(route_tag_row)
+	if not str(route_context.get("stage_difficulty_id", "")).is_empty():
+		route_tag_row.add_child(create_pill("路线已锁定", BATTLE_TINT))
+	if not str(route_context.get("difficulty_key", "")).is_empty():
+		route_tag_row.add_child(create_pill("难度 %s" % str(route_context.get("difficulty_key", "")), CHARACTER_TINT))
+	route_tag_row.add_child(create_pill(_reward_tag_text(reward_status), REWARD_TINT if int(reward_status.get("has_reward", 0)) == 1 else CHARACTER_TINT))
 
 
 func set_recent_characters(records: Array, current_character_id: String) -> void:
@@ -227,15 +247,17 @@ func show_prepare_summary(payload: Dictionary) -> void:
 
 	if payload.is_empty():
 		var empty_stats := Label.new()
-		empty_stats.text = "battle prepare 成功后，这里会展示角色属性摘要。"
+		empty_stats.text = "开始战斗前，这里会先整理角色当前属性摘要。"
 		empty_stats.modulate = CARD_TEXT_MUTED
 		stat_rows_box.add_child(empty_stats)
 
+		enemy_summary_label.text = "敌方还没有载入，完成 Prepare 后会展示怪物数量、波次和首领信息。"
+
 		var empty_monsters := Label.new()
-		empty_monsters.text = "敌方阵容会在 prepare 成功后填入。"
+		empty_monsters.text = "敌方阵容会在 Prepare 成功后自动承接。"
 		empty_monsters.modulate = CARD_TEXT_MUTED
 		monster_rows_box.add_child(empty_monsters)
-		technical_note_label.text = "尚未生成 battle_context。"
+		technical_note_label.text = "战斗上下文尚未生成；开始战斗后会自动写入技术详情。"
 		set_output_json({})
 		return
 
@@ -243,6 +265,9 @@ func show_prepare_summary(payload: Dictionary) -> void:
 	var stage_difficulty_data = stage_difficulty if typeof(stage_difficulty) == TYPE_DICTIONARY else {}
 	var stats = payload.get("character_stats", {})
 	var stats_data = stats if typeof(stats) == TYPE_DICTIONARY else {}
+	var monster_list: Array = payload.get("monster_list", []) if typeof(payload.get("monster_list", [])) == TYPE_ARRAY else []
+	var wave_numbers: Dictionary = {}
+	var boss_count := 0
 
 	for key in [
 		{"label": "攻击", "value": stats_data.get("attack", "-")},
@@ -256,14 +281,21 @@ func show_prepare_summary(payload: Dictionary) -> void:
 		row.text = "%s：%s" % [str(key.get("label", "")), str(key.get("value", "-"))]
 		stat_rows_box.add_child(row)
 
-	for monster in payload.get("monster_list", []):
+	for monster in monster_list:
 		var entry: Dictionary = monster if typeof(monster) == TYPE_DICTIONARY else {}
+		wave_numbers[int(entry.get("wave_no", 1))] = true
+		if str(entry.get("monster_role", "")) == "boss_enemy":
+			boss_count += 1
 		monster_rows_box.add_child(_build_monster_card(entry))
 
-	var battle_context_id := str(payload.get("battle_context_id", ""))
-	technical_note_label.text = "Prepare 已生成 battle_context_id=%s，战斗页会自动承接它。" % battle_context_id
-	set_summary_text("角色已完成出战确认 | monsters=%d | difficulty=%s" % [
-		payload.get("monster_list", []).size(),
+	enemy_summary_label.text = "本次敌方：%d 名敌人 | %d 波 | 首领 %d 名。" % [
+		monster_list.size(),
+		wave_numbers.size(),
+		boss_count,
+	]
+	technical_note_label.text = "本次出战信息已经锁定，battle_context 与完整返回体可在技术详情查看。"
+	set_summary_text("出战确认完成 | 敌方 %d 名 | 难度 %s" % [
+		monster_list.size(),
 		str(stage_difficulty_data.get("difficulty_name", stage_difficulty_data.get("stage_difficulty_id", ""))),
 	])
 	set_output_json(payload)
@@ -293,12 +325,20 @@ func _build_monster_card(entry: Dictionary) -> PanelContainer:
 	title.add_theme_font_size_override("font_size", 18)
 	box.add_child(title)
 
+	var tags := HBoxContainer.new()
+	tags.add_theme_constant_override("separation", 8)
+	tags.add_child(create_pill(
+		"首领" if str(entry.get("monster_role", "")) == "boss_enemy" else "普通敌人",
+		BATTLE_TINT if str(entry.get("monster_role", "")) == "boss_enemy" else CHARACTER_TINT
+	))
+	box.add_child(tags)
+
 	var meta := Label.new()
-	meta.text = "monster_id=%s | 角色=%s | HP %s | 攻击 %s" % [
-		str(entry.get("monster_id", "")),
-		str(entry.get("monster_role", "")),
+	meta.text = "生命 %s | 攻击 %s | 物防 %s | 法防 %s" % [
 		str(entry.get("base_hp", "-")),
 		str(entry.get("base_attack", "-")),
+		str(entry.get("base_physical_defense", "-")),
+		str(entry.get("base_magic_defense", "-")),
 	]
 	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	meta.modulate = CARD_TEXT_MUTED
@@ -309,15 +349,25 @@ func _build_monster_card(entry: Dictionary) -> PanelContainer:
 
 func _format_reward_status(reward_status: Dictionary) -> String:
 	if reward_status.is_empty():
-		return "首通奖励状态：等主线页同步。"
+		return "首通奖励状态：正在等待主线页同步。"
 	if int(reward_status.get("has_reward", 0)) == 0:
-		return "首通奖励状态：本难度没有首通奖励。"
+		return "首通奖励状态：这个难度没有首通奖励，正常推进即可。"
 	if int(reward_status.get("has_granted", 0)) == 1:
 		var grant_status := str(reward_status.get("grant_status", "")).strip_edges()
 		if grant_status.is_empty():
-			return "首通奖励状态：已领取。"
-		return "首通奖励状态：已领取，grant_status=%s。" % grant_status
-	return "首通奖励状态：首次通关后可发放。"
+			return "首通奖励状态：已经领过，本次重点看掉落与入包。"
+		return "首通奖励状态：已经领过，本次不会重复新增；grant_status=%s。" % grant_status
+	return "首通奖励状态：首次通关后会在结算页展示。"
+
+
+func _reward_tag_text(reward_status: Dictionary) -> String:
+	if reward_status.is_empty():
+		return "奖励待同步"
+	if int(reward_status.get("has_reward", 0)) == 0:
+		return "无首通奖励"
+	if int(reward_status.get("has_granted", 0)) == 1:
+		return "首通已领"
+	return "首通未领"
 
 
 func _on_override_toggled(pressed: bool) -> void:

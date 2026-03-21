@@ -15,15 +15,45 @@ const STATUS_COLORS := {
 	"error": Color(0.97, 0.52, 0.52),
 	"unauthorized": Color(0.97, 0.66, 0.36),
 }
+const STATUS_LABELS := {
+	"empty": "等待补齐",
+	"loading": "同步中",
+	"preparing": "准备中",
+	"settling": "结算中",
+	"success": "已更新",
+	"error": "需处理",
+	"unauthorized": "需重新登录",
+}
+const STATUS_TITLES := {
+	"empty": "当前还没有可展示内容",
+	"loading": "正在同步当前页面",
+	"preparing": "正在整理本次出战信息",
+	"settling": "正在汇总本次战斗结果",
+	"success": "页面已经更新到最新进度",
+	"error": "这一环暂时没有完成",
+	"unauthorized": "登录状态需要重新确认",
+}
+const STATUS_HINTS := {
+	"empty": "先按本页主操作补齐上下文，页面会自动进入下一步。",
+	"loading": "稍等片刻，请求完成后页面会自动刷新。",
+	"preparing": "出战信息准备完成后会自动进入战斗承接。",
+	"settling": "结果汇总完成后会自动回写到主线与结果页。",
+	"success": "",
+	"error": "确认当前角色、主线选择或网络状态后再试一次。",
+	"unauthorized": "回到“环境”页检查 backend 地址和 Bearer Token。",
+}
 
 const CARD_BACKGROUND := Color(0.09, 0.12, 0.18, 0.96)
 const CARD_BORDER := Color(0.22, 0.29, 0.42, 1.0)
 const CARD_TEXT_MUTED := Color(0.68, 0.73, 0.81, 1.0)
 const BODY_TEXT := Color(0.93, 0.95, 0.98, 1.0)
+const PRIMARY_BUTTON_TINT := Color(0.97, 0.74, 0.40, 1.0)
 
 var _shell: VBoxContainer
 var _body: VBoxContainer
+var _state_badge_row: HBoxContainer
 var _state_label: Label
+var _state_hint_label: Label
 var _summary_label: Label
 var _output_box: TextEdit
 var _output_toggle: Button
@@ -60,12 +90,25 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 		for hint in hints:
 			add_note(hint, intro_card)
 
-	var status_card := add_card("当前状态", "所有页面都保留 loading / success / empty / error / unauthorized。")
+	var status_card := add_card(
+		"当前状态",
+		"所有页面统一收 `loading / success / empty / error / unauthorized`，战斗链额外收 `preparing / settling`。"
+	)
+
+	_state_badge_row = HBoxContainer.new()
+	_state_badge_row.add_theme_constant_override("separation", 8)
+	status_card.add_child(_state_badge_row)
 
 	_state_label = Label.new()
 	_state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_state_label.modulate = STATUS_COLORS.get("empty", BODY_TEXT)
+	_state_label.modulate = BODY_TEXT
 	status_card.add_child(_state_label)
+
+	_state_hint_label = Label.new()
+	_state_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_state_hint_label.modulate = CARD_TEXT_MUTED
+	_state_hint_label.visible = false
+	status_card.add_child(_state_hint_label)
 
 	_summary_label = Label.new()
 	_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -221,6 +264,34 @@ func add_button(parent: Control, text: String, callback: Callable) -> Button:
 	return button
 
 
+func style_primary_button(button: Button, tint: Color = PRIMARY_BUTTON_TINT) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(tint.r, tint.g, tint.b, 0.92)
+	normal.border_color = tint.lightened(0.12)
+	normal.border_width_left = 1
+	normal.border_width_top = 1
+	normal.border_width_right = 1
+	normal.border_width_bottom = 1
+	normal.corner_radius_top_left = 16
+	normal.corner_radius_top_right = 16
+	normal.corner_radius_bottom_right = 16
+	normal.corner_radius_bottom_left = 16
+
+	var hover := normal.duplicate()
+	hover.bg_color = tint.lightened(0.08)
+
+	var pressed := normal.duplicate()
+	pressed.bg_color = tint.darkened(0.12)
+
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0, 46)
+	button.modulate = BODY_TEXT
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", hover)
+
+
 func replace_options(
 	button: OptionButton,
 	options: Array,
@@ -307,9 +378,17 @@ func create_pill(text: String, tint: Color) -> PanelContainer:
 	return pill
 
 
-func set_page_state(status: String, message: String) -> void:
-	_state_label.text = "状态：%s\n%s" % [status, message]
-	_state_label.modulate = STATUS_COLORS.get(status, BODY_TEXT)
+func set_page_state(status: String, message: String, next_step: String = "") -> void:
+	clear_container(_state_badge_row)
+	_state_badge_row.add_child(create_pill(_status_label(status), STATUS_COLORS.get(status, BODY_TEXT)))
+	_state_label.text = "%s\n%s" % [_status_title(status), message]
+
+	var resolved_next_step := next_step.strip_edges()
+	if resolved_next_step.is_empty():
+		resolved_next_step = _status_hint(status)
+
+	_state_hint_label.visible = not resolved_next_step.is_empty()
+	_state_hint_label.text = "下一步建议：%s" % resolved_next_step
 
 
 func set_summary_text(text: String) -> void:
@@ -392,3 +471,15 @@ func _as_dictionary(value: Variant) -> Dictionary:
 
 func normalize_id_string(value: Variant) -> String:
 	return ClientConfigStoreScript.normalize_id_string(value)
+
+
+func _status_label(status: String) -> String:
+	return str(STATUS_LABELS.get(status, "状态更新"))
+
+
+func _status_title(status: String) -> String:
+	return str(STATUS_TITLES.get(status, "页面状态已变化"))
+
+
+func _status_hint(status: String) -> String:
+	return str(STATUS_HINTS.get(status, ""))

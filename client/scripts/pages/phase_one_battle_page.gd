@@ -11,10 +11,14 @@ var route_meta_label: Label
 var battle_hint_label: Label
 var battle_context_label: Label
 var progress_label: Label
+var player_position_label: Label
+var target_status_label: Label
 
 var battle_view: Control
 var battle_world: Control
 var movement_status_label: Label
+var control_hint_label: Label
+var skill_button: Button
 
 var _route_context: Dictionary = {}
 var _prepare_payload: Dictionary = {}
@@ -58,6 +62,15 @@ func _init() -> void:
 	progress_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header_card.add_child(progress_label)
 
+	player_position_label = Label.new()
+	player_position_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header_card.add_child(player_position_label)
+
+	target_status_label = Label.new()
+	target_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	target_status_label.modulate = CARD_TEXT_MUTED
+	header_card.add_child(target_status_label)
+
 	var arena_card := add_card("竖版战斗空间", "地图高度约为视区的 1.4 倍，角色前进时镜头会轻微跟随。")
 	battle_view = Control.new()
 	battle_view.custom_minimum_size = Vector2(0, 560)
@@ -81,6 +94,11 @@ func _init() -> void:
 	battle_context_label.modulate = CARD_TEXT_MUTED
 	action_card.add_child(battle_context_label)
 
+	control_hint_label = Label.new()
+	control_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	control_hint_label.modulate = CARD_TEXT_MUTED
+	action_card.add_child(control_hint_label)
+
 	var movement_buttons := add_button_row(action_card)
 	add_button(movement_buttons, "侧移左", func() -> void:
 		_move_player(Vector2(-38.0, 0.0), "侧移避让")
@@ -96,7 +114,8 @@ func _init() -> void:
 	)
 
 	var battle_buttons := add_button_row(action_card)
-	add_button(battle_buttons, "释放技能", _use_skill)
+	skill_button = add_button(battle_buttons, "释放技能", _use_skill)
+	style_primary_button(skill_button)
 	add_button(battle_buttons, "安全撤离", func() -> void:
 		_request_settle(false)
 	)
@@ -126,8 +145,11 @@ func reset_battle_space() -> void:
 	route_title_label.text = "等待战斗上下文"
 	route_meta_label.text = "先在出战确认页完成 prepare，再进入战斗空间。"
 	battle_hint_label.text = "当前没有战斗地图。"
-	progress_label.text = "敌方剩余：0"
-	battle_context_label.text = "battle_context_id 尚未生成。"
+	progress_label.text = "战场进度：还没有敌方数据。"
+	player_position_label.text = "当前位置：等待战斗开始。"
+	target_status_label.text = "当前目标：等待 Prepare 承接敌方信息。"
+	battle_context_label.text = "本次战斗上下文尚未生成。"
+	control_hint_label.text = "先在出战页锁定角色和难度，战斗页会自动承接路线与敌方信息。"
 	movement_status_label.text = "前进、横移和技能会在 prepare 成功后解锁。"
 	clear_container(battle_world)
 	set_output_json({})
@@ -176,10 +198,9 @@ func _sync_header() -> void:
 	var stage_name := str(_route_context.get("stage_name", "关卡"))
 	var difficulty_name := str(_route_context.get("difficulty_name", "难度"))
 	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
-	route_meta_label.text = "stage_difficulty_id=%s | 推荐战力 %s | 角色 %s" % [
-		str(_route_context.get("stage_difficulty_id", "")),
-		str(_route_context.get("recommended_power", "-")),
+	route_meta_label.text = "角色 %s | 推荐战力 %s | 路线已锁定" % [
 		str(_prepare_payload.get("character", {}).get("character_name", "未准备")),
+		str(_route_context.get("recommended_power", "-")),
 	]
 
 	if _reward_status.is_empty():
@@ -191,8 +212,10 @@ func _sync_header() -> void:
 	else:
 		battle_hint_label.text = "首通奖励状态：未领取，若首通成功会在结算页展示。"
 
-	battle_context_label.text = "battle_context_id=%s" % str(_prepare_payload.get("battle_context_id", ""))
+	battle_context_label.text = "战斗上下文已锁定；完整 battle_context_id 可在技术详情查看。"
+	control_hint_label.text = "战斗区负责推进与找目标，底部操作区负责位移、出手和安全收束。"
 	_refresh_progress_text()
+	_refresh_status_panels()
 
 
 func _sync_world() -> void:
@@ -303,6 +326,7 @@ func _move_player(delta: Vector2, label_text: String) -> void:
 	_player_position.y = clampf(_player_position.y + delta.y, 96.0, _world_height - 96.0)
 	movement_status_label.text = "%s | 当前站位 y=%.0f / %.0f" % [label_text, _player_position.y, _world_height]
 	_refresh_world_positions()
+	_refresh_status_panels()
 
 
 func _use_skill() -> void:
@@ -324,6 +348,7 @@ func _use_skill() -> void:
 	movement_status_label.text = "技能命中 %s，已从战场清除。" % str(target.get("monster_name", "敌人"))
 	_refresh_world_positions()
 	_refresh_progress_text()
+	_refresh_status_panels()
 
 	if _alive_monster_count() == 0:
 		set_page_state("success", "敌方已清空，正在进入结算页。")
@@ -388,7 +413,69 @@ func _alive_monster_count() -> int:
 
 
 func _refresh_progress_text() -> void:
-	progress_label.text = "敌方剩余：%d / %d" % [_alive_monster_count(), _monster_states.size()]
+	var remaining := _alive_monster_count()
+	var defeated := _monster_states.size() - remaining
+	progress_label.text = "战场进度：已击败 %d / %d，剩余 %d。" % [defeated, _monster_states.size(), remaining]
+
+
+func _refresh_status_panels() -> void:
+	player_position_label.text = "当前位置：%s" % _describe_player_position()
+	target_status_label.text = "当前目标：%s" % _describe_target_state()
+
+
+func _describe_player_position() -> String:
+	if _prepare_payload.is_empty():
+		return "等待 Prepare"
+
+	var progress_ratio := clampf(1.0 - (_player_position.y / maxf(_world_height, 1.0)), 0.0, 1.0)
+	var lane_side := "中线"
+	if _player_position.x < _lane_center_x - _lane_half_width * 0.3:
+		lane_side = "左侧"
+	elif _player_position.x > _lane_center_x + _lane_half_width * 0.3:
+		lane_side = "右侧"
+
+	if progress_ratio < 0.28:
+		return "%s后排，仍在观察前方。" % lane_side
+	if progress_ratio < 0.58:
+		return "%s中段，已经进入接敌区域。" % lane_side
+	return "%s前线，准备收掉最后目标。" % lane_side
+
+
+func _describe_target_state() -> String:
+	if _prepare_payload.is_empty():
+		return "等待敌方承接。"
+
+	var target := _find_next_target()
+	if target.is_empty():
+		return "敌方已清空，可以直接进入结算。"
+
+	var world_position: Vector2 = target.get("world_position", Vector2.ZERO)
+	var dx := absf(world_position.x - _player_position.x)
+	var dy := _player_position.y - world_position.y
+	var in_range := dx <= 84.0 and dy >= -24.0 and absf(dy) <= 138.0
+	var range_text := "已经进入出手机会" if in_range else "还需要再前压一点"
+	return "%s（第 %s 波，%s，%s）" % [
+		str(target.get("monster_name", "敌人")),
+		str(target.get("wave_no", 1)),
+		"首领" if str(target.get("monster_role", "")) == "boss_enemy" else "普通敌人",
+		range_text,
+	]
+
+
+func _find_next_target() -> Dictionary:
+	var best_target: Dictionary = {}
+	var best_score := 999999.0
+
+	for monster_state in _monster_states:
+		if not bool(monster_state.get("alive", false)):
+			continue
+		var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
+		var score := absf(_player_position.y - world_position.y) + absf(_player_position.x - world_position.x) * 0.25
+		if score < best_score:
+			best_score = score
+			best_target = monster_state
+
+	return best_target
 
 
 func _on_battle_view_resized() -> void:
@@ -396,3 +483,4 @@ func _on_battle_view_resized() -> void:
 		return
 	_build_monster_states()
 	_sync_world()
+	_refresh_status_panels()
