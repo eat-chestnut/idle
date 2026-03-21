@@ -48,7 +48,8 @@ BACKEND_URL=http://127.0.0.1:8010 BEARER_TOKEN=your-token ./client/phase-one-mer
 注意：
 
 - 第 5 步属于“在线等价 smoke”，会真实走角色列表/激活/章节/关卡/难度/prepare/settle。
-- 它不是完整 GUI 人工联调，不能替代窗口内点击验证。
+- 它不是完整 GUI 窗口联调，不能替代窗口内点击验证。
+- 当前分支最新一轮非 headless GUI 窗口联调记录，统一写在 [合并前检查清单](./合并前检查清单.md)。
 - 完整合并判断仍以 [合并前检查清单](./合并前检查清单.md) 为准。
 
 ## 当前结构
@@ -210,7 +211,7 @@ godot --headless --path . \
 - `POST /api/battles/prepare`
 - `POST /api/battles/settle`
 
-### GUI 人工最小回归
+### GUI 窗口最小回归
 
 1. 环境页 `/readyz` 成功，章节接口探测成功。
 2. 角色页读取真实角色列表；如为空，创建角色。

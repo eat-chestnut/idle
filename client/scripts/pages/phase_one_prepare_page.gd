@@ -47,7 +47,9 @@ func _init() -> void:
 
 
 func apply_config(values: Dictionary) -> void:
-	character_id_input.text = str(values.get("battle_character_id", values.get("character_id", "1001")))
+	character_id_input.text = normalize_id_string(
+		values.get("battle_character_id", values.get("character_id", "1001"))
+	)
 	stage_difficulty_input.text = str(values.get("stage_difficulty_id", "stage_nanshan_001_normal"))
 
 
@@ -55,7 +57,7 @@ func set_recent_characters(records: Array, current_character_id: String) -> void
 	var options: Array = []
 	for record in records:
 		var entry = record if typeof(record) == TYPE_DICTIONARY else {}
-		var character_id = str(entry.get("character_id", ""))
+		var character_id = normalize_id_string(entry.get("character_id", ""))
 		if character_id.is_empty():
 			continue
 
@@ -94,7 +96,7 @@ func set_recent_stage_difficulties(stage_difficulty_ids: Array, current_stage_di
 
 
 func set_character_id(character_id: String) -> void:
-	character_id_input.text = character_id
+	character_id_input.text = normalize_id_string(character_id)
 
 
 func set_stage_difficulty_id(stage_difficulty_id: String) -> void:

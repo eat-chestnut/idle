@@ -91,8 +91,34 @@ static func save_config(values: Dictionary) -> int:
 	return config.save(CONFIG_PATH)
 
 
+static func normalize_id_string(value: Variant) -> String:
+	var normalized := str(value).strip_edges()
+	if normalized.is_empty():
+		return ""
+
+	if typeof(value) == TYPE_INT:
+		return str(int(value))
+
+	if typeof(value) == TYPE_FLOAT:
+		var rounded_from_float := int(round(float(value)))
+		if is_equal_approx(float(value), float(rounded_from_float)):
+			return str(rounded_from_float)
+		return normalized
+
+	if normalized.is_valid_int():
+		return normalized
+
+	if normalized.is_valid_float():
+		var float_value := float(normalized)
+		var rounded_from_string := int(round(float_value))
+		if is_equal_approx(float_value, float(rounded_from_string)):
+			return str(rounded_from_string)
+
+	return normalized
+
+
 static func upsert_recent_character(records: Array, character: Dictionary, max_items: int = 8) -> Array:
-	var character_id := str(character.get("character_id", "")).strip_edges()
+	var character_id := normalize_id_string(character.get("character_id", ""))
 	if character_id.is_empty():
 		return _normalize_recent_characters(records)
 
@@ -109,7 +135,7 @@ static func upsert_recent_character(records: Array, character: Dictionary, max_i
 
 	for record in normalized_records:
 		var entry = record if typeof(record) == TYPE_DICTIONARY else {}
-		if str(entry.get("character_id", "")) == character_id:
+		if normalize_id_string(entry.get("character_id", "")) == character_id:
 			continue
 		merged.append(entry)
 		if merged.size() >= max_items:
@@ -144,7 +170,7 @@ static func _normalize_recent_characters(value: Variant) -> Array:
 			continue
 
 		var record: Dictionary = raw_record
-		var character_id := str(record.get("character_id", "")).strip_edges()
+		var character_id := normalize_id_string(record.get("character_id", ""))
 		if character_id.is_empty():
 			continue
 

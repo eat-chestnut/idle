@@ -42,14 +42,14 @@ func get_character_id_text() -> String:
 
 
 func set_character_id(character_id: String) -> void:
-	character_id_input.text = character_id
+	character_id_input.text = normalize_id_string(character_id)
 
 
 func set_recent_characters(records: Array, current_character_id: String) -> void:
 	var options: Array = []
 	for record in records:
 		var entry = record if typeof(record) == TYPE_DICTIONARY else {}
-		var character_id = str(entry.get("character_id", ""))
+		var character_id = normalize_id_string(entry.get("character_id", ""))
 		if character_id.is_empty():
 			continue
 
@@ -69,11 +69,11 @@ func set_recent_characters(records: Array, current_character_id: String) -> void
 
 
 func set_selected_equipment_instance(equipment_instance_id: String, equipment_name: String = "") -> void:
-	equipment_instance_input.text = equipment_instance_id
+	equipment_instance_input.text = normalize_id_string(equipment_instance_id)
 	if equipment_name.is_empty():
-		set_summary_text("待穿戴装备实例 #%s" % equipment_instance_id)
+		set_summary_text("待穿戴装备实例 #%s" % equipment_instance_input.text)
 	else:
-		set_summary_text("待穿戴装备：%s #%s" % [equipment_name, equipment_instance_id])
+		set_summary_text("待穿戴装备：%s #%s" % [equipment_name, equipment_instance_input.text])
 
 
 func render_slots(payload: Dictionary) -> void:
@@ -99,7 +99,7 @@ func render_slots(payload: Dictionary) -> void:
 
 	replace_options(target_slot_selector, slot_options, "请先读取穿戴槽")
 	set_summary_text("character_id=%s | slots=%d | equipped=%d" % [
-		str(payload.get("character_id", "")),
+		normalize_id_string(payload.get("character_id", "")),
 		slot_list.item_count,
 		filled_slots,
 	])
@@ -117,7 +117,7 @@ func get_equipment_instance_id_text() -> String:
 
 func _on_recent_character_selected(_index: int) -> void:
 	var selected = get_selected_option(recent_character_selector)
-	var character_id = str(selected.get("value", ""))
+	var character_id = normalize_id_string(selected.get("value", ""))
 	if character_id.is_empty():
 		return
 
