@@ -233,7 +233,7 @@ func _set_initial_states() -> void:
 	battle_page.set_page_state("empty", "先在出战页锁定角色和目标，再进入战场。")
 	battle_page.set_output_text("等待出战页承接。")
 
-	settle_page.set_page_state("empty", "先完成出战准备，再进入结算。")
+	settle_page.set_page_state("empty", "完成一场战斗后，这里会展示掉落、奖励和入包结果。")
 	settle_page.set_output_text("等待结算结果回流。")
 
 
@@ -1750,7 +1750,7 @@ func _on_prepare_pressed() -> void:
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	prepare_page.set_page_state("success", "出战信息已经锁定，马上进入战斗。")
 	battle_page.set_page_state("success", "战场已经准备好，可以开始接敌和清场。")
-	settle_page.set_page_state("success", "本次战斗已承接到结果链，结束后会自动来到这里。")
+	settle_page.set_page_state("success", "这一场结束后，这里会自动展开本轮结果。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1771,7 +1771,7 @@ func _on_fill_prepared_monsters_pressed() -> void:
 		settle_page.get_battle_context_text(),
 		current_prepared_monster_ids.size()
 	)
-	settle_page.set_page_state("success", "已承接 Prepare 阶段的敌方列表。")
+	settle_page.set_page_state("success", "这一场的结果页已经就位，战斗结束后会自动回到这里。")
 
 
 func _on_battle_request_settle(payload: Dictionary) -> void:
@@ -1862,7 +1862,7 @@ func _submit_settle_request(
 	_persist_runtime_config()
 	if from_battle_page:
 		battle_page.set_page_state("settling", "战斗结束，正在提交正式结算。")
-	settle_page.set_page_state("settling", "正在汇总本次战斗结果。")
+	settle_page.set_page_state("settling", "正在整理这一场的结果。")
 	var result: Dictionary = await api.request_json(
 		"POST",
 		"/api/battles/settle",
@@ -1888,7 +1888,7 @@ func _submit_settle_request(
 	settle_page.show_settlement_summary(data)
 	if from_battle_page:
 		battle_page.set_page_state("success", "战斗已收束，结果页已经生成。")
-	settle_page.set_page_state("success", "结果已经汇总完成，可以回主线、去背包，或直接看新装备。")
+	settle_page.set_page_state("success", "这一场已经打完，掉落、奖励和入包结果都整理好了。")
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
