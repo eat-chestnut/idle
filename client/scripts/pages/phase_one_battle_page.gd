@@ -290,22 +290,24 @@ func _build_monster_states() -> void:
 
 		var spawn_position := Vector2(_lane_center_x + x_offset, _world_height * spawn_ratio)
 		var monster_role := str(entry.get("monster_role", "normal_enemy"))
-		var fallback_move_speed := 90.0 if monster_role == "boss_enemy" else 108.0
+		var wave_no := int(entry.get("wave_no", 1))
+		var front_position := _build_front_position(spawn_position, wave_no, x_offset)
+		var presentation_speed := 92.0 + float(maxi(wave_no - 1, 0)) * 8.0 + float(index % 2) * 6.0
+		if monster_role == "boss_enemy":
+			presentation_speed = maxf(presentation_speed - 10.0, 78.0)
 
 		_monster_states.append({
 			"monster_id": str(entry.get("monster_id", "")),
 			"monster_name": str(entry.get("monster_name", "敌人")),
 			"monster_role": monster_role,
-			"wave_no": int(entry.get("wave_no", 1)),
+			"wave_no": wave_no,
 			"alive": true,
 			"dying": false,
 			"drop_spawned": false,
 			"spawn_position": spawn_position,
+			"front_position": front_position,
 			"world_position": spawn_position,
-			"approach_speed": maxf(_variant_to_float(entry.get("move_speed", 0.0), fallback_move_speed), 72.0),
-			"pressure_gap": 122.0 + float(maxi(int(entry.get("wave_no", 1)) - 1, 0)) * 18.0 + float(index % 2) * 12.0,
-			"max_advance": 220.0 + float(maxi(int(entry.get("wave_no", 1)), 1)) * 24.0,
-			"lane_bias": x_offset * 0.45,
+			"presentation_speed": presentation_speed,
 			"pressure_feedback_played": false,
 			"hit_timer": 0.0,
 			"death_timer": 0.0,
@@ -885,28 +887,12 @@ func _update_alive_monster_state(monster_state: Dictionary, delta: float) -> Dic
 	monster_state["hit_timer"] = maxf(float(monster_state.get("hit_timer", 0.0)) - delta, 0.0)
 
 	var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
-	var spawn_position: Vector2 = monster_state.get("spawn_position", world_position)
-	var desired_y: float = minf(
-		_player_position.y - float(monster_state.get("pressure_gap", 126.0)),
-		spawn_position.y + float(monster_state.get("max_advance", 220.0))
-	)
-	desired_y = clampf(desired_y, spawn_position.y, _world_height - 148.0)
-
-	var approach_speed := float(monster_state.get("approach_speed", 96.0))
-	if desired_y > world_position.y:
-		world_position.y = min(world_position.y + approach_speed * delta, desired_y)
-	else:
-		world_position.y = lerpf(world_position.y, desired_y, clampf(delta * 1.6, 0.0, 1.0))
-
-	var desired_x := clampf(
-		lerpf(spawn_position.x, _player_position.x + float(monster_state.get("lane_bias", 0.0)), 0.66),
-		_lane_center_x - _lane_half_width * 0.82,
-		_lane_center_x + _lane_half_width * 0.82
-	)
-	world_position.x = lerpf(world_position.x, desired_x, clampf(delta * 2.2, 0.0, 1.0))
+	var front_position: Vector2 = monster_state.get("front_position", world_position)
+	var presentation_speed := float(monster_state.get("presentation_speed", 96.0))
+	world_position = world_position.move_toward(front_position, presentation_speed * delta)
 	monster_state["world_position"] = world_position
 
-	if _battle_phase == "interactive" and not bool(monster_state.get("pressure_feedback_played", false)) and _monster_is_pressuring(monster_state):
+	if _battle_phase == "interactive" and not bool(monster_state.get("pressure_feedback_played", false)) and _monster_has_reached_frontline(monster_state):
 		monster_state["pressure_feedback_played"] = true
 		_play_player_pressure_feedback(str(monster_state.get("monster_name", "敌人")))
 
@@ -932,7 +918,7 @@ func _update_dying_monster_state(monster_state: Dictionary, delta: float) -> Dic
 	return monster_state
 
 
-func _monster_is_pressuring(monster_state: Dictionary) -> bool:
+func _monster_has_reached_frontline(monster_state: Dictionary) -> bool:
 	var world_position: Vector2 = monster_state.get("world_position", Vector2.ZERO)
 	var dx := absf(world_position.x - _player_position.x)
 	var dy := _player_position.y - world_position.y
@@ -1137,15 +1123,23 @@ func _add_zone_label(text: String, y_position: float) -> void:
 	battle_world.add_child(zone_label)
 
 
+func _build_front_position(spawn_position: Vector2, wave_no: int, x_offset: float) -> Vector2:
+	var front_y := minf(
+		_player_position.y - 128.0,
+		spawn_position.y + 214.0 + float(maxi(wave_no - 1, 0)) * 24.0
+	)
+	front_y = clampf(front_y, spawn_position.y + 96.0, _world_height - 156.0)
+	var front_x := clampf(
+		_lane_center_x + x_offset * 0.34,
+		_lane_center_x - _lane_half_width * 0.82,
+		_lane_center_x + _lane_half_width * 0.82
+	)
+	return Vector2(front_x, front_y)
+
+
 func _bump_screen_shake(strength: float, duration: float) -> void:
 	_screen_shake_strength = maxf(_screen_shake_strength, strength)
 	_screen_shake_timer = maxf(_screen_shake_timer, duration)
-
-
-func _variant_to_float(value: Variant, fallback: float) -> float:
-	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
-		return float(value)
-	return fallback
 
 
 func _on_battle_view_resized() -> void:
