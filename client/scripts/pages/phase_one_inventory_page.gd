@@ -23,7 +23,7 @@ var other_section_button: Button
 var load_button: Button
 
 var list_hint_label: Label
-var inventory_item_list: ItemList
+var inventory_rows_box: VBoxContainer
 
 var action_status_label: Label
 var handoff_label: Label
@@ -59,7 +59,7 @@ func _init() -> void:
 	header_tag_row.add_theme_constant_override("separation", 8)
 	header_card.add_child(header_tag_row)
 
-	var focus_card := add_card("本轮先整理什么", "")
+	var focus_card := add_card("本轮焦点", "")
 	focus_title_label = Label.new()
 	focus_title_label.add_theme_font_size_override("font_size", 22)
 	focus_card.add_child(focus_title_label)
@@ -74,7 +74,7 @@ func _init() -> void:
 	focus_box.add_theme_constant_override("separation", 10)
 	focus_card.add_child(focus_box)
 
-	var section_card := add_card("按类型整理", "装备、材料、其他至少先拆开，方便决定接下来整理哪里。")
+	var section_card := add_card("按类型整理", "先拆开装备、材料、其他，再决定接下来去哪。")
 	section_summary_label = Label.new()
 	section_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	section_card.add_child(section_summary_label)
@@ -94,16 +94,18 @@ func _init() -> void:
 	)
 
 	var load_buttons := add_button_row(section_card)
-	load_button = add_action_button(load_buttons, "整理背包", "load_inventory")
+	load_button = add_action_button(load_buttons, "刷新背包", "load_inventory")
 
-	var list_card := add_card("当前物品", "")
+	var list_card := add_card("当前背包", "")
 	list_hint_label = Label.new()
 	list_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	list_hint_label.modulate = CARD_TEXT_MUTED
 	list_card.add_child(list_hint_label)
 
-	inventory_item_list = add_labeled_item_list("当前分区物品", 260, list_card)
-	inventory_item_list.item_selected.connect(_on_inventory_item_selected)
+	inventory_rows_box = VBoxContainer.new()
+	inventory_rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inventory_rows_box.add_theme_constant_override("separation", 10)
+	list_card.add_child(inventory_rows_box)
 
 	var action_card := add_card("整理后的下一步", "看完本轮收获后，可以顺着穿戴、角色、主线继续推进。")
 	action_status_label = Label.new()
@@ -118,12 +120,12 @@ func _init() -> void:
 	var action_buttons := add_button_row(action_card)
 	equipment_entry_button = add_action_button(action_buttons, "去穿戴", "navigate_equipment")
 	style_primary_button(equipment_entry_button)
-	character_entry_button = add_action_button(action_buttons, "看角色", "navigate_character")
-	stage_entry_button = add_action_button(action_buttons, "回主线", "navigate_stage")
+	character_entry_button = add_action_button(action_buttons, "回角色看成长", "navigate_character")
+	stage_entry_button = add_action_button(action_buttons, "返回主线继续推进", "navigate_stage")
 
 	render_inventory_context({}, {})
 	render_inventory({})
-	show_handoff_summary("背包会接住最近一次收获；先看新装备和关键材料，再决定去穿戴、看角色还是回主线。")
+	show_handoff_summary("背包会接住最近一次收获；先看新装备和关键材料，再决定去穿戴、回角色还是继续主线。")
 	_move_secondary_sections_to_bottom()
 
 
@@ -170,13 +172,18 @@ func _refresh_header() -> void:
 		header_tag_row.add_child(create_pill("等待角色", CHARACTER_TINT))
 	else:
 		header_character_label.text = "当前角色：%s" % str(_current_character.get("character_name", "角色"))
-		if int(_current_character.get("is_active", 0)) == 1:
-			header_status_label.text = "当前角色已启用，整理完背包后可以继续去穿戴或主线推进。"
-			header_tag_row.add_child(create_pill("当前启用", MATERIAL_TINT))
-			header_tag_row.add_child(create_pill("可继续成长", CHARACTER_TINT))
-		else:
-			header_status_label.text = "当前角色还没启用，但这轮收获已经可以先整理。"
-			header_tag_row.add_child(create_pill("待激活", EQUIPMENT_TINT))
+		header_status_label.text = "%s | 等级 %s | %s" % [
+			str(_current_character.get("class_name", _current_character.get("class_id", "当前职业待确认"))),
+			str(_current_character.get("level", "1")),
+			"当前启用" if int(_current_character.get("is_active", 0)) == 1 else "待启用",
+		]
+		header_tag_row.add_child(create_pill("当前角色", CHARACTER_TINT))
+		header_tag_row.add_child(
+			create_pill(
+				"可继续推进" if int(_current_character.get("is_active", 0)) == 1 else "先看收益也可以",
+				MATERIAL_TINT if int(_current_character.get("is_active", 0)) == 1 else OTHER_TINT
+			)
+		)
 
 	header_gain_label.text = _build_recent_gain_summary()
 	if _recent_equipment_rows().size() > 0:
@@ -196,58 +203,52 @@ func _refresh_focus_area() -> void:
 	var visible_equipment := _filtered_rows(_combined_inventory_rows(), "equipment")
 
 	if recent_equipment.size() > 0:
-		focus_title_label.text = "新装备已经到账"
-		focus_hint_label.text = "这轮最值得马上处理的是新装备；先看装备，再决定去穿戴还是回角色。"
-		for row in recent_equipment:
-			if focus_box.get_child_count() >= 2:
-				break
+		focus_title_label.text = "先看新装备"
+		focus_hint_label.text = "本轮最值得马上处理的是新装备；先看哪件值得试穿，再决定回角色还是继续主线。"
+		focus_box.add_child(_build_focus_card(
+			"新装备 %d 件" % recent_equipment.size(),
+			_trimmed_row_titles(recent_equipment, 3, "已经进包，建议先去穿戴页确认。"),
+			EQUIPMENT_TINT
+		))
+		if recent_materials.size() > 0:
 			focus_box.add_child(_build_focus_card(
-				str(row.get("title", "新装备")),
-				str(row.get("meta_text", "这件新装备已经进入当前整理范围。")),
-				EQUIPMENT_TINT
-			))
-		for row in recent_materials:
-			if focus_box.get_child_count() >= 4:
-				break
-			focus_box.add_child(_build_focus_card(
-				str(row.get("title", "关键材料")),
-				str(row.get("meta_text", "这份材料已经进入当前整理范围。")),
+				"关键材料 %d 种" % recent_materials.size(),
+				_trimmed_row_titles(recent_materials, 2, "已经进入本轮收益整理范围。"),
 				MATERIAL_TINT
+			))
+		if recent_others.size() > 0:
+			focus_box.add_child(_build_focus_card(
+				"其他新增收益 %d 种" % recent_others.size(),
+				_trimmed_row_titles(recent_others, 2, "可以整理完后继续推进。"),
+				OTHER_TINT
 			))
 		return
 
 	if recent_materials.size() > 0 or recent_others.size() > 0:
-		focus_title_label.text = "本轮新增收益已经进包"
-		focus_hint_label.text = "关键材料和其他新增收益会先顶出来，方便你决定下一步是继续推进还是回角色。"
-		for row in recent_materials:
-			if focus_box.get_child_count() >= 3:
-				break
+		focus_title_label.text = "先把本轮收益认清楚"
+		focus_hint_label.text = "没有新装备时，关键材料和其他新增收益会先顶出来，方便你决定接下来是回角色还是继续主线。"
+		if recent_materials.size() > 0:
 			focus_box.add_child(_build_focus_card(
-				str(row.get("title", "关键材料")),
-				str(row.get("meta_text", "这份收益已经进入当前整理范围。")),
+				"关键材料 %d 种" % recent_materials.size(),
+				_trimmed_row_titles(recent_materials, 3, "已经正式进包。"),
 				MATERIAL_TINT
 			))
-		for row in recent_others:
-			if focus_box.get_child_count() >= 4:
-				break
+		if recent_others.size() > 0:
 			focus_box.add_child(_build_focus_card(
-				str(row.get("title", "其他收益")),
-				str(row.get("meta_text", "这份收益已经进入当前整理范围。")),
+				"其他收益 %d 种" % recent_others.size(),
+				_trimmed_row_titles(recent_others, 3, "已经正式进包。"),
 				OTHER_TINT
 			))
 		return
 
 	if visible_equipment.size() > 0:
-		focus_title_label.text = "当前更适合先看装备"
-		focus_hint_label.text = "最近没有新的战斗收益时，先看装备区通常最容易接到穿戴和角色成长。"
-		for row in visible_equipment:
-			if focus_box.get_child_count() >= 2:
-				break
-			focus_box.add_child(_build_focus_card(
-				str(row.get("title", "装备")),
-				str(row.get("meta_text", "可以继续整理到穿戴页。")),
-				EQUIPMENT_TINT
-			))
+		focus_title_label.text = "当前更适合先看装备区"
+		focus_hint_label.text = "最近没有新的战斗收益时，装备区通常最容易接到穿戴和角色成长。"
+		focus_box.add_child(_build_focus_card(
+			"装备 %d 件" % visible_equipment.size(),
+			_trimmed_row_titles(visible_equipment, 3, "可继续导向穿戴页。"),
+			EQUIPMENT_TINT
+		))
 		return
 
 	focus_title_label.text = "最近还没有新的收益焦点"
@@ -261,7 +262,7 @@ func _refresh_section_area() -> void:
 	var material_count := _filtered_rows(rows, "material").size()
 	var other_count := _filtered_rows(rows, "other").size()
 
-	section_summary_label.text = "当前分区：%s。带“本轮新增”或“新装备”标记的物品会优先排在前面。" % _section_name(_selected_section)
+	section_summary_label.text = "当前分区：%s。带“本轮新增”或“新装备”的物品会优先排在最前面。" % _section_name(_selected_section)
 
 	_apply_section_button(all_section_button, "全部", "all", rows.size())
 	_apply_section_button(equipment_section_button, "装备", "equipment", equipment_count)
@@ -270,7 +271,7 @@ func _refresh_section_area() -> void:
 
 
 func _refresh_inventory_list() -> void:
-	inventory_item_list.clear()
+	clear_container(inventory_rows_box)
 
 	var all_rows := _combined_inventory_rows()
 	set_summary_text("当前背包：装备 %d | 材料 %d | 其他 %d" % [
@@ -282,18 +283,15 @@ func _refresh_inventory_list() -> void:
 	if rows.is_empty():
 		if all_rows.is_empty():
 			list_hint_label.text = "当前背包还没有物品；继续推进后，这里会先承接本轮新增收益。"
-			inventory_item_list.add_item("当前背包还是空的。")
+			inventory_rows_box.add_child(_build_empty_label("当前背包还是空的。"))
 		else:
 			list_hint_label.text = "这个分区暂时没有物品，切到别的分区看看会更合适。"
-			inventory_item_list.add_item("当前分区还没有可展示的物品。")
-		inventory_item_list.set_item_metadata(0, {})
+			inventory_rows_box.add_child(_build_empty_label("当前分区还没有可展示的物品。"))
 		return
 
-	list_hint_label.text = "当前分区共有 %d 个条目；本轮新增和新装备会优先显示。" % rows.size()
+	list_hint_label.text = "当前分区共有 %d 个条目；本轮新增和新装备已经优先排前。" % rows.size()
 	for row in rows:
-		var label := str(row.get("list_label", "物品"))
-		inventory_item_list.add_item(label)
-		inventory_item_list.set_item_metadata(inventory_item_list.item_count - 1, row)
+		inventory_rows_box.add_child(_build_inventory_row_card(_as_dictionary(row)))
 
 
 func _refresh_action_area() -> void:
@@ -305,10 +303,10 @@ func _refresh_action_area() -> void:
 	else:
 		action_status_label.text = "背包还没有内容时，可以先回主线推进，或回角色页确认当前状态。"
 
-	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "整理完这轮收益后，通常会先去穿戴看新装备，再决定看角色还是回主线。"
+	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "整理完这轮收益后，通常会先去穿戴看新装备，再决定回角色还是继续主线。"
 	equipment_entry_button.text = "去穿戴新装备" if recent_equipment_count > 0 else "去穿戴"
-	character_entry_button.text = "看角色"
-	stage_entry_button.text = "回主线"
+	character_entry_button.text = "回角色看成长"
+	stage_entry_button.text = "返回主线继续推进"
 
 
 func _select_section(section: String) -> void:
@@ -383,29 +381,30 @@ func _build_equipment_row(entry: Dictionary, is_recent: bool, is_synthetic: bool
 	var item_name := _display_item_name(entry, "新装备")
 	var slot_text := _equipment_slot_text(str(entry.get("equipment_slot", "")))
 	var rarity_text := _rarity_text(str(entry.get("rarity", "")))
-	var parts: Array = []
+	var meta_parts: Array = []
 	if not slot_text.is_empty():
-		parts.append(slot_text)
+		meta_parts.append(slot_text)
 	if not rarity_text.is_empty():
-		parts.append(rarity_text)
+		meta_parts.append(rarity_text)
 	if is_synthetic:
-		parts.append("本轮新增")
-	var meta_text := "可以继续导向穿戴页。"
-	if not parts.is_empty():
-		meta_text = " | ".join(parts)
+		meta_parts.append("本轮新增")
 
 	return {
 		"kind": "equipment",
 		"section": "equipment",
-		"priority": 3 if is_recent else 1,
+		"priority": 4 if is_recent else 1,
 		"sort_name": item_name,
 		"title": item_name,
-		"meta_text": meta_text,
-		"list_label": "%s%s%s" % [
-			"【新装备】 " if is_recent else "",
-			item_name,
-			(" · " + meta_text) if not meta_text.is_empty() else "",
-		],
+		"meta_text": " | ".join(meta_parts) if not meta_parts.is_empty() else "可继续导向穿戴页。",
+		"detail_text": (
+			"这件装备是本轮刚到手的，建议先带去穿戴页试装。"
+			if is_recent
+			else "这件装备已经在当前背包里，可继续前往穿戴页做换装决策。"
+		),
+		"slot_text": slot_text,
+		"rarity_text": rarity_text,
+		"quantity_text": "",
+		"is_recent": is_recent,
 		"payload": entry,
 	}
 
@@ -422,27 +421,99 @@ func _build_stack_row(entry: Dictionary, is_recent: bool, is_synthetic: bool) ->
 		meta_parts.append(rarity_text)
 	if is_synthetic:
 		meta_parts.append("本轮新增")
-	var meta_text := "%s%s" % [quantity_prefix, quantity_value]
-	if not meta_parts.is_empty():
-		meta_text += " | " + " | ".join(meta_parts)
 
 	return {
 		"kind": "stack",
 		"section": section,
-		"priority": 2 if is_recent else 0,
+		"priority": 3 if is_recent and section == "material" else (2 if is_recent else 0),
 		"sort_name": item_name,
 		"title": item_name,
-		"meta_text": meta_text,
-		"list_label": "%s%s %s%s · %s%s" % [
-			"【本轮新增】 " if is_recent else "",
-			item_name,
+		"meta_text": "%s%s | %s" % [
 			quantity_prefix,
 			quantity_value,
-			section_text,
-			(" / " + rarity_text) if not rarity_text.is_empty() else "",
+			" | ".join(meta_parts)
 		],
+		"detail_text": (
+			"这类材料已经正式进包，确认完就可以继续推进。"
+			if section == "material"
+			else "这份收益已经入包，整理完后可以回角色或继续主线。"
+		),
+		"slot_text": "",
+		"rarity_text": rarity_text,
+		"quantity_text": "%s%s" % [quantity_prefix, quantity_value],
+		"is_recent": is_recent,
 		"payload": entry,
 	}
+
+
+func _build_inventory_row_card(row: Dictionary) -> PanelContainer:
+	var section := str(row.get("section", "other"))
+	var is_recent := bool(row.get("is_recent", false))
+	var tint := _section_tint(section)
+
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", _create_inventory_card_style(tint, is_recent))
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	card.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 8)
+	margin.add_child(box)
+
+	var tags := HBoxContainer.new()
+	tags.add_theme_constant_override("separation", 8)
+	tags.add_child(create_pill(_section_name(section), tint))
+	if is_recent:
+		tags.add_child(create_pill("新装备" if section == "equipment" else "本轮新增", tint))
+	var slot_text := str(row.get("slot_text", ""))
+	if not slot_text.is_empty():
+		tags.add_child(create_pill(slot_text, CHARACTER_TINT))
+	var quantity_text := str(row.get("quantity_text", ""))
+	if not quantity_text.is_empty():
+		tags.add_child(create_pill(quantity_text, MATERIAL_TINT if section == "material" else OTHER_TINT))
+	var rarity_text := str(row.get("rarity_text", ""))
+	if not rarity_text.is_empty():
+		tags.add_child(create_pill(rarity_text, OTHER_TINT))
+	box.add_child(tags)
+
+	var title := Label.new()
+	title.text = str(row.get("title", "物品"))
+	title.add_theme_font_size_override("font_size", 18)
+	box.add_child(title)
+
+	var meta := Label.new()
+	meta.text = str(row.get("meta_text", ""))
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(meta)
+
+	var detail := Label.new()
+	detail.text = str(row.get("detail_text", ""))
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.modulate = CARD_TEXT_MUTED
+	box.add_child(detail)
+
+	if str(row.get("kind", "")) == "equipment":
+		var action_row := HBoxContainer.new()
+		action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		action_row.add_theme_constant_override("separation", 8)
+		box.add_child(action_row)
+
+		var action_button := Button.new()
+		action_button.text = "去穿戴这件"
+		style_primary_button(action_button, tint)
+		action_button.pressed.connect(func() -> void:
+			_emit_action("inventory_equipment_selected", _as_dictionary(row.get("payload", {})))
+		)
+		action_row.add_child(action_button)
+
+	return card
 
 
 func _filtered_rows(rows: Array, section: String) -> Array:
@@ -563,7 +634,7 @@ func _recent_stack_lookup() -> Dictionary:
 func _build_focus_card(title_text: String, meta_text: String, tint: Color) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_theme_stylebox_override("panel", _create_card_style())
+	card.add_theme_stylebox_override("panel", _create_inventory_card_style(tint, true))
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 12)
@@ -584,7 +655,7 @@ func _build_focus_card(title_text: String, meta_text: String, tint: Color) -> Pa
 	var meta := Label.new()
 	meta.text = meta_text
 	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	meta.modulate = CARD_TEXT_MUTED
+	meta.modulate = BODY_TEXT
 	box.add_child(meta)
 	return card
 
@@ -624,28 +695,32 @@ func _equipment_slot_text(slot: String) -> String:
 	match slot:
 		"main_weapon":
 			return "主武器"
-		"off_hand":
-			return "副手"
-		"helmet":
-			return "头部"
+		"sub_weapon":
+			return "副武器"
 		"armor":
 			return "护甲"
+		"leggings":
+			return "下装"
+		"gloves":
+			return "手部"
 		"boots":
 			return "鞋履"
-		"belt":
-			return "腰带"
+		"cloak":
+			return "披风"
 		"necklace":
 			return "项链"
-		"ring_left":
-			return "左戒"
-		"ring_right":
-			return "右戒"
-		"bracelet_left":
-			return "左镯"
-		"bracelet_right":
-			return "右镯"
-		"amulet":
-			return "护符"
+		"ring":
+			return "戒指"
+		"bracelet":
+			return "手镯"
+		"ring_1":
+			return "戒指 1"
+		"ring_2":
+			return "戒指 2"
+		"bracelet_1":
+			return "手镯 1"
+		"bracelet_2":
+			return "手镯 2"
 		_:
 			return ""
 
@@ -664,16 +739,38 @@ func _rarity_text(rarity: String) -> String:
 			return ""
 
 
-func _on_inventory_item_selected(index: int) -> void:
-	var metadata = inventory_item_list.get_item_metadata(index)
-	if typeof(metadata) != TYPE_DICTIONARY:
-		return
+func _trimmed_row_titles(rows: Array, limit: int, fallback: String) -> String:
+	var names: Array = []
+	for row in rows:
+		if names.size() >= limit:
+			break
+		names.append(str(_as_dictionary(row).get("title", "物品")))
 
-	var row := _as_dictionary(metadata)
-	if str(row.get("kind", "")) != "equipment":
-		return
+	if names.is_empty():
+		return fallback
+	if rows.size() > limit:
+		return "%s 等 %d 项，%s" % [", ".join(names), rows.size(), fallback]
+	return "%s，%s" % [", ".join(names), fallback]
 
-	_emit_action("inventory_equipment_selected", _as_dictionary(row.get("payload", {})))
+
+func _create_inventory_card_style(tint: Color, emphasize: bool) -> StyleBoxFlat:
+	var style := _create_card_style()
+	style.bg_color = Color(tint.r * 0.16 + CARD_BACKGROUND.r * 0.84, tint.g * 0.16 + CARD_BACKGROUND.g * 0.84, tint.b * 0.16 + CARD_BACKGROUND.b * 0.84, 0.98)
+	style.border_color = Color(tint.r, tint.g, tint.b, 0.88 if emphasize else 0.54)
+	style.shadow_size = 8 if emphasize else 6
+	return style
+
+
+func _section_tint(section: String) -> Color:
+	match section:
+		"equipment":
+			return EQUIPMENT_TINT
+		"material":
+			return MATERIAL_TINT
+		"other":
+			return OTHER_TINT
+		_:
+			return CHARACTER_TINT
 
 
 func _move_secondary_sections_to_bottom() -> void:

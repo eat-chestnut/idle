@@ -277,8 +277,8 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		spotlight_detail_label.text = "如果有新装备、主要掉落或奖励变化，这里会先把最值得马上看的内容顶出来。"
 		spotlight_box.add_child(_build_empty_label("现在还没有新的结果回流。"))
 		growth_hint_label.text = "结算完成后，可以先看背包，再决定前往穿戴、查看角色，还是继续主线。"
-		primary_inventory_button.text = "整理背包"
-		equipment_followup_button.text = "去穿戴"
+		primary_inventory_button.text = "先整理本轮收益"
+		equipment_followup_button.text = "去穿戴看装备"
 		character_followup_button.text = "看角色"
 		equipment_followup_button.disabled = false
 		drop_box.add_child(_build_empty_label("这一场打完后，这里会展示本次掉落。"))
@@ -321,8 +321,15 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		stack_results,
 		created_equipment_instances
 	)
-	primary_inventory_button.text = "整理背包" if inventory_entry_count > 0 else "去背包看看"
-	equipment_followup_button.text = "去穿戴"
+	if not created_equipment_instances.is_empty():
+		primary_inventory_button.text = "先整理本轮收益"
+		equipment_followup_button.text = "去穿戴试新装备"
+	elif inventory_entry_count > 0:
+		primary_inventory_button.text = "去背包整理收益"
+		equipment_followup_button.text = "去穿戴看装备"
+	else:
+		primary_inventory_button.text = "去背包看看"
+		equipment_followup_button.text = "去穿戴"
 	character_followup_button.text = "看角色"
 	equipment_followup_button.disabled = false
 
@@ -419,8 +426,8 @@ func show_handoff_summary(character_id: String, stage_difficulty_id: String, bat
 	reward_box.add_child(_build_empty_label("结果返回后，这里会展示当前奖励状态变化。"))
 	inventory_box.add_child(_build_empty_label("结果返回后，这里会展示哪些收获已经进包。"))
 	growth_hint_label.text = "等结果回来后，这里会告诉你更适合先看背包、前往穿戴，还是回主线继续推进。"
-	primary_inventory_button.text = "整理背包"
-	equipment_followup_button.text = "去穿戴"
+	primary_inventory_button.text = "先整理本轮收益"
+	equipment_followup_button.text = "去穿戴看装备"
 	character_followup_button.text = "看角色"
 	equipment_followup_button.disabled = false
 	set_summary_text("这场已经结束，收获正在整理。")
@@ -602,9 +609,9 @@ func _build_growth_hint(
 	created_equipment_instances: Array
 ) -> String:
 	if not created_equipment_instances.is_empty():
-		return "本次拿到了 %d 件新装备，建议先看背包确认收益，再直接前往穿戴试装；当前角色和新装备信息都会继续保留。" % created_equipment_instances.size()
+		return "本次拿到了 %d 件新装备，背包页会先承接这批收益，再把可试装的新装备明确导向穿戴页；当前角色和新装备信息都会继续保留。" % created_equipment_instances.size()
 	if not stack_results.is_empty():
-		return "收益已经正式入包，先看背包里材料和货币的变化会更顺，再决定继续推进还是回角色看成长。"
+		return "收益已经正式入包，先去背包整理本轮材料和其他收益会更顺，再决定回角色看成长还是继续主线。"
 	if reward_results.is_empty() and int(reward_status.get("has_reward", 0)) == 1 and int(reward_status.get("has_granted", 0)) == 1:
 		return "奖励没有新增不是错误，说明这份首通奖励已经领过；这次可以直接再战一场，或回主线继续推进。"
 	if int(reward_status.get("has_reward", 0)) == 0 and drop_results.is_empty():

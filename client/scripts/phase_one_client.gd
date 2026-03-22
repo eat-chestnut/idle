@@ -19,6 +19,20 @@ const STAGE_PAGE := "stage"
 const PREPARE_PAGE := "prepare"
 const BATTLE_PAGE := "battle"
 const SETTLE_PAGE := "settle"
+const EQUIPMENT_SLOT_ORDER := [
+	"main_weapon",
+	"sub_weapon",
+	"armor",
+	"leggings",
+	"gloves",
+	"boots",
+	"cloak",
+	"necklace",
+	"ring_1",
+	"ring_2",
+	"bracelet_1",
+	"bracelet_2",
+]
 const CLIENT_SUBTITLE := "认出主角，锁定去处，打完这一场。"
 const DEFAULT_CONFIG_NOTE := (
 	"默认值来自当前正式文档与最小联调 seed，只作为联调兜底；"
@@ -713,8 +727,23 @@ func _refresh_product_pages() -> void:
 	var inventory_character := current_character if not current_character.is_empty() else battle_character
 	if not current_settle_result.is_empty() and not battle_character.is_empty():
 		inventory_character = battle_character
+	var equipment_character := _find_character_record(equipment_page.get_character_id_text())
+	if equipment_character.is_empty():
+		equipment_character = inventory_character
+	var equipment_character_id := _normalize_id_string(
+		equipment_page.get_character_id_text() if not equipment_page.get_character_id_text().is_empty() else equipment_character.get("character_id", "")
+	)
+	var equipment_slots := {}
+	if _normalize_id_string(current_slots.get("character_id", "")) == equipment_character_id:
+		equipment_slots = current_slots.duplicate(true)
 	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
 	inventory_page.render_inventory_context(inventory_character, current_settle_result)
+	equipment_page.render_equipment_context(
+		equipment_character,
+		equipment_slots,
+		current_inventory,
+		current_settle_result
+	)
 	prepare_page.render_prepare_context(battle_character, route_context, current_reward_status)
 	prepare_page.show_prepare_summary(current_prepare_result)
 	settle_page.render_settle_context(battle_character, route_context)
@@ -870,10 +899,11 @@ func _open_equipment_from_settle() -> void:
 
 	equipment_page.set_selected_equipment_instance(
 		_normalize_id_string(latest_equipment.get("equipment_instance_id", "")),
-		str(latest_equipment.get("item_name", latest_equipment.get("item_id", "新装备")))
+		str(latest_equipment.get("item_name", latest_equipment.get("item_id", "新装备"))),
+		str(latest_equipment.get("equipment_slot", ""))
 	)
-	equipment_page.set_page_state("success", "已带上本轮新装备，刷新穿戴槽后可直接试装。")
-	equipment_page.show_handoff_summary("已承接本轮新装备；刷新穿戴槽后就能直接试装到当前角色。")
+	equipment_page.set_page_state("success", "已带上本轮新装备，当前槽位和候选区会优先围绕它展开。")
+	equipment_page.show_handoff_summary("已承接本轮新装备；先看它更适合哪一格，再决定回角色还是继续主线。")
 
 
 func _open_character_page(from_settle: bool = false) -> void:
@@ -927,6 +957,37 @@ func _latest_created_equipment_instance() -> Dictionary:
 		return {}
 
 	return _as_dictionary(created_equipment_instances[0])
+
+
+func _merge_slot_snapshot_payload(character_id: int, slot_snapshot: Array) -> Dictionary:
+	var merged_lookup := {}
+	if _parse_character_id(current_slots.get("character_id", "")) == character_id:
+		for slot in _as_array(current_slots.get("slots", [])):
+			var entry := _as_dictionary(slot)
+			var slot_key := str(entry.get("slot_key", "")).strip_edges()
+			if slot_key.is_empty():
+				continue
+			merged_lookup[slot_key] = entry
+
+	for slot in slot_snapshot:
+		var entry := _as_dictionary(slot)
+		var slot_key := str(entry.get("slot_key", "")).strip_edges()
+		if slot_key.is_empty():
+			continue
+		merged_lookup[slot_key] = entry
+
+	var merged_slots: Array = []
+	for slot_key in EQUIPMENT_SLOT_ORDER:
+		if merged_lookup.has(slot_key):
+			merged_slots.append(_as_dictionary(merged_lookup.get(slot_key, {})))
+
+	if merged_slots.is_empty():
+		merged_slots = slot_snapshot.duplicate(true)
+
+	return {
+		"character_id": character_id,
+		"slots": merged_slots,
+	}
 
 
 func _handle_failure(page, result: Dictionary, fallback: String) -> void:
@@ -1401,6 +1462,9 @@ func _on_load_inventory_pressed() -> void:
 	else:
 		inventory_page.set_page_state("success", "背包已经到位，本轮新增和新装备会优先排在前面。")
 
+	_refresh_product_pages()
+	_refresh_flow_summary()
+
 
 func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
 	var equipment_instance_id = _normalize_id_string(metadata.get("equipment_instance_id", ""))
@@ -1409,10 +1473,11 @@ func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
 
 	equipment_page.set_selected_equipment_instance(
 		equipment_instance_id,
-		str(metadata.get("item_name", ""))
+		str(metadata.get("item_name", "")),
+		str(metadata.get("equipment_slot", ""))
 	)
-	equipment_page.show_handoff_summary("已从背包带入一件装备；刷新穿戴槽后即可把它试装到当前角色。")
-	equipment_page.set_page_state("success", "已从背包选中装备实例，接下来请选择槽位并完成穿戴。")
+	equipment_page.show_handoff_summary("已从背包带入一件装备；先看它更适合哪一格，再决定是否立刻试穿。")
+	equipment_page.set_page_state("success", "已从背包选中装备，候选区会优先围绕这件装备展开。")
 	_set_current_tab(EQUIPMENT_PAGE)
 
 
@@ -1471,12 +1536,22 @@ func _on_equip_pressed() -> void:
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
-	current_slots = {
-		"character_id": data.get("character_id"),
-		"slots": _as_array(data.get("slot_snapshot", [])),
-	}
+	current_slots = _merge_slot_snapshot_payload(character_id_value, _as_array(data.get("slot_snapshot", [])))
+	var slots_refresh_result: Dictionary = await api.request_json(
+		"GET",
+		"/api/characters/%d/equipment-slots" % character_id_value
+	)
+	if slots_refresh_result.get("ok", false):
+		current_slots = _as_dictionary(slots_refresh_result.get("data", {}))
+	else:
+		equipment_page.show_handoff_summary("穿戴已成功；当前槽位已按服务端变更更新，完整快照稍后再刷新一次也可以。")
 	equipment_page.render_slots(current_slots)
-	equipment_page.set_page_state("success", "穿戴完成，槽位快照已刷新。")
+	equipment_page.set_page_state(
+		"success",
+		"穿戴完成，当前装备位和候选区都已刷新。"
+		if slots_refresh_result.get("ok", false)
+		else "穿戴完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
+	)
 
 
 func _on_unequip_pressed() -> void:
@@ -1505,12 +1580,22 @@ func _on_unequip_pressed() -> void:
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
-	current_slots = {
-		"character_id": data.get("character_id"),
-		"slots": _as_array(data.get("slot_snapshot", [])),
-	}
+	current_slots = _merge_slot_snapshot_payload(character_id_value, _as_array(data.get("slot_snapshot", [])))
+	var slots_refresh_result: Dictionary = await api.request_json(
+		"GET",
+		"/api/characters/%d/equipment-slots" % character_id_value
+	)
+	if slots_refresh_result.get("ok", false):
+		current_slots = _as_dictionary(slots_refresh_result.get("data", {}))
+	else:
+		equipment_page.show_handoff_summary("卸下已成功；当前槽位已按服务端变更更新，完整快照稍后再刷新一次也可以。")
 	equipment_page.render_slots(current_slots)
-	equipment_page.set_page_state("success", "卸下完成，槽位快照已刷新。")
+	equipment_page.set_page_state(
+		"success",
+		"卸下完成，当前装备位和候选区都已刷新。"
+		if slots_refresh_result.get("ok", false)
+		else "卸下完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
+	)
 
 
 func _on_load_chapters_pressed() -> void:
