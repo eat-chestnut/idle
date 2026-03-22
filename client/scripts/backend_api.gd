@@ -2,6 +2,9 @@ extends RefCounted
 class_name BackendApi
 
 const UNAUTHORIZED_CODE := 10002
+const STARTUP_CHECK_PROFILE := "interop"
+const VERSION_UNKNOWN := "unknown"
+const VERSION_NOT_DECLARED := "not_declared"
 
 var _owner: Node
 var _base_url := ""
@@ -33,6 +36,28 @@ func request_public_json(
 	query: Dictionary = {}
 ) -> Dictionary:
 	return await _request_json(method, path, null, query, false, false)
+
+
+func request_startup_check(local_snapshot: Dictionary = {}) -> Dictionary:
+	var result: Dictionary = await request_public_json(
+		"GET",
+		"/readyz",
+		{"profile": STARTUP_CHECK_PROFILE}
+	)
+
+	if not result.get("ok", false):
+		return result
+
+	var readiness_payload := _as_dictionary(result.get("data", {}))
+	return {
+		"ok": true,
+		"kind": "success",
+		"http_status": int(result.get("http_status", 200)),
+		"code": 0,
+		"message": "ok",
+		"data": _normalize_startup_snapshot(readiness_payload, local_snapshot),
+		"raw": readiness_payload,
+	}
 
 
 func _request_json(
@@ -226,3 +251,106 @@ func _build_failure(
 		"http_status": http_status,
 		"raw": raw,
 	}
+
+
+func _normalize_startup_snapshot(readiness_payload: Dictionary, local_snapshot: Dictionary) -> Dictionary:
+	var failures = _as_array(_as_dictionary(readiness_payload.get("summary", {})).get("failures", []))
+	var warnings = _as_array(_as_dictionary(readiness_payload.get("summary", {})).get("warnings", []))
+	return {
+		"checked_at": Time.get_datetime_string_from_system(false, true),
+		"source": "/readyz?profile=%s" % STARTUP_CHECK_PROFILE,
+		"network_mode": "startup_check_only",
+		"ready": bool(readiness_payload.get("ready", false)),
+		"profile": str(readiness_payload.get("selected_profile", STARTUP_CHECK_PROFILE)),
+		"versions": {
+			"app": _build_version_snapshot("app", local_snapshot, readiness_payload),
+			"data": _build_version_snapshot("data", local_snapshot, readiness_payload),
+			"resource": _build_version_snapshot("resource", local_snapshot, readiness_payload),
+		},
+		"services": {
+			"save_upload": _build_save_service_snapshot("save_upload", readiness_payload),
+			"save_download": _build_save_service_snapshot("save_download", readiness_payload),
+		},
+		"diagnosis": {
+			"status": str(readiness_payload.get("status", VERSION_UNKNOWN)),
+			"failures": failures.size(),
+			"warnings": warnings.size(),
+			"app_env": str(readiness_payload.get("app_env", "")),
+		},
+		"raw_readiness": readiness_payload,
+	}
+
+
+func _build_version_snapshot(
+	version_key: String,
+	local_snapshot: Dictionary,
+	readiness_payload: Dictionary
+) -> Dictionary:
+	var local_key := "local_%s_version" % version_key
+	var local_value := _normalize_version_value(local_snapshot.get(local_key, VERSION_UNKNOWN))
+	var remote_value := _extract_remote_version(version_key, readiness_payload)
+	var status := VERSION_UNKNOWN
+
+	if remote_value == VERSION_NOT_DECLARED:
+		status = VERSION_NOT_DECLARED
+	elif remote_value != VERSION_UNKNOWN and remote_value == local_value:
+		status = "match"
+	elif remote_value != VERSION_UNKNOWN:
+		status = "mismatch"
+
+	return {
+		"local": local_value,
+		"remote": remote_value,
+		"status": status,
+	}
+
+
+func _build_save_service_snapshot(service_key: String, readiness_payload: Dictionary) -> Dictionary:
+	var services := _as_dictionary(readiness_payload.get("services", {}))
+	if services.has(service_key):
+		var service_payload := _as_dictionary(services.get(service_key, {}))
+		return {
+			"available": bool(service_payload.get("available", false)),
+			"status": str(service_payload.get("status", VERSION_UNKNOWN)),
+			"message": str(service_payload.get("message", "")),
+		}
+
+	return {
+		"available": false,
+		"status": VERSION_NOT_DECLARED,
+		"message": "当前后端启动检查尚未声明该服务状态。",
+	}
+
+
+func _extract_remote_version(version_key: String, readiness_payload: Dictionary) -> String:
+	var versions := _as_dictionary(readiness_payload.get("versions", {}))
+	if versions.has(version_key):
+		return _normalize_version_value(versions.get(version_key, VERSION_UNKNOWN))
+
+	var direct_key := "%s_version" % version_key
+	if readiness_payload.has(direct_key):
+		return _normalize_version_value(readiness_payload.get(direct_key, VERSION_UNKNOWN))
+
+	if version_key == "resource":
+		return VERSION_NOT_DECLARED
+
+	return VERSION_UNKNOWN
+
+
+func _normalize_version_value(value: Variant) -> String:
+	var normalized := str(value).strip_edges()
+	if normalized.is_empty():
+		return VERSION_UNKNOWN
+	return normalized
+
+
+func _as_dictionary(value: Variant) -> Dictionary:
+	if typeof(value) == TYPE_DICTIONARY:
+		return value
+	return {}
+
+
+func _as_array(value: Variant) -> Array:
+	if typeof(value) == TYPE_ARRAY:
+		return value
+	return []

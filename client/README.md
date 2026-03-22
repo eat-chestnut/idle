@@ -1,105 +1,110 @@
 # Phase-one Godot Client
 
-## 当前范围
+## 当前定位
 
-本目录提供《山海巡厄录》第一阶段 Godot 客户端最小可玩竖切，当前正式覆盖：
+当前客户端正式定位已经调整为：
 
-- 环境与 Bearer Token 配置
-- 角色列表、角色创建、角色详情、角色激活
-- 背包读取、穿戴槽读取、装备穿戴与卸下
-- 章节、关卡、难度、首通奖励状态读取
-- `battle prepare -> 竖版战斗页 -> battle settle` 的真实链路承接
-- headless boot smoke、main-scene smoke、online smoke、merge gate
+- 单机为主，弱联网为辅
+- 启动时只做一次后台检查
+- 进入游戏后，运行期主循环逐步以本地 runtime state 为真相
+- 当前弱联网边界只保留存档上传 / 下载
+
+当前目录正式承接的主链是：
+
+- 启动检查
+- 角色
+- 主线
+- 出战
+- Battle
+- Settle
+- 背包
+- 穿戴
+- 角色成长回流
 
 当前目录不负责：
 
 - 新增 backend 接口
-- 在 client 里复制掉落、奖励、battle context 的业务真相
+- 把客户端继续做成“实时 API 真相客户端”
+- 排行榜、交易所、多人协同、复杂在线状态系统
 - 强化、洗练、宝石、套装、经卷、world level、商店、活动等未来系统
 
-## 契约来源
+## 当前联网边界
 
-当前 client 的正式契约来源按以下顺序使用：
+### 启动时
+客户端当前只允许集中做一次启动检查，用于确认：
 
-1. `backend/routes/api.php`、各 `ApiRequest`、各 `Resource`、相关 Feature Tests
-2. `backend/docs/api/phase-one-frontend.openapi.json`
-3. `backend/docs/api/README.md`
-4. `doc/codex/接口示例文档.md`
-5. `doc/codex/认证与接口公共规则.md`
+- 游戏 / 应用版本
+- 配置 / 数据版本
+- 资源版本（若当前后端或项目已声明）
+- 存档上传 / 下载服务是否可用
 
-当前强相关正式接口包括：
+启动检查结果必须写入本地 runtime state，供后续页面只读展示或提示使用。
 
-- `GET /readyz?profile=interop`
-- `GET /api/characters`
-- `POST /api/characters`
-- `GET /api/characters/{character_id}`
-- `POST /api/characters/{character_id}/activate`
-- `GET /api/inventory`
-- `GET /api/characters/{character_id}/equipment-slots`
-- `POST /api/characters/{character_id}/equip`
-- `POST /api/characters/{character_id}/unequip`
-- `GET /api/chapters`
-- `GET /api/chapters/{chapter_id}/stages`
-- `GET /api/stages/{stage_id}/difficulties`
-- `GET /api/stage-difficulties/{stage_difficulty_id}/first-clear-reward-status`
-- `POST /api/battles/prepare`
-- `POST /api/battles/settle`
+### 进入游戏后
+当前正式方向是：
+
+- 页面主循环不再以实时 API 为真相
+- 页面优先读本地 runtime state
+- 旧接口可以暂时保留，作为迁移阶段的数据补齐手段
+- 不能把“还没完全切完”当成继续强化在线客户端结构的理由
+
+### 当前保留的弱联网能力
+
+- 存档上传
+- 存档下载
+
+排行榜、交易所等未来能力后续再单独扩，不在本轮范围内。
+
+## 契约与参考来源
+
+客户端当前需要同时遵守两类来源：
+
+1. 本地运行时与弱联网边界文档
+2. 现有 backend / OpenAPI / 接口文档
+
+推荐参考顺序：
+
+1. `doc/codex/单机运行时与弱联网边界.md`
+2. `doc/codex/游戏端开发总纲.md`
+3. `doc/codex/游戏端页面与入口清单.md`
+4. `doc/codex/游戏端状态与交互清单.md`
+5. 当前真实 client 代码
+6. `backend/routes/api.php`、`backend/docs/api/phase-one-frontend.openapi.json`
+
+说明：
+
+- backend 契约仍然约束当前已存在的启动检查兼容层与存档能力
+- 但运行期页面组织，不应再默认以后端实时返回为唯一真相
 
 ## 关键入口
 
 - Godot 工程入口：`project.godot`
 - 主场景：`client/scenes/PhaseOneClient.tscn`
 - 主协调器：`client/scripts/phase_one_client.gd`
-- API 封装：`client/scripts/backend_api.gd`
+- 后端访问封装：`client/scripts/backend_api.gd`
+- 本地配置：`client/scripts/client_config_store.gd`
 - merge gate：`client/phase-one-merge-gate.sh`
 - online smoke：`client/scripts/phase_one_online_smoke.gd`
 
-当前最小本地联调固定值：
-
-- `BACKEND_URL=http://127.0.0.1:8000`
-- `BEARER_TOKEN=test-token-2001`
-- 对应测试用户：`users.id = 2001`
-
-## 本地联调
+## 本地开发建议
 
 以下命令默认从仓库根目录执行。
 
-联调前建议先确认 backend 最小可联调状态：
-
-```bash
-php ./backend/artisan phase-one:diagnose --profile=interop --json
-php ./backend/artisan phase-one:contract-drift-check --json
-```
-
-如果 backend 尚未启动，可以手动运行：
+如果需要本地 backend：
 
 ```bash
 cd ./backend
 php artisan serve
 ```
 
-GUI 联调建议顺序：
+GUI 自测建议顺序：
 
-1. 打开根目录 Godot 工程 `project.godot`
-2. 运行主场景 `client/scenes/PhaseOneClient.tscn`
-3. 在“环境与 Token”页确认 `Backend Base URL` 与 `Bearer Token`
-4. 执行 `/readyz?profile=interop`
-5. 读取角色列表；若列表为空，再创建角色
-6. 激活联调角色
-7. 读取背包与穿戴槽
-8. 在主线页按“章节 -> 关卡 -> 难度”顺序选择目标
-9. 刷新首通奖励状态
-10. 在“出战”页执行 `battle prepare`
-11. 进入竖版战斗页完成走位与击杀
-12. 自动进入“结算”页查看掉落、奖励与入包结果
-
-当前联调策略：
-
-- 客户端不伪造 `battle_context_id`，必须承接 prepare 返回值
-- 客户端不猜测奖励状态，必须以后端返回的 `first_clear_reward_status` 为准
-- GUI 主流程以“角色 -> 主线 -> 出战 -> 战斗 -> 结算”的竖版路径为主
-- online smoke 固定只选第一个章节、第一个关卡、第一个难度，目标是最小正式闭环
-- 角色为空时，smoke 只通过正式 `POST /api/characters` 创建最小合法角色
+1. 打开 `project.godot`
+2. 运行 `client/scenes/PhaseOneClient.tscn`
+3. 在启动页确认 `Backend Base URL` 与 `Bearer Token`
+4. 执行一次启动检查
+5. 进入角色 / 主线 / 出战 / Battle / Settle / 背包 / 穿戴 / 角色链路
+6. 重点确认页面是否优先承接本地 runtime state，而不是反复要求实时接口
 
 ## Merge Gate 与 Smoke
 
@@ -109,65 +114,15 @@ GUI 联调建议顺序：
 ./client/phase-one-merge-gate.sh
 ```
 
-查看帮助：
+说明：
 
-```bash
-./client/phase-one-merge-gate.sh --help
-```
-
-如需覆盖默认环境：
-
-```bash
-BACKEND_URL=http://127.0.0.1:8010 \
-BEARER_TOKEN=your-token \
-./client/phase-one-merge-gate.sh
-```
-
-merge gate 固定执行以下顺序：
-
-1. `php ./backend/artisan phase-one:diagnose --profile=interop --json`
-2. `php ./backend/artisan phase-one:contract-drift-check --json`
-3. `godot --headless --path . --quit`
-4. `godot --headless --path . --scene res://client/scenes/PhaseOneClient.tscn --quit-after 1`
-5. `godot --headless --path . --script ./client/scripts/phase_one_online_smoke.gd -- --base-url=... --bearer-token=...`
-6. `composer --working-dir=./backend phase-one:acceptance`
-
-`client/scripts/phase_one_online_smoke.gd` 固定覆盖：
-
-1. `GET /readyz?profile=interop`
-2. `GET /api/characters`
-3. 必要时 `POST /api/characters`
-4. `POST /api/characters/{character_id}/activate`
-5. `GET /api/chapters`
-6. `GET /api/chapters/{chapter_id}/stages`
-7. `GET /api/stages/{stage_id}/difficulties`
-8. `GET /api/stage-difficulties/{stage_difficulty_id}/first-clear-reward-status`
-9. `POST /api/battles/prepare`
-10. `POST /api/battles/settle`
-
-运行说明：
-
-- 如果 `BACKEND_URL` 已在线，merge gate 会直接复用现有 backend
-- 如果 `BACKEND_URL` 不在线，merge gate 会临时启动 `php artisan serve`
-- 临时服务日志会写到 `backend/storage/logs/client-merge-gate-server.log`
-- merge gate 不替代单独的 acceptance diagnose，也不替代 GUI 联调
-
-## 验证建议
-
-建议从仓库根目录按以下顺序验证：
-
-1. `./client/phase-one-merge-gate.sh`
-2. `php ./backend/artisan phase-one:diagnose --profile=acceptance --json`
-3. `php ./backend/artisan phase-one:contract-drift-check --json`
-4. `composer --working-dir=./backend phase-one:acceptance`
-5. 再补一次非 headless GUI 联调
+- merge gate 与 online smoke 仍是当前仓库的开发保障手段
+- 它们只证明现有主链、现有契约和现有联调环境可运行
+- 它们不代表未来正式运行模式，更不代表“运行期应持续依赖实时 API”
 
 ## 当前限制与边界
 
-- 当前目录只覆盖 phase-one 正式主链，不扩展未来系统
-- merge gate 与 online smoke 只能证明 headless 主链可跑，不能替代 GUI 页面级联调
-- online smoke 依赖 phase-one seed 数据与 `test-token-2001`
-- 如果账号已经领过首通奖励，smoke 可能读到“已领取状态回读”，这不等于奖励链有问题
-- 当前客户端仍以单条正式竖切为主，不追求多章节、多角色、多异常分支的全量覆盖
-- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`，战斗相关页额外处理 `preparing / settling`
-- 新增战斗页只负责竖版空间体验与正式 settle 承接，不复制后端 battle 业务真相
+- 当前目录只覆盖单机刷图成长主链与最小弱联网边界
+- 启动检查当前会优先复用现有 `/readyz` 能力；若后端尚未显式提供版本或存档字段，客户端会以兼容快照形式记录 `unknown` 或 `not_declared`
+- 页面必须继续显式处理 `loading / success / empty / error / unauthorized`
+- 旧 API 链路本轮不会一次性删除，但后续新增页面逻辑必须优先落在本地 runtime state 上

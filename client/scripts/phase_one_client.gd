@@ -2,6 +2,7 @@ extends Control
 
 const BackendApiScript = preload("res://client/scripts/backend_api.gd")
 const ClientConfigStoreScript = preload("res://client/scripts/client_config_store.gd")
+const LocalGameStateScript = preload("res://client/scripts/local_game_state.gd")
 const ConfigPageScript = preload("res://client/scripts/pages/phase_one_config_page.gd")
 const CharacterPageScript = preload("res://client/scripts/pages/phase_one_character_page.gd")
 const InventoryPageScript = preload("res://client/scripts/pages/phase_one_inventory_page.gd")
@@ -33,13 +34,16 @@ const EQUIPMENT_SLOT_ORDER := [
 	"bracelet_1",
 	"bracelet_2",
 ]
-const CLIENT_SUBTITLE := "认出主角，定下去处，打一场，再带着收获继续上路。"
+const CLIENT_SUBTITLE := "启动只看一眼世界，进局后就按本地节奏刷图成长。"
 const DEFAULT_CONFIG_NOTE := (
-	"默认值来自当前正式文档与最小联调 seed，只作为联调兜底；"
-	+ "主流程仍应以真实角色列表、章节列表和关卡难度列表为准。"
+	"默认值只用于开发环境和旧接口兼容；"
+	+ "当前正式方向是启动检查一次，进入游戏后逐步以本地 runtime state 为真相。"
 )
+const DEFAULT_LOCAL_DATA_VERSION := "embedded-dev"
+const DEFAULT_LOCAL_RESOURCE_VERSION := "not_declared"
 
 var api
+var runtime_state
 var saved_config: Dictionary = {}
 var tab_container: TabContainer
 var flow_summary_label: Label
@@ -73,17 +77,24 @@ var has_loaded_difficulties := false
 var _is_applying_config := false
 var _character_auto_sync_in_flight := false
 var _stage_auto_sync_in_flight := false
+var _has_attempted_startup_check := false
 
 
 func _ready() -> void:
 	saved_config = ClientConfigStoreScript.load_config()
+	runtime_state = LocalGameStateScript.new()
+	runtime_state.apply_saved_config(saved_config)
 	api = BackendApiScript.new(self, saved_config.get("base_url", ""), saved_config.get("bearer_token", ""))
 	_build_ui()
 	_apply_saved_config()
 	_set_initial_states()
 	_refresh_recent_selectors()
+	_restore_cached_startup_snapshot()
+	_sync_local_runtime_from_legacy_cache()
 	_refresh_product_pages()
 	_refresh_flow_summary()
+	if DisplayServer.get_name() != "headless":
+		call_deferred("_run_startup_check_on_boot")
 
 
 func _build_ui() -> void:
@@ -227,8 +238,9 @@ func _apply_saved_config() -> void:
 
 
 func _set_initial_states() -> void:
-	config_page.set_page_state("empty", "先确认 backend 地址和 Bearer Token。")
-	config_page.set_output_text("尚未保存配置。")
+	config_page.set_page_state("empty", "启动时会先做一次检查，把版本和存档服务快照写进本地运行时。")
+	config_page.set_summary_text("当前正式边界：启动只联网一次；进入游戏后主循环逐步以本地 runtime state 为真相。")
+	config_page.set_output_text("尚未生成启动检查快照。")
 
 	character_page.set_page_state("empty", "先去角色页认出这次的主角；如果还没有，就先创建一个。")
 	character_page.set_output_text("等待角色列表、角色创建或详情读取。")
@@ -258,6 +270,9 @@ func _refresh_runtime_config_snapshot() -> void:
 
 	saved_config["base_url"] = config_values.get("base_url", "")
 	saved_config["bearer_token"] = config_values.get("bearer_token", "")
+	saved_config["local_app_version"] = _resolve_local_app_version()
+	saved_config["local_data_version"] = _resolve_local_data_version()
+	saved_config["local_resource_version"] = _resolve_local_resource_version()
 	saved_config["class_id"] = create_payload.get("class_id", "")
 	saved_config["character_name"] = create_payload.get("character_name", "")
 	saved_config["character_id"] = character_page.get_character_id_text()
@@ -271,11 +286,335 @@ func _refresh_runtime_config_snapshot() -> void:
 	)
 
 	api.update_credentials(saved_config.get("base_url", ""), saved_config.get("bearer_token", ""))
+	_sync_local_runtime_from_legacy_cache()
 
 
 func _persist_runtime_config() -> void:
 	_refresh_runtime_config_snapshot()
+	if runtime_state != null:
+		saved_config = runtime_state.export_saved_config(saved_config)
 	ClientConfigStoreScript.save_config(saved_config)
+
+
+func _resolve_local_app_version() -> String:
+	var configured_version := str(saved_config.get("local_app_version", "")).strip_edges()
+	if not configured_version.is_empty():
+		return configured_version
+
+	var project_version := str(ProjectSettings.get_setting("application/config/version", "")).strip_edges()
+	if not project_version.is_empty():
+		return project_version
+
+	return "dev-local"
+
+
+func _resolve_local_data_version() -> String:
+	var configured_version := str(saved_config.get("local_data_version", "")).strip_edges()
+	if configured_version.is_empty():
+		return DEFAULT_LOCAL_DATA_VERSION
+	return configured_version
+
+
+func _resolve_local_resource_version() -> String:
+	var configured_version := str(saved_config.get("local_resource_version", "")).strip_edges()
+	if configured_version.is_empty():
+		return DEFAULT_LOCAL_RESOURCE_VERSION
+	return configured_version
+
+
+func _selected_stage_difficulty_id() -> String:
+	if not prepare_page.get_stage_difficulty_text().is_empty():
+		return prepare_page.get_stage_difficulty_text()
+	if not stage_page.get_selected_stage_difficulty().is_empty():
+		return stage_page.get_selected_stage_difficulty()
+	return settle_page.get_stage_difficulty_text()
+
+
+func _sync_local_runtime_from_legacy_cache() -> void:
+	if runtime_state == null:
+		return
+
+	runtime_state.replace_state({
+		"config": {
+			"base_url": str(saved_config.get("base_url", "")).strip_edges(),
+			"bearer_token": str(saved_config.get("bearer_token", "")).strip_edges(),
+			"local_app_version": _resolve_local_app_version(),
+			"local_data_version": _resolve_local_data_version(),
+			"local_resource_version": _resolve_local_resource_version(),
+		},
+		"startup_snapshot": _as_dictionary(saved_config.get("startup_snapshot", {})),
+		"character_list": current_character_list,
+		"character_detail": current_character_detail,
+		"inventory": current_inventory,
+		"slots": current_slots,
+		"chapters": current_chapters,
+		"stages": current_stages,
+		"difficulties": current_difficulties,
+		"reward_status": current_reward_status,
+		"prepare_result": current_prepare_result,
+		"settle_result": current_settle_result,
+		"character_equipment_feedback": current_character_equipment_feedback,
+		"prepared_monster_ids": current_prepared_monster_ids,
+		"recent_battle_context_ids": recent_battle_context_ids,
+		"selections": {
+			"character_id": character_page.get_character_id_text(),
+			"battle_character_id": prepare_page.get_character_id_text(),
+			"equipment_character_id": equipment_page.get_character_id_text(),
+			"chapter_id": stage_page.get_selected_chapter_id(),
+			"stage_id": stage_page.get_stage_id_text(),
+			"stage_difficulty_id": _selected_stage_difficulty_id(),
+			"battle_context_id": settle_page.get_battle_context_text(),
+		},
+	})
+
+
+func _runtime_startup_snapshot() -> Dictionary:
+	if runtime_state == null:
+		return _as_dictionary(saved_config.get("startup_snapshot", {}))
+	return runtime_state.get_dictionary_state("startup_snapshot")
+
+
+func _runtime_character_list() -> Dictionary:
+	if runtime_state == null:
+		return current_character_list.duplicate(true)
+	return runtime_state.get_dictionary_state("character_list")
+
+
+func _runtime_character_detail() -> Dictionary:
+	if runtime_state == null:
+		return current_character_detail.duplicate(true)
+	return runtime_state.get_dictionary_state("character_detail")
+
+
+func _runtime_inventory() -> Dictionary:
+	if runtime_state == null:
+		return current_inventory.duplicate(true)
+	return runtime_state.get_dictionary_state("inventory")
+
+
+func _runtime_slots() -> Dictionary:
+	if runtime_state == null:
+		return current_slots.duplicate(true)
+	return runtime_state.get_dictionary_state("slots")
+
+
+func _runtime_chapters() -> Dictionary:
+	if runtime_state == null:
+		return current_chapters.duplicate(true)
+	return runtime_state.get_dictionary_state("chapters")
+
+
+func _runtime_stages() -> Dictionary:
+	if runtime_state == null:
+		return current_stages.duplicate(true)
+	return runtime_state.get_dictionary_state("stages")
+
+
+func _runtime_difficulties() -> Dictionary:
+	if runtime_state == null:
+		return current_difficulties.duplicate(true)
+	return runtime_state.get_dictionary_state("difficulties")
+
+
+func _runtime_reward_status() -> Dictionary:
+	if runtime_state == null:
+		return current_reward_status.duplicate(true)
+	return runtime_state.get_dictionary_state("reward_status")
+
+
+func _runtime_prepare_result() -> Dictionary:
+	if runtime_state == null:
+		return current_prepare_result.duplicate(true)
+	return runtime_state.get_dictionary_state("prepare_result")
+
+
+func _runtime_settle_result() -> Dictionary:
+	if runtime_state == null:
+		return current_settle_result.duplicate(true)
+	return runtime_state.get_dictionary_state("settle_result")
+
+
+func _runtime_equipment_feedback() -> Dictionary:
+	if runtime_state == null:
+		return current_character_equipment_feedback.duplicate(true)
+	return runtime_state.get_dictionary_state("character_equipment_feedback")
+
+
+func _runtime_recent_battle_context_ids() -> Array:
+	if runtime_state == null:
+		return recent_battle_context_ids.duplicate(true)
+	return runtime_state.get_array_state("recent_battle_context_ids")
+
+
+func _runtime_prepared_monster_ids() -> PackedStringArray:
+	if runtime_state == null:
+		return PackedStringArray(current_prepared_monster_ids)
+	return runtime_state.get_packed_string_array_state("prepared_monster_ids")
+
+
+func _restore_cached_startup_snapshot() -> void:
+	var cached_snapshot := _runtime_startup_snapshot()
+	if cached_snapshot.is_empty():
+		return
+
+	config_page.set_page_state("success", "已载入上次启动检查快照，本次启动会再检查一次并回写本地运行时。")
+	config_page.set_summary_text(_build_startup_snapshot_summary(cached_snapshot))
+	config_page.set_output_json(cached_snapshot)
+
+
+func _run_startup_check_on_boot() -> void:
+	if _has_attempted_startup_check:
+		return
+
+	_has_attempted_startup_check = true
+	_refresh_runtime_config_snapshot()
+
+	if str(saved_config.get("base_url", "")).strip_edges().is_empty():
+		config_page.set_page_state("empty", "启动检查还没开始，先补弱联网 backend 地址。")
+		config_page.set_summary_text("当前正式边界：启动只联网一次；进入游戏后主循环逐步以本地 runtime state 为真相。")
+		config_page.set_output_text("尚未生成启动检查快照。")
+		_refresh_flow_summary()
+		return
+
+	await _execute_startup_check(true)
+
+
+func _on_run_startup_check_pressed() -> void:
+	_has_attempted_startup_check = true
+	await _execute_startup_check(false)
+
+
+func _execute_startup_check(from_boot: bool) -> void:
+	_persist_runtime_config()
+	config_page.set_page_state(
+		"loading",
+		"启动中，正在执行一次后台检查。"
+		if from_boot
+		else "正在重新执行启动检查。"
+	)
+
+	var local_versions := {
+		"local_app_version": _resolve_local_app_version(),
+		"local_data_version": _resolve_local_data_version(),
+		"local_resource_version": _resolve_local_resource_version(),
+	}
+	var result: Dictionary = await api.request_startup_check(local_versions)
+
+	if not result.get("ok", false):
+		var failure_snapshot := _build_failed_startup_snapshot(result, local_versions)
+		saved_config["startup_snapshot"] = failure_snapshot
+		_sync_local_runtime_from_legacy_cache()
+		_persist_runtime_config()
+		config_page.set_page_state("error", "启动检查失败：%s" % str(result.get("message", "当前世界暂时没接通。")))
+		config_page.set_summary_text(_build_startup_snapshot_summary(failure_snapshot))
+		config_page.set_output_json(failure_snapshot)
+		_refresh_flow_summary()
+		return
+
+	var startup_snapshot := _as_dictionary(result.get("data", {}))
+	saved_config["startup_snapshot"] = startup_snapshot
+	_sync_local_runtime_from_legacy_cache()
+	_persist_runtime_config()
+
+	var diagnosis := _as_dictionary(startup_snapshot.get("diagnosis", {}))
+	var failures := int(diagnosis.get("failures", 0))
+	var warnings := int(diagnosis.get("warnings", 0))
+	var state_kind := "success" if bool(startup_snapshot.get("ready", false)) else "error"
+	config_page.set_page_state(
+		state_kind,
+		"启动检查完成：failures=%d，warnings=%d。"
+		% [failures, warnings]
+	)
+	config_page.set_summary_text(_build_startup_snapshot_summary(startup_snapshot))
+	config_page.set_output_json(startup_snapshot)
+	_refresh_flow_summary()
+
+
+func _build_failed_startup_snapshot(result: Dictionary, local_versions: Dictionary) -> Dictionary:
+	return {
+		"checked_at": Time.get_datetime_string_from_system(false, true),
+		"source": "/readyz?profile=interop",
+		"network_mode": "startup_check_only",
+		"ready": false,
+		"profile": "interop",
+		"versions": {
+			"app": {
+				"local": str(local_versions.get("local_app_version", "dev-local")),
+				"remote": "unknown",
+				"status": "unknown",
+			},
+			"data": {
+				"local": str(local_versions.get("local_data_version", DEFAULT_LOCAL_DATA_VERSION)),
+				"remote": "unknown",
+				"status": "unknown",
+			},
+			"resource": {
+				"local": str(local_versions.get("local_resource_version", DEFAULT_LOCAL_RESOURCE_VERSION)),
+				"remote": "not_declared",
+				"status": "not_declared",
+			},
+		},
+		"services": {
+			"save_upload": {
+				"available": false,
+				"status": "unknown",
+				"message": "启动检查失败，未取回上传服务快照。",
+			},
+			"save_download": {
+				"available": false,
+				"status": "unknown",
+				"message": "启动检查失败，未取回下载服务快照。",
+			},
+		},
+		"diagnosis": {
+			"status": "request_failed",
+			"failures": 1,
+			"warnings": 0,
+			"app_env": "",
+		},
+		"message": str(result.get("message", "启动检查失败。")),
+		"raw_readiness": result.get("raw", {}),
+	}
+
+
+func _build_startup_snapshot_summary(snapshot: Dictionary) -> String:
+	var versions := _as_dictionary(snapshot.get("versions", {}))
+	var services := _as_dictionary(snapshot.get("services", {}))
+	var diagnosis := _as_dictionary(snapshot.get("diagnosis", {}))
+	return "启动快照：游戏 %s，数据 %s，资源 %s，存档上传 %s，存档下载 %s。状态：ready=%s，failures=%d，warnings=%d。" % [
+		_describe_version_snapshot(_as_dictionary(versions.get("app", {}))),
+		_describe_version_snapshot(_as_dictionary(versions.get("data", {}))),
+		_describe_version_snapshot(_as_dictionary(versions.get("resource", {}))),
+		_describe_service_snapshot(_as_dictionary(services.get("save_upload", {}))),
+		_describe_service_snapshot(_as_dictionary(services.get("save_download", {}))),
+		str(snapshot.get("ready", false)),
+		int(diagnosis.get("failures", 0)),
+		int(diagnosis.get("warnings", 0)),
+	]
+
+
+func _describe_version_snapshot(snapshot: Dictionary) -> String:
+	var local_value := str(snapshot.get("local", "unknown")).strip_edges()
+	var remote_value := str(snapshot.get("remote", "unknown")).strip_edges()
+	var status := str(snapshot.get("status", "unknown")).strip_edges()
+	match status:
+		"match":
+			return "本地 %s / 远端 %s（已对齐）" % [local_value, remote_value]
+		"mismatch":
+			return "本地 %s / 远端 %s（待确认）" % [local_value, remote_value]
+		"not_declared":
+			return "本地 %s / 远端未声明" % local_value
+		_:
+			return "本地 %s / 远端未知" % local_value
+
+
+func _describe_service_snapshot(snapshot: Dictionary) -> String:
+	var status := str(snapshot.get("status", "unknown")).strip_edges()
+	if bool(snapshot.get("available", false)):
+		return "可用"
+	if status == "not_declared":
+		return "未声明"
+	return "待确认"
 
 
 func _refresh_recent_selectors() -> void:
@@ -303,12 +642,12 @@ func _refresh_recent_selectors() -> void:
 		recent_stage_difficulty_ids,
 		settle_page.get_stage_difficulty_text()
 	)
-	settle_page.set_recent_battle_contexts(recent_battle_context_ids, settle_page.get_battle_context_text())
+	settle_page.set_recent_battle_contexts(_runtime_recent_battle_context_ids(), settle_page.get_battle_context_text())
 
 
 func _build_available_character_records() -> Array:
 	if has_loaded_character_list:
-		return _as_array(current_character_list.get("characters", []))
+		return _as_array(_runtime_character_list().get("characters", []))
 
 	return _build_recent_character_records()
 
@@ -316,7 +655,7 @@ func _build_available_character_records() -> Array:
 func _build_available_stage_difficulty_ids() -> Array:
 	if has_loaded_difficulties:
 		var difficulty_ids: Array = []
-		for difficulty in _as_array(current_difficulties.get("difficulties", [])):
+		for difficulty in _as_array(_runtime_difficulties().get("difficulties", [])):
 			var entry := _as_dictionary(difficulty)
 			var stage_difficulty_id = str(entry.get("stage_difficulty_id", "")).strip_edges()
 			if stage_difficulty_id.is_empty():
@@ -336,7 +675,7 @@ func _build_available_chapter_ids() -> Array:
 		chapter_ids.append(normalized_chapter_id)
 		if chapter_ids.size() >= 8:
 			return chapter_ids
-	for chapter in _as_array(current_chapters.get("chapters", [])):
+	for chapter in _as_array(_runtime_chapters().get("chapters", [])):
 		var entry := _as_dictionary(chapter)
 		var chapter_id = str(entry.get("chapter_id", "")).strip_edges()
 		if chapter_id.is_empty() or chapter_ids.has(chapter_id):
@@ -352,11 +691,11 @@ func _build_recent_character_records() -> Array:
 	var recent: Array = _as_array(saved_config.get("recent_characters", [])).duplicate(true)
 	recent = _prepend_character_record(
 		recent,
-		_as_dictionary(current_character_detail.get("character", {}))
+		_as_dictionary(_runtime_character_detail().get("character", {}))
 	)
 	recent = _prepend_character_record(
 		recent,
-		_as_dictionary(current_prepare_result.get("character", {}))
+		_as_dictionary(_runtime_prepare_result().get("character", {}))
 	)
 	recent = _prepend_character_record(
 		recent,
@@ -416,11 +755,11 @@ func _runtime_character_stub(character_id: String, fallback_name: String) -> Dic
 	if normalized_id.is_empty():
 		return {}
 
-	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
+	var detail_character = _as_dictionary(_runtime_character_detail().get("character", {}))
 	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
 		return detail_character
 
-	var prepare_character = _as_dictionary(current_prepare_result.get("character", {}))
+	var prepare_character = _as_dictionary(_runtime_prepare_result().get("character", {}))
 	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
 		return prepare_character
 
@@ -536,23 +875,28 @@ func _apply_active_character(character: Dictionary) -> void:
 
 
 func _refresh_flow_summary() -> void:
+	_sync_local_runtime_from_legacy_cache()
 	var config_values: Dictionary = config_page.get_config_values()
+	var startup_snapshot := _runtime_startup_snapshot()
 	var detail_character = _describe_character(character_page.get_character_id_text())
 	var battle_character = _describe_character(prepare_page.get_character_id_text())
 	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
 	var battle_context_id = settle_page.get_battle_context_text()
 	var route_summary := _build_flow_route_summary(route_context)
 	var hero_line := "当前主角：待确认。"
-	var target_line := "这轮目标：先去主线挑一条山海路。"
-	var next_step_line := "现在最顺：先去环境页把地址和令牌填好。"
+	var target_line := "这轮目标：先完成启动检查，再踏上这一轮山海路。"
+	var next_step_line := "现在最顺：启动时只联网一次，先把版本与存档服务快照写到本地。"
 	var reminder_line := ""
 
 	if str(config_values.get("base_url", "")).strip_edges().is_empty():
-		target_line = "这轮目标：先把当前世界连上。"
+		target_line = "这轮目标：先把弱联网入口接上。"
 		next_step_line = "现在最顺：先填 backend 地址。"
-	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
-		target_line = "这轮目标：先把当前世界连上。"
-		next_step_line = "现在最顺：先填 Bearer Token。"
+	elif startup_snapshot.is_empty():
+		target_line = "这轮目标：先完成启动检查。"
+		next_step_line = "现在最顺：执行一次启动检查，把版本和存档服务状态记到本地。"
+	elif not bool(startup_snapshot.get("ready", false)):
+		target_line = "这轮目标：先处理启动检查里暴露的缺口。"
+		next_step_line = "现在最顺：先看启动页里的版本 / 服务提示，再决定是否继续旧接口兼容链。"
 	else:
 		var character_line: String = detail_character
 		if detail_character != battle_character and battle_character != "待确认":
@@ -573,11 +917,11 @@ func _refresh_flow_summary() -> void:
 			next_step_line = "现在最顺：关卡已经锁定，再选一档难度。"
 		elif not battle_context_id.is_empty():
 			next_step_line = "现在最顺：这一场已经开打，去战斗页推进，或等结果页把收获接住。"
-		elif current_settle_result.is_empty():
+		elif _runtime_settle_result().is_empty():
 			next_step_line = "现在最顺：目标已经锁定，去出战页决定要不要开打。"
 		else:
-			var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
-			var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+			var created_equipment_instances := _as_array(_runtime_settle_result().get("created_equipment_instances", []))
+			var inventory_results := _as_dictionary(_runtime_settle_result().get("inventory_results", {}))
 			var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
 			if not created_equipment_instances.is_empty():
 				next_step_line = "现在最顺：这轮有新装备，先去结算或穿戴把它试上身。"
@@ -586,12 +930,21 @@ func _refresh_flow_summary() -> void:
 			else:
 				next_step_line = "现在最顺：这轮已经收好，可以直接再打一场，或回主线换目标。"
 
-		if not has_loaded_character_list and current_character_detail.is_empty():
+		if not has_loaded_character_list and _runtime_character_detail().is_empty():
 			reminder_line = "提醒：角色列表还没回齐，先去角色页确认当前主角。"
 
-	var current_character = _as_dictionary(current_character_detail.get("character", {}))
+	var current_character = _as_dictionary(_runtime_character_detail().get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
 		reminder_line = "提醒：这名角色还没启用，先在角色页点“启用角色”会更顺。"
+
+	var services := _as_dictionary(_runtime_startup_snapshot().get("services", {}))
+	var save_upload := _as_dictionary(services.get("save_upload", {}))
+	var save_download := _as_dictionary(services.get("save_download", {}))
+	if (
+		str(save_upload.get("status", "")).strip_edges() == "not_declared"
+		or str(save_download.get("status", "")).strip_edges() == "not_declared"
+	):
+		reminder_line = "提醒：当前启动检查还未声明存档上传 / 下载状态，本轮先按弱联网占位处理。"
 
 	var lines := [hero_line, target_line, next_step_line]
 	if not reminder_line.is_empty():
@@ -604,16 +957,16 @@ func _describe_character(character_id: String) -> String:
 	if normalized_id.is_empty():
 		return "待确认"
 
-	for record in _as_array(current_character_list.get("characters", [])):
+	for record in _as_array(_runtime_character_list().get("characters", [])):
 		var listed_entry := _as_dictionary(record)
 		if _normalize_id_string(listed_entry.get("character_id", "")) == normalized_id:
 			return str(listed_entry.get("character_name", "角色"))
 
-	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
+	var detail_character = _as_dictionary(_runtime_character_detail().get("character", {}))
 	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
 		return str(detail_character.get("character_name", "角色"))
 
-	var prepare_character = _as_dictionary(current_prepare_result.get("character", {}))
+	var prepare_character = _as_dictionary(_runtime_prepare_result().get("character", {}))
 	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
 		return str(prepare_character.get("character_name", "角色"))
 
@@ -647,16 +1000,16 @@ func _find_character_record(character_id: String) -> Dictionary:
 	if normalized_id.is_empty():
 		return {}
 
-	for record in _as_array(current_character_list.get("characters", [])):
+	for record in _as_array(_runtime_character_list().get("characters", [])):
 		var listed_entry := _as_dictionary(record)
 		if _normalize_id_string(listed_entry.get("character_id", "")) == normalized_id:
 			return listed_entry
 
-	var detail_character := _as_dictionary(current_character_detail.get("character", {}))
+	var detail_character := _as_dictionary(_runtime_character_detail().get("character", {}))
 	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
 		return detail_character
 
-	var prepare_character := _as_dictionary(current_prepare_result.get("character", {}))
+	var prepare_character := _as_dictionary(_runtime_prepare_result().get("character", {}))
 	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
 		return prepare_character
 
@@ -676,11 +1029,11 @@ func _build_character_stat_snapshot(character: Dictionary) -> Dictionary:
 	if character_id.is_empty():
 		return {}
 
-	var prepared_character := _as_dictionary(current_prepare_result.get("character", {}))
+	var prepared_character := _as_dictionary(_runtime_prepare_result().get("character", {}))
 	if _normalize_id_string(prepared_character.get("character_id", "")) != character_id:
 		return {}
 
-	var stats := _as_dictionary(current_prepare_result.get("character_stats", {})).duplicate(true)
+	var stats := _as_dictionary(_runtime_prepare_result().get("character_stats", {})).duplicate(true)
 	if stats.is_empty():
 		return {}
 
@@ -698,9 +1051,10 @@ func _build_character_equipment_context(character: Dictionary) -> Dictionary:
 
 	var slot_count := 0
 	var equipped_count := 0
-	var has_slot_snapshot := _normalize_id_string(current_slots.get("character_id", "")) == character_id
+	var slots_payload := _runtime_slots()
+	var has_slot_snapshot := _normalize_id_string(slots_payload.get("character_id", "")) == character_id
 	if has_slot_snapshot:
-		var slot_entries := _as_array(current_slots.get("slots", []))
+		var slot_entries := _as_array(slots_payload.get("slots", []))
 		slot_count = slot_entries.size()
 		for slot in slot_entries:
 			var entry := _as_dictionary(slot)
@@ -715,9 +1069,10 @@ func _build_character_equipment_context(character: Dictionary) -> Dictionary:
 		"empty_count": maxi(slot_count - equipped_count, 0),
 	}
 
-	if _normalize_id_string(current_character_equipment_feedback.get("character_id", "")) == character_id:
-		for key in current_character_equipment_feedback.keys():
-			context[key] = current_character_equipment_feedback[key]
+	var equipment_feedback := _runtime_equipment_feedback()
+	if _normalize_id_string(equipment_feedback.get("character_id", "")) == character_id:
+		for key in equipment_feedback.keys():
+			context[key] = equipment_feedback[key]
 
 	return context
 
@@ -737,7 +1092,7 @@ func _build_character_growth_context(character: Dictionary) -> Dictionary:
 	}
 	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
 	var route_text := _build_growth_route_text(route_context)
-	var prepare_character := _as_dictionary(current_prepare_result.get("character", {}))
+	var prepare_character := _as_dictionary(_runtime_prepare_result().get("character", {}))
 	var prepare_character_id := _normalize_id_string(prepare_character.get("character_id", ""))
 	var settle_character_id := _normalize_id_string(settle_page.get_character_id_text())
 	var matches_recent_battle := (
@@ -745,17 +1100,18 @@ func _build_character_growth_context(character: Dictionary) -> Dictionary:
 		or (not settle_character_id.is_empty() and character_id == settle_character_id)
 	)
 
-	if matches_recent_battle and not current_settle_result.is_empty():
-		var drop_count := _as_array(current_settle_result.get("drop_results", [])).size()
-		var reward_count := _as_array(current_settle_result.get("reward_results", [])).size()
-		var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
-		var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+	var settle_result := _runtime_settle_result()
+	if matches_recent_battle and not settle_result.is_empty():
+		var drop_count := _as_array(settle_result.get("drop_results", [])).size()
+		var reward_count := _as_array(settle_result.get("reward_results", [])).size()
+		var created_equipment_instances := _as_array(settle_result.get("created_equipment_instances", []))
+		var inventory_results := _as_dictionary(settle_result.get("inventory_results", {}))
 		var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
 		context["has_new_equipment"] = not created_equipment_instances.is_empty()
 		context["has_recent_inventory_gain"] = inventory_entry_count > 0
 		context["recent_result_text"] = "最近一场：%s 已%s，带回掉落 %d 项、奖励 %d 份、入包 %d 条。" % [
 			route_text,
-			"打完" if int(current_settle_result.get("is_cleared", 0)) == 1 else "收束",
+			"打完" if int(settle_result.get("is_cleared", 0)) == 1 else "收束",
 			drop_count,
 			reward_count,
 			inventory_entry_count,
@@ -768,8 +1124,9 @@ func _build_character_growth_context(character: Dictionary) -> Dictionary:
 			context["growth_focus_text"] = "这轮更像一次过程确认，可以直接再打一场，或回主线换目标。"
 		return context
 
-	if matches_recent_battle and not current_prepare_result.is_empty():
-		var monster_count := _as_array(current_prepare_result.get("monster_list", [])).size()
+	var prepare_result := _runtime_prepare_result()
+	if matches_recent_battle and not prepare_result.is_empty():
+		var monster_count := _as_array(prepare_result.get("monster_list", [])).size()
 		context["next_target_text"] = "%s 已锁定，前方共有 %d 个敌人，随时可以走进战场。" % [route_text, monster_count]
 		return context
 
@@ -857,7 +1214,7 @@ func _slot_display_name(slot_key: String) -> String:
 
 func _find_selected_chapter_context() -> Dictionary:
 	var selected_chapter_id: String = stage_page.get_selected_chapter_id()
-	for chapter in _as_array(current_chapters.get("chapters", [])):
+	for chapter in _as_array(_runtime_chapters().get("chapters", [])):
 		var entry := _as_dictionary(chapter)
 		if str(entry.get("chapter_id", "")) == selected_chapter_id:
 			return entry
@@ -866,7 +1223,7 @@ func _find_selected_chapter_context() -> Dictionary:
 
 func _find_selected_stage_context() -> Dictionary:
 	var selected_stage_id: String = stage_page.get_stage_id_text()
-	for stage in _as_array(current_stages.get("stages", [])):
+	for stage in _as_array(_runtime_stages().get("stages", [])):
 		var entry := _as_dictionary(stage)
 		if str(entry.get("stage_id", "")) == selected_stage_id:
 			return entry
@@ -874,7 +1231,7 @@ func _find_selected_stage_context() -> Dictionary:
 
 
 func _find_stage_difficulty_context(stage_difficulty_id: String) -> Dictionary:
-	for difficulty in _as_array(current_difficulties.get("difficulties", [])):
+	for difficulty in _as_array(_runtime_difficulties().get("difficulties", [])):
 		var entry := _as_dictionary(difficulty)
 		if str(entry.get("stage_difficulty_id", "")) == stage_difficulty_id:
 			return entry
@@ -899,6 +1256,7 @@ func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
 
 
 func _refresh_product_pages() -> void:
+	_sync_local_runtime_from_legacy_cache()
 	var current_character := _find_character_record(character_page.get_character_id_text())
 	character_page.set_character_stat_snapshot(_build_character_stat_snapshot(current_character))
 	character_page.set_character_equipment_context(_build_character_equipment_context(current_character))
@@ -907,7 +1265,8 @@ func _refresh_product_pages() -> void:
 
 	var battle_character := _find_character_record(prepare_page.get_character_id_text())
 	var inventory_character := current_character if not current_character.is_empty() else battle_character
-	if not current_settle_result.is_empty() and not battle_character.is_empty():
+	var settle_result := _runtime_settle_result()
+	if not settle_result.is_empty() and not battle_character.is_empty():
 		inventory_character = battle_character
 	var equipment_character := _find_character_record(equipment_page.get_character_id_text())
 	if equipment_character.is_empty():
@@ -916,18 +1275,19 @@ func _refresh_product_pages() -> void:
 		equipment_page.get_character_id_text() if not equipment_page.get_character_id_text().is_empty() else equipment_character.get("character_id", "")
 	)
 	var equipment_slots := {}
-	if _normalize_id_string(current_slots.get("character_id", "")) == equipment_character_id:
-		equipment_slots = current_slots.duplicate(true)
+	var slot_snapshot := _runtime_slots()
+	if _normalize_id_string(slot_snapshot.get("character_id", "")) == equipment_character_id:
+		equipment_slots = slot_snapshot.duplicate(true)
 	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
-	inventory_page.render_inventory_context(inventory_character, current_settle_result)
+	inventory_page.render_inventory_context(inventory_character, settle_result)
 	equipment_page.render_equipment_context(
 		equipment_character,
 		equipment_slots,
-		current_inventory,
-		current_settle_result
+		_runtime_inventory(),
+		settle_result
 	)
-	prepare_page.render_prepare_context(battle_character, route_context, current_reward_status)
-	prepare_page.show_prepare_summary(current_prepare_result)
+	prepare_page.render_prepare_context(battle_character, route_context, _runtime_reward_status())
+	prepare_page.show_prepare_summary(_runtime_prepare_result())
 	settle_page.render_settle_context(battle_character, route_context)
 
 
@@ -944,9 +1304,12 @@ func _on_tab_changed(index: int) -> void:
 
 func _can_auto_sync_stage_page() -> bool:
 	var config_values: Dictionary = config_page.get_config_values()
+	var startup_snapshot := _runtime_startup_snapshot()
 	return (
 		not str(config_values.get("base_url", "")).strip_edges().is_empty()
 		and not str(config_values.get("bearer_token", "")).strip_edges().is_empty()
+		and not startup_snapshot.is_empty()
+		and bool(startup_snapshot.get("ready", false))
 	)
 
 
@@ -1044,18 +1407,19 @@ func _focus_on_auth() -> void:
 
 func _open_inventory_from_settle() -> void:
 	_set_current_tab(INVENTORY_PAGE)
-	if current_settle_result.is_empty():
+	var settle_result := _runtime_settle_result()
+	if settle_result.is_empty():
 		inventory_page.set_page_state("empty", "这轮收益还没收稳，先把结算走完，再回来整理背包。")
 		inventory_page.show_handoff_summary("这轮收益还没收好；先完成结算，再回背包看新装备和关键材料。")
 		return
 
-	var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+	var inventory_results := _as_dictionary(settle_result.get("inventory_results", {}))
 	var stack_results := _as_array(inventory_results.get("stack_results", []))
 	var equipment_results := _as_array(inventory_results.get("equipment_instance_results", []))
 	inventory_page.set_page_state("success", "本轮收益已经承接到背包，新增装备和关键材料已经被顶到最前。")
 	inventory_page.set_summary_text("本轮收获：掉落 %d | 奖励 %d | 入包 %d | 新装备 %d" % [
-		_as_array(current_settle_result.get("drop_results", [])).size(),
-		_as_array(current_settle_result.get("reward_results", [])).size(),
+		_as_array(settle_result.get("drop_results", [])).size(),
+		_as_array(settle_result.get("reward_results", [])).size(),
 		stack_results.size(),
 		equipment_results.size(),
 	])
@@ -1127,7 +1491,7 @@ func _open_stage_from_settle() -> void:
 
 
 func _latest_created_equipment_instance() -> Dictionary:
-	var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
+	var created_equipment_instances := _as_array(_runtime_settle_result().get("created_equipment_instances", []))
 	if created_equipment_instances.is_empty():
 		return {}
 
@@ -1167,10 +1531,11 @@ func _merge_slot_snapshot_payload(character_id: int, slot_snapshot: Array) -> Di
 
 func _build_character_growth_handoff(character_id: String, from_settle: bool) -> String:
 	var normalized_character_id := _normalize_id_string(character_id)
-	if not normalized_character_id.is_empty() and _normalize_id_string(current_character_equipment_feedback.get("character_id", "")) == normalized_character_id:
-		var slot_name := str(current_character_equipment_feedback.get("slot_name", "这格装备")).strip_edges()
-		var item_name := str(current_character_equipment_feedback.get("item_name", "当前装备")).strip_edges()
-		match str(current_character_equipment_feedback.get("change_type", "")):
+	var equipment_feedback := _runtime_equipment_feedback()
+	if not normalized_character_id.is_empty() and _normalize_id_string(equipment_feedback.get("character_id", "")) == normalized_character_id:
+		var slot_name := str(equipment_feedback.get("slot_name", "这格装备")).strip_edges()
+		var item_name := str(equipment_feedback.get("item_name", "当前装备")).strip_edges()
+		match str(equipment_feedback.get("change_type", "")):
 			"equip":
 				return "最近一次换装已同步：%s 现在穿着 %s；当前角色和穿戴已经连上，可以继续回主线试试这次变化。" % [
 					slot_name,
@@ -1183,8 +1548,9 @@ func _build_character_growth_handoff(character_id: String, from_settle: bool) ->
 				]
 
 	if from_settle:
-		var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
-		var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+		var settle_result := _runtime_settle_result()
+		var created_equipment_instances := _as_array(settle_result.get("created_equipment_instances", []))
+		var inventory_results := _as_dictionary(settle_result.get("inventory_results", {}))
 		var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
 		if not created_equipment_instances.is_empty():
 			return "这轮结果已经回流到角色页；你可以先去穿戴试这轮新装备，再回来看看这次成长，最后决定继续刷还是回主线。"
@@ -1206,7 +1572,7 @@ func _handle_failure(page, result: Dictionary, fallback: String) -> void:
 
 	match kind:
 		"unauthorized":
-			page.set_page_state("unauthorized", message, "回到“环境”页重新确认地址和 Bearer Token。")
+			page.set_page_state("unauthorized", message, "回到“启动”页重新确认地址和令牌。")
 			_focus_on_auth()
 		"config":
 			page.set_page_state("error", message, "保持当前选择，补齐这一步后再试一次。")
@@ -1269,10 +1635,8 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 			_on_fill_default_config_pressed()
 		"save_config":
 			_on_save_config_pressed()
-		"run_readiness_check":
-			await _on_run_readiness_check_pressed()
-		"probe_backend":
-			await _on_probe_backend_pressed()
+		"run_startup_check":
+			await _on_run_startup_check_pressed()
 		"load_characters":
 			await _on_load_characters_pressed()
 		"create_character":
@@ -1373,7 +1737,7 @@ func _on_fill_default_config_pressed() -> void:
 	_refresh_recent_selectors()
 	_refresh_product_pages()
 	_refresh_flow_summary()
-	config_page.set_page_state("success", "已填入联调默认值，记得点击“保存配置”。")
+	config_page.set_page_state("success", "已填入开发默认值，记得点击“保存配置”。")
 	config_page.set_output_text(DEFAULT_CONFIG_NOTE)
 
 
@@ -1384,50 +1748,6 @@ func _on_save_config_pressed() -> void:
 	_refresh_flow_summary()
 	config_page.set_page_state("success", "配置已保存到 user://phase_one_client.cfg。")
 	config_page.set_output_json(saved_config)
-
-
-func _on_run_readiness_check_pressed() -> void:
-	_refresh_runtime_config_snapshot()
-	config_page.set_page_state("loading", "正在请求 /readyz?profile=interop。")
-	var result: Dictionary = await api.request_public_json("GET", "/readyz", {"profile": "interop"})
-
-	if not result.get("ok", false):
-		_handle_failure(config_page, result, "phase-one 联调预检失败。")
-		return
-
-	var data: Dictionary = _as_dictionary(result.get("data", {}))
-	var failures = _as_array(_as_dictionary(data.get("summary", {})).get("failures", []))
-	var warnings = _as_array(_as_dictionary(data.get("summary", {})).get("warnings", []))
-	config_page.set_page_state(
-		"success",
-		"联调预检通过：profile=%s，failures=%d，warnings=%d。" % [
-			str(data.get("selected_profile", "interop")),
-			failures.size(),
-			warnings.size(),
-		]
-	)
-	config_page.set_summary_text(
-		(
-			"ready=%s | /readyz 只做环境与联调前提检查，"
-			% str(data.get("ready", false))
-		)
-		+ "不替代真实业务接口调用。"
-	)
-	config_page.set_output_json(data)
-
-
-func _on_probe_backend_pressed() -> void:
-	_persist_runtime_config()
-	config_page.set_page_state("loading", "正在用章节接口验证 backend 地址与 token。")
-	var result: Dictionary = await api.request_json("GET", "/api/chapters")
-
-	if not result.get("ok", false):
-		_handle_failure(config_page, result, "探测 backend 失败。")
-		return
-
-	config_page.set_page_state("success", "章节接口已返回成功，当前 token/地址可联调。")
-	config_page.set_summary_text("保护接口探测成功，可继续角色/背包/战斗联调。")
-	config_page.set_output_json(result.get("raw"))
 
 
 func _on_load_characters_pressed() -> void:

@@ -6,6 +6,9 @@ const CONFIG_SECTION := "phase_one_client"
 const DEFAULTS := {
 	"base_url": "http://127.0.0.1:8000",
 	"bearer_token": "test-token-2001",
+	"local_app_version": "",
+	"local_data_version": "embedded-dev",
+	"local_resource_version": "not_declared",
 	"class_id": "class_jingang",
 	"character_name": "联调角色",
 	"character_id": "1001",
@@ -13,6 +16,8 @@ const DEFAULTS := {
 	"chapter_id": "",
 	"stage_id": "stage_nanshan_001",
 	"stage_difficulty_id": "stage_nanshan_001_normal",
+	"runtime_config": {},
+	"startup_snapshot": {},
 	"recent_characters": [],
 	"recent_chapter_ids": [],
 	"recent_stage_ids": ["stage_nanshan_001"],
@@ -31,6 +36,9 @@ static func load_config() -> Dictionary:
 	for key in [
 		"base_url",
 		"bearer_token",
+		"local_app_version",
+		"local_data_version",
+		"local_resource_version",
 		"class_id",
 		"character_name",
 		"character_id",
@@ -40,6 +48,13 @@ static func load_config() -> Dictionary:
 		"stage_difficulty_id",
 	]:
 		resolved[key] = String(config.get_value(CONFIG_SECTION, key, DEFAULTS[key]))
+
+	resolved["runtime_config"] = _normalize_dictionary(
+		config.get_value(CONFIG_SECTION, "runtime_config", DEFAULTS["runtime_config"])
+	)
+	resolved["startup_snapshot"] = _normalize_dictionary(
+		config.get_value(CONFIG_SECTION, "startup_snapshot", DEFAULTS["startup_snapshot"])
+	)
 
 	resolved["recent_characters"] = _normalize_recent_characters(
 		config.get_value(CONFIG_SECTION, "recent_characters", DEFAULTS["recent_characters"])
@@ -67,6 +82,9 @@ static func save_config(values: Dictionary) -> int:
 	for key in [
 		"base_url",
 		"bearer_token",
+		"local_app_version",
+		"local_data_version",
+		"local_resource_version",
 		"class_id",
 		"character_name",
 		"character_id",
@@ -76,6 +94,17 @@ static func save_config(values: Dictionary) -> int:
 		"stage_difficulty_id",
 	]:
 		config.set_value(CONFIG_SECTION, key, String(values.get(key, DEFAULTS[key])))
+
+	config.set_value(
+		CONFIG_SECTION,
+		"runtime_config",
+		_normalize_dictionary(values.get("runtime_config", DEFAULTS["runtime_config"]))
+	)
+	config.set_value(
+		CONFIG_SECTION,
+		"startup_snapshot",
+		_normalize_dictionary(values.get("startup_snapshot", DEFAULTS["startup_snapshot"]))
+	)
 
 	config.set_value(
 		CONFIG_SECTION,
@@ -218,3 +247,9 @@ static func _normalize_string_list(value: Variant) -> Array:
 		normalized.append(normalized_item)
 
 	return normalized
+
+
+static func _normalize_dictionary(value: Variant) -> Dictionary:
+	if typeof(value) == TYPE_DICTIONARY:
+		return value.duplicate(true)
+	return {}

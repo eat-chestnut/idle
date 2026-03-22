@@ -2,10 +2,10 @@
 
 ## Project identity
 
-This repository is the first-phase backend implementation for **《山海巡厄录》**.
+This repository contains the first-phase backend implementation and the current Godot client for **《山海巡厄录》**.
 
 The goal is **not** to explore product direction.
-The goal is to implement the already-defined phase-one backend main chains with stable structure, clear boundaries, and minimal overengineering.
+The goal is to implement the already-defined phase-one main chains with stable structure, clear boundaries, and minimal overengineering.
 
 You must follow repository documents before making design decisions.
 
@@ -16,15 +16,16 @@ You must follow repository documents before making design decisions.
 When instructions conflict, use this priority:
 
 1. `项目总览.md`
-2. `doc/codex/Codex 主开发协作清单.md`
-3. `doc/codex/Laravel 代码目录与命名规范.md`
-4. Method-level design docs under `开发思路/`
-5. `开发思路/接口字段级设计.md`
-6. `doc/codex/接口示例文档.md`
-7. `doc/codex/错误码总表.md`
-8. `doc/codex/枚举总表.md`
-9. `doc/codex/认证与接口公共规则.md`
-10. `doc/codex/最小联调种子数据.md`
+2. `doc/codex/单机运行时与弱联网边界.md` for client runtime / startup / weak-network work
+3. `doc/codex/Codex 主开发协作清单.md`
+4. `doc/codex/Laravel 代码目录与命名规范.md` for backend work
+5. Method-level design docs under `开发思路/`
+6. `开发思路/接口字段级设计.md`
+7. `doc/codex/接口示例文档.md`
+8. `doc/codex/错误码总表.md`
+9. `doc/codex/枚举总表.md`
+10. `doc/codex/认证与接口公共规则.md`
+11. `doc/codex/最小联调种子数据.md`
 
 If code and docs differ:
 - do not silently invent a new rule
@@ -37,7 +38,9 @@ If code and docs differ:
 
 ## Phase-one scope
 
-You are allowed to implement only the phase-one core backend scope:
+You are allowed to implement only the phase-one core scope.
+
+Backend scope includes:
 
 - configuration read chain
 - character create chain
@@ -52,6 +55,14 @@ You are allowed to implement only the phase-one core backend scope:
 - minimal debug seeders
 - tests and validation around the above
 
+Client scope currently includes:
+
+- startup version / environment check compatibility layer
+- local runtime / local game state skeleton
+- character / stage / prepare / battle / settle / inventory / equipment / character-growth main loop
+- save upload / download weak-network boundary
+- documentation and tooling alignment needed for the above
+
 You must NOT proactively implement:
 
 - enhance system
@@ -65,10 +76,15 @@ You must NOT proactively implement:
 - large live-content expansion
 - unrelated UI beautification
 - speculative future abstractions
+- leaderboard / exchange online systems
+- strong-online multiplayer or real-time sync systems
 
 ---
 
 ## Architecture rules
+
+These five-layer rules are mandatory for backend code.
+Do not force them onto Godot page scripts or client coordinators.
 
 Use the repository’s **five-layer** backend structure only:
 
@@ -155,6 +171,12 @@ Rules:
 - use stable enum values only
 - use formal error codes only
 
+For current client runtime work:
+
+- do not add backend APIs unless explicitly requested
+- do not keep treating runtime pages as real-time API shells by default
+- startup check may normalize missing backend fields as `unknown` or `not_declared`
+
 ---
 
 ## Seeder rules
@@ -188,6 +210,13 @@ After implementation, always provide:
 4. mismatches or unresolved items
 
 Do not silently expand task scope.
+
+If the task is client runtime / startup / weak-network related, also report:
+
+1. docs / skills mismatch points
+2. what was corrected before code
+3. where local runtime truth starts
+4. what online behavior was intentionally not expanded
 
 ---
 

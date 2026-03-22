@@ -40,7 +40,7 @@ const STATUS_HINTS := {
 	"settling": "",
 	"success": "",
 	"error": "保持当前选择，补齐这一步后再试一次。",
-	"unauthorized": "回到“环境”页重新确认地址和 Bearer Token。",
+	"unauthorized": "回到“启动”页重新确认地址和令牌。",
 }
 
 const CARD_BACKGROUND := Color(0.09, 0.12, 0.18, 0.96)

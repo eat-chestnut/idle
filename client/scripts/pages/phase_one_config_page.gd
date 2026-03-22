@@ -7,23 +7,23 @@ var token_input: LineEdit
 
 func _init() -> void:
 	setup_page(
-		"环境",
+		"启动",
 		[
-			"保存 backend 地址与 Bearer Token，并补一个最小 /readyz 联调预检。",
-			"当前本地联调默认建议：127.0.0.1:8000 + test-token-2001。",
+			"启动时只做一次后台检查，把版本与存档服务快照记到本地运行时。",
+			"进入游戏后，主循环应逐步以本地 runtime state 为真相，而不是持续把页面做成实时 API 壳。",
+			"当前开发默认建议：127.0.0.1:8000 + test-token-2001。",
 		]
 	)
 
-	base_url_input = add_labeled_input("Backend Base URL", "http://127.0.0.1:8000")
-	token_input = add_labeled_input("Bearer Token", "")
+	base_url_input = add_labeled_input("弱联网 Backend URL", "http://127.0.0.1:8000")
+	token_input = add_labeled_input("开发 Token（旧接口兼容）", "")
 	base_url_input.text_changed.connect(_on_config_input_changed)
 	token_input.text_changed.connect(_on_config_input_changed)
 
 	var buttons := add_button_row()
-	add_action_button(buttons, "填入联调默认值", "fill_default_config")
+	add_action_button(buttons, "填入开发默认值", "fill_default_config")
 	add_action_button(buttons, "保存配置", "save_config")
-	add_action_button(buttons, "联调预检 /readyz", "run_readiness_check")
-	add_action_button(buttons, "探测章节接口", "probe_backend")
+	add_action_button(buttons, "执行启动检查", "run_startup_check")
 
 
 func set_config_values(values: Dictionary) -> void:
@@ -39,7 +39,7 @@ func get_config_values() -> Dictionary:
 
 
 func focus_auth_inputs() -> void:
-	token_input.grab_focus()
+	base_url_input.grab_focus()
 
 
 func _on_config_input_changed(_text: String) -> void:
