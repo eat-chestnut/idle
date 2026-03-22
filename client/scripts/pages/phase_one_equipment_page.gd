@@ -43,6 +43,7 @@ var candidate_box: VBoxContainer
 var action_status_label: Label
 var action_hint_label: Label
 var handoff_label: Label
+var decision_route_label: Label
 var refresh_button: Button
 var equip_button: Button
 var unequip_button: Button
@@ -119,6 +120,11 @@ func _init() -> void:
 	handoff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	handoff_label.modulate = CARD_TEXT_MUTED
 	action_card.add_child(handoff_label)
+
+	decision_route_label = Label.new()
+	decision_route_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	decision_route_label.modulate = BODY_TEXT
+	action_card.add_child(decision_route_label)
 
 	var primary_actions := add_button_row(action_card)
 	refresh_button = add_action_button(primary_actions, "刷新当前穿戴", "load_slots")
@@ -279,6 +285,7 @@ func _refresh_equipment_page() -> void:
 
 func _refresh_header(slot_entries: Array, candidate_pool: Array) -> void:
 	clear_container(header_tag_row)
+	var focus_entry := _find_slot_entry(slot_entries, _selected_slot_key)
 
 	var filled_count := 0
 	var slots_with_candidates := 0
@@ -325,6 +332,11 @@ func _refresh_header(slot_entries: Array, candidate_pool: Array) -> void:
 		header_tag_row.add_child(create_pill("本轮有新装备", EQUIPMENT_TINT))
 	elif not candidate_pool.is_empty():
 		header_tag_row.add_child(create_pill("可继续整理装备", EQUIPMENT_TINT))
+	if not focus_entry.is_empty():
+		header_tag_row.add_child(create_pill(
+			"先看%s" % str(focus_entry.get("slot_name", "这一格")),
+			EQUIPMENT_TINT if int(focus_entry.get("recent_candidate_count", 0)) > 0 else READY_TINT
+		))
 
 
 func _refresh_slot_area(slot_entries: Array) -> void:
@@ -372,6 +384,10 @@ func _refresh_candidate_area(slot_entries: Array, candidate_pool: Array) -> void
 		candidates.size(),
 		_count_recent_candidates(candidates),
 	]
+	if bool(focus_entry.get("is_empty", true)):
+		candidate_summary_label.text += " 这格还是空的，先补上最容易看到变化。"
+	elif int(focus_entry.get("recent_candidate_count", 0)) > 0:
+		candidate_summary_label.text += " 本轮新装备已经排在最前。"
 	for candidate in candidates:
 		candidate_box.add_child(_build_candidate_card(_as_dictionary(candidate), focus_entry))
 
@@ -407,6 +423,7 @@ func _refresh_action_area(slot_entries: Array, candidate_pool: Array) -> void:
 		action_hint_label.text = "如果这格暂时没有可换候选，就去背包看更多，或回主线继续推进。"
 
 	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "换完这一件后，通常会回角色看成长，或回主线继续推进。"
+	decision_route_label.text = _build_decision_route_text(focus_entry, candidates)
 
 	equip_button.text = (
 		"穿上当前候选"
@@ -424,7 +441,7 @@ func _refresh_action_area(slot_entries: Array, candidate_pool: Array) -> void:
 
 	inventory_button.text = "去背包看更多"
 	character_button.text = "回角色看成长"
-	stage_button.text = "回主线继续推进"
+	stage_button.text = "回主线试这套搭配"
 
 
 func _build_slot_entries(candidate_pool: Array) -> Array:
@@ -850,7 +867,9 @@ func _candidate_detail(candidate: Dictionary, focus_entry: Dictionary) -> String
 	else:
 		detail_parts.append("这件装备已经在当前可用范围内。")
 	if bool(focus_entry.get("is_empty", true)):
-		detail_parts.append("这一格当前为空，穿上后最容易形成明确变化。")
+		detail_parts.append("这一格当前为空，穿上后最容易形成一眼能看出的成长。")
+	else:
+		detail_parts.append("试完后最好回角色页或主线页确认这次换装值不值得保留。")
 	return " | ".join(detail_parts)
 
 
@@ -962,6 +981,20 @@ func _build_empty_label(text: String) -> Label:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.modulate = CARD_TEXT_MUTED
 	return label
+
+
+func _build_decision_route_text(focus_entry: Dictionary, candidates: Array) -> String:
+	if _current_character.is_empty():
+		return "换装路线：先确认当前角色，再决定这轮装备该落到谁身上。"
+	if focus_entry.is_empty():
+		return "换装路线：先锁定一格，再从候选区里挑要不要动它。"
+	if bool(focus_entry.get("is_empty", true)) and not candidates.is_empty():
+		return "换装路线：先补上这格空槽，再回角色页看成长；如果感觉顺手，就直接回主线试这一套。"
+	if int(focus_entry.get("recent_candidate_count", 0)) > 0:
+		return "换装路线：先试本轮新装备，再回角色页确认成长，最后带着这套搭配回主线打一场。"
+	if not candidates.is_empty():
+		return "换装路线：这一格还有替换空间，试完后回角色页或主线页验证会更稳。"
+	return "换装路线：这一格暂时稳定，去背包看更多候选，或直接回主线继续刷下一件。"
 
 
 func _create_slot_card_style(is_focus: bool, is_empty: bool) -> StyleBoxFlat:

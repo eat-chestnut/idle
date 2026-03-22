@@ -28,6 +28,10 @@ var battle_hint_label: Label
 var battle_state_label: Label
 var progress_label: Label
 var target_status_label: Label
+var battle_objective_label: Label
+var battle_pace_label: Label
+var battle_log_hint_label: Label
+var battle_log_box: VBoxContainer
 var pause_button: Button
 
 var battle_view: Control
@@ -66,6 +70,9 @@ var _drop_preview_count := 0
 var _presentation_dirty := false
 var _settle_requested := false
 var _finish_sequence_id := 0
+var _battle_log_entries: Array = []
+var _hit_count := 0
+var _pressure_count := 0
 
 
 func _ready() -> void:
@@ -118,6 +125,26 @@ func _init() -> void:
 	battle_world = Control.new()
 	battle_world.position = Vector2.ZERO
 	battle_view.add_child(battle_world)
+
+	var rhythm_card := add_card("前线节奏", "")
+	battle_objective_label = Label.new()
+	battle_objective_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	battle_objective_label.add_theme_font_size_override("font_size", 18)
+	rhythm_card.add_child(battle_objective_label)
+
+	battle_pace_label = Label.new()
+	battle_pace_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rhythm_card.add_child(battle_pace_label)
+
+	battle_log_hint_label = Label.new()
+	battle_log_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	battle_log_hint_label.modulate = CARD_TEXT_MUTED
+	rhythm_card.add_child(battle_log_hint_label)
+
+	battle_log_box = VBoxContainer.new()
+	battle_log_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	battle_log_box.add_theme_constant_override("separation", 8)
+	rhythm_card.add_child(battle_log_box)
 
 	var action_card := add_card("战场动作", "")
 
@@ -199,6 +226,20 @@ func load_battle(payload: Dictionary, route_context: Dictionary, reward_status: 
 	_build_monster_states()
 	_sync_header()
 	_sync_world()
+	_battle_log_entries.clear()
+	_hit_count = 0
+	_pressure_count = 0
+	_push_battle_log(
+		"踏入 %s / %s / %s，前方共有 %d 个敌人。" % [
+			str(_route_context.get("chapter_name", "章节")),
+			str(_route_context.get("stage_name", "关卡")),
+			str(_route_context.get("difficulty_name", "难度")),
+			_monster_states.size(),
+		],
+		PLAYER_TINT
+	)
+	if int(_reward_status.get("has_reward", 0)) == 1 and int(_reward_status.get("has_granted", 0)) == 0:
+		_push_battle_log("这一档还有首通奖励，清掉这场就能把它带走。", DROP_TINT)
 	set_page_state("success", "敌人已经现身，这一场可以直接开打。")
 	set_output_json(payload)
 
@@ -215,6 +256,9 @@ func reset_battle_space() -> void:
 	_finish_sequence_id += 1
 	_drop_preview_count = 0
 	_presentation_dirty = false
+	_battle_log_entries = []
+	_hit_count = 0
+	_pressure_count = 0
 	_battle_phase = "idle"
 	_battle_state_text = "等待开打"
 	_player_status_text = "等待开打"
@@ -234,6 +278,11 @@ func reset_battle_space() -> void:
 	player_feedback_label.text = "前线反馈：这一场还没开始。"
 	player_status_label.text = "状态：先在出战页定下角色和目标。"
 	player_position_label.text = "当前位置：进场后会在这里回报站位。"
+	battle_objective_label.text = "本场目标：先从出战页走进战场。"
+	battle_pace_label.text = "战斗节奏：进场后，这里会提醒你该前压、出手还是离场结算。"
+	battle_log_hint_label.text = "前线战报：接敌、受压、击杀、掉落和离场都会按顺序留在这里。"
+	clear_container(battle_log_box)
+	battle_log_box.add_child(_build_empty_label("这一场的关键动作还没有开始。"))
 	clear_container(battle_world)
 	set_output_json({})
 	_update_interaction_state()
@@ -248,6 +297,7 @@ func allow_retry_settle() -> void:
 	_battle_state_text = "可再次收束"
 	_player_status_text = "正式结算未完成，可继续提交"
 	movement_status_label.text = "这场还没正式结算，可以继续调整站位后再试一次。"
+	_push_battle_log("正式结算还没收稳，这一场还能继续处理。", DROP_TINT)
 	_update_interaction_state()
 	_refresh_status_panels()
 
@@ -591,6 +641,7 @@ func _move_player(delta: Vector2, label_text: String) -> void:
 		_player_position.y,
 		_world_height,
 	]
+	_push_battle_log("我方%s，继续调整接敌节奏。" % label_text, PLAYER_TINT)
 	_refresh_status_panels()
 
 
@@ -606,6 +657,7 @@ func _use_skill() -> void:
 	if target_index < 0:
 		_player_status_text = "出手落空，继续压位"
 		movement_status_label.text = "目标还在前方，继续前压或横移寻找出手机会。"
+		_push_battle_log("这一下还没打到，得再往前找机会。", BODY_TEXT)
 		_spawn_float_text(
 			"未到位",
 			_player_visual_position + Vector2(0.0, -58.0),
@@ -626,10 +678,12 @@ func _use_skill() -> void:
 	_monster_states[target_index] = target
 
 	_presentation_dirty = true
+	_hit_count += 1
 	_player_attack_burst_timer = PLAYER_ATTACK_FEEDBACK_SECONDS
 	_player_status_text = "命中得手，继续推进"
 	_battle_state_text = "命中反馈"
 	movement_status_label.text = "%s 被命中，战线被向前撕开。" % str(target.get("monster_name", "敌人"))
+	_push_battle_log("%s 被斩落，战线往前撕开了一截。" % str(target.get("monster_name", "敌人")), DROP_TINT)
 	_spawn_float_text(
 		"命中",
 		world_position + Vector2(0.0, -28.0),
@@ -692,10 +746,12 @@ func _request_settle(is_cleared: bool) -> void:
 		_battle_state_text = "尚未形成有效击杀"
 		set_page_state("error", "至少击败一个敌人后，才能收束这一场。")
 		movement_status_label.text = "先继续前压或攻击，打出这一场的第一波击杀。"
+		_push_battle_log("现在离场还太早，先拿下一次有效击杀。", BODY_TEXT)
 		_update_interaction_state()
 		return
 
 	movement_status_label.text = "战斗已经收束，正在离开战场。"
+	_push_battle_log("战果已经锁定，准备带着这场收获离开战场。", PLAYER_TINT)
 	_emit_action("battle_request_settle", {
 		"character_id": _prepare_payload.get("character", {}).get("character_id", 0),
 		"stage_difficulty_id": _prepare_payload.get("stage_difficulty", {}).get("stage_difficulty_id", ""),
@@ -755,6 +811,7 @@ func _refresh_status_panels() -> void:
 	target_status_label.text = "当前目标：%s" % _describe_target_state()
 	battle_state_label.text = "战场状态：%s" % _describe_battle_state()
 	_refresh_drop_status()
+	_refresh_battle_story()
 
 
 func _describe_battle_state() -> String:
@@ -928,8 +985,10 @@ func _monster_has_reached_frontline(monster_state: Dictionary) -> bool:
 func _play_player_pressure_feedback(monster_name: String) -> void:
 	_presentation_dirty = true
 	_player_hit_timer = PLAYER_HIT_FEEDBACK_SECONDS
+	_pressure_count += 1
 	_player_status_text = "前线受压，先稳住站位"
 	_battle_state_text = "前线受压"
+	_push_battle_log("%s 已经压到前线，得先稳住阵脚。" % monster_name, Color(1.0, 0.74, 0.74, 1.0))
 
 	_spawn_float_text(
 		"受压",
@@ -970,6 +1029,10 @@ func _spawn_drop_preview(monster_state: Dictionary) -> void:
 
 	_presentation_dirty = true
 	_drop_preview_count += 1
+	_push_battle_log(
+		"%s 倒下后浮出了战利品影子。" % str(monster_state.get("monster_name", "敌人")),
+		DROP_TINT
+	)
 	_spawn_float_text(
 		"掉落",
 		target_position + Vector2(0.0, -24.0),
@@ -1080,10 +1143,12 @@ func _toggle_pause() -> void:
 		_battle_state_text = "继续推进"
 		_player_status_text = "重新进入战场"
 		movement_status_label.text = "继续推进，保持前压和微调寻找新的出手机会。"
+		_push_battle_log("短暂停手后重新压上去。", PLAYER_TINT)
 	else:
 		_battle_phase = "paused"
 		_battle_state_text = "战场已暂停"
 		movement_status_label.text = "战场已暂停，当前站位和敌方位置都会保持。"
+		_push_battle_log("暂时稳住阵脚，先看清前线再动。", BODY_TEXT)
 
 	_refresh_status_panels()
 	_update_interaction_state()
@@ -1098,6 +1163,7 @@ func _start_finish_sequence() -> void:
 	_player_status_text = "清场结束，等待收束"
 	set_page_state("success", "敌方已清空，这一场正在自然收束。")
 	movement_status_label.text = "最后一个敌人倒下，战场短暂停顿后会自然收束。"
+	_push_battle_log("最后一个敌人已经倒下，这一场打穿了。", DROP_TINT)
 	_update_interaction_state()
 
 	_finish_sequence_id += 1
@@ -1121,6 +1187,129 @@ func _add_zone_label(text: String, y_position: float) -> void:
 	zone_label.modulate = Color(0.83, 0.90, 0.98, 0.45)
 	zone_label.position = Vector2(18.0, clampf(y_position, 24.0, _world_height - 36.0))
 	battle_world.add_child(zone_label)
+
+
+func _refresh_battle_story() -> void:
+	if battle_objective_label == null:
+		return
+
+	if _prepare_payload.is_empty():
+		battle_objective_label.text = "本场目标：先从出战页走进战场。"
+		battle_pace_label.text = "战斗节奏：进场后，这里会提醒你该前压、出手还是离场结算。"
+		battle_log_hint_label.text = "前线战报：接敌、受压、击杀、掉落和离场都会按顺序留在这里。"
+		return
+
+	var next_target := _find_next_target()
+	if _battle_phase == "paused":
+		battle_objective_label.text = "本场目标：先稳一口气，重新看清前线。"
+	elif _battle_phase == "settling" or _settle_requested:
+		battle_objective_label.text = "本场目标：带着这场战果离开战场。"
+	elif _battle_phase == "finish_pause" or _alive_monster_count() == 0:
+		battle_objective_label.text = "本场目标：守住收尾节奏，等这一场自然收束。"
+	elif next_target.is_empty():
+		battle_objective_label.text = "本场目标：敌方已经清空，准备离场。"
+	else:
+		var target_name := str(next_target.get("monster_name", "敌人"))
+		if _find_attack_target_index() >= 0:
+			battle_objective_label.text = "本场目标：对准 %s 出手，把这一波撕开。" % target_name
+		elif _monster_has_reached_frontline(next_target):
+			battle_objective_label.text = "本场目标：先稳住 %s 的压迫，再找出手机会。" % target_name
+		else:
+			battle_objective_label.text = "本场目标：继续前压靠近 %s。" % target_name
+
+	battle_pace_label.text = "战斗节奏：已击倒 %d / %d | 命中 %d 次 | 前线受压 %d 次 | 战利品影子 %d 份。" % [
+		_monster_states.size() - _alive_monster_count(),
+		_monster_states.size(),
+		_hit_count,
+		_pressure_count,
+		_drop_preview_count,
+	]
+	battle_log_hint_label.text = "前线战报：最新一条会顶在最前，方便你顺着这一场的节奏往下打。"
+
+
+func _refresh_battle_log() -> void:
+	if battle_log_box == null:
+		return
+
+	clear_container(battle_log_box)
+	if _battle_log_entries.is_empty():
+		battle_log_box.add_child(_build_empty_label("这一场的关键动作还没有开始。"))
+		return
+
+	for index in range(_battle_log_entries.size()):
+		var entry: Dictionary = _battle_log_entries[index]
+		battle_log_box.add_child(_build_battle_log_card(
+			str(entry.get("text", "")),
+			entry.get("tint", BODY_TEXT),
+			index == 0
+		))
+
+
+func _push_battle_log(text: String, tint: Color = BODY_TEXT) -> void:
+	var trimmed := text.strip_edges()
+	if trimmed.is_empty():
+		return
+
+	if not _battle_log_entries.is_empty() and str(_battle_log_entries[0].get("text", "")) == trimmed:
+		return
+
+	_battle_log_entries.push_front({
+		"text": trimmed,
+		"tint": tint,
+	})
+	while _battle_log_entries.size() > 6:
+		_battle_log_entries.pop_back()
+
+	_refresh_battle_log()
+
+
+func _build_battle_log_card(text: String, tint: Color, emphasize: bool) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var style := _create_card_style()
+	style.bg_color = Color(
+		tint.r * 0.12 + CARD_BACKGROUND.r * 0.88,
+		tint.g * 0.12 + CARD_BACKGROUND.g * 0.88,
+		tint.b * 0.12 + CARD_BACKGROUND.b * 0.88,
+		0.98
+	)
+	style.border_color = Color(tint.r, tint.g, tint.b, 0.86 if emphasize else 0.52)
+	style.shadow_size = 8 if emphasize else 4
+	card.add_theme_stylebox_override("panel", style)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	card.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	margin.add_child(box)
+
+	var tags := HBoxContainer.new()
+	tags.add_theme_constant_override("separation", 8)
+	tags.add_child(create_pill("最新战报" if emphasize else "前线记录", tint))
+	box.add_child(tags)
+
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.modulate = BODY_TEXT
+	if emphasize:
+		label.add_theme_font_size_override("font_size", 16)
+	box.add_child(label)
+	return card
+
+
+func _build_empty_label(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.modulate = CARD_TEXT_MUTED
+	return label
 
 
 func _build_front_position(spawn_position: Vector2, wave_no: int, x_offset: float) -> Vector2:

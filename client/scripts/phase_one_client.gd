@@ -33,7 +33,7 @@ const EQUIPMENT_SLOT_ORDER := [
 	"bracelet_1",
 	"bracelet_2",
 ]
-const CLIENT_SUBTITLE := "认出主角，锁定去处，打完这一场。"
+const CLIENT_SUBTITLE := "认出主角，定下去处，打一场，再带着收获继续上路。"
 const DEFAULT_CONFIG_NOTE := (
 	"默认值来自当前正式文档与最小联调 seed，只作为联调兜底；"
 	+ "主流程仍应以真实角色列表、章节列表和关卡难度列表为准。"
@@ -542,14 +542,17 @@ func _refresh_flow_summary() -> void:
 	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
 	var battle_context_id = settle_page.get_battle_context_text()
 	var route_summary := _build_flow_route_summary(route_context)
-	var journey_line := "当前：主角待定，去向：先走进山海路。"
-	var next_step_line := "下一步：先去环境页连上后端。"
+	var hero_line := "当前主角：待确认。"
+	var target_line := "这轮目标：先去主线挑一条山海路。"
+	var next_step_line := "现在最顺：先去环境页把地址和令牌填好。"
 	var reminder_line := ""
 
 	if str(config_values.get("base_url", "")).strip_edges().is_empty():
-		next_step_line = "下一步：先填 backend 地址。"
+		target_line = "这轮目标：先把当前世界连上。"
+		next_step_line = "现在最顺：先填 backend 地址。"
 	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
-		next_step_line = "下一步：先填 Bearer Token。"
+		target_line = "这轮目标：先把当前世界连上。"
+		next_step_line = "现在最顺：先填 Bearer Token。"
 	else:
 		var character_line: String = detail_character
 		if detail_character != battle_character and battle_character != "待确认":
@@ -557,31 +560,40 @@ func _refresh_flow_summary() -> void:
 		elif detail_character == "待确认" and battle_character != "待确认":
 			character_line = battle_character
 
-		journey_line = "当前：%s，去向：%s。" % [character_line, route_summary]
+		hero_line = "当前主角：%s。" % character_line
+		target_line = "这轮目标：%s。" % route_summary
 
 		if detail_character == "待确认" and battle_character == "待确认":
-			next_step_line = "下一步：先去角色页挑一个角色；如果还没有，就创建一个。"
+			next_step_line = "现在最顺：先去角色页挑一个主角；如果还没有，就创建一个。"
 		elif stage_page.get_selected_chapter_id().is_empty():
-			next_step_line = "下一步：去主线页挑一章。"
+			next_step_line = "现在最顺：去主线页挑一章。"
 		elif stage_page.get_stage_id_text().is_empty():
-			next_step_line = "下一步：这一章已经展开，先挑一关。"
+			next_step_line = "现在最顺：这一章已经展开，先挑一关。"
 		elif stage_page.get_selected_stage_difficulty().is_empty():
-			next_step_line = "下一步：关卡已经锁定，再选一档难度。"
+			next_step_line = "现在最顺：关卡已经锁定，再选一档难度。"
 		elif not battle_context_id.is_empty():
-			next_step_line = "下一步：这一场已经开了，去战斗页推进，或等收获页回结果。"
+			next_step_line = "现在最顺：这一场已经开打，去战斗页推进，或等结果页把收获接住。"
 		elif current_settle_result.is_empty():
-			next_step_line = "下一步：目标已经锁定，去出战页决定要不要开打。"
+			next_step_line = "现在最顺：目标已经锁定，去出战页决定要不要开打。"
 		else:
-			next_step_line = "下一步：这轮收获已经回来了，先去背包整理，再继续主线。"
+			var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
+			var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+			var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
+			if not created_equipment_instances.is_empty():
+				next_step_line = "现在最顺：这轮有新装备，先去结算或穿戴把它试上身。"
+			elif inventory_entry_count > 0:
+				next_step_line = "现在最顺：这轮收益已经落袋，先去背包整理，再决定继续刷还是回主线。"
+			else:
+				next_step_line = "现在最顺：这轮已经收好，可以直接再打一场，或回主线换目标。"
 
 		if not has_loaded_character_list and current_character_detail.is_empty():
-			reminder_line = "提醒：角色列表还没回齐，先去角色页确认当前角色。"
+			reminder_line = "提醒：角色列表还没回齐，先去角色页确认当前主角。"
 
 	var current_character = _as_dictionary(current_character_detail.get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
 		reminder_line = "提醒：这名角色还没启用，先在角色页点“启用角色”会更顺。"
 
-	var lines := [journey_line, next_step_line]
+	var lines := [hero_line, target_line, next_step_line]
 	if not reminder_line.is_empty():
 		lines.append(reminder_line)
 	flow_summary_label.text = "\n".join(lines)
@@ -710,6 +722,73 @@ func _build_character_equipment_context(character: Dictionary) -> Dictionary:
 	return context
 
 
+func _build_character_growth_context(character: Dictionary) -> Dictionary:
+	if character.is_empty():
+		return {}
+
+	var character_id := _normalize_id_string(character.get("character_id", ""))
+	if character_id.is_empty():
+		return {}
+
+	var context := {
+		"character_id": character_id,
+		"has_new_equipment": false,
+		"has_recent_inventory_gain": false,
+	}
+	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
+	var route_text := _build_growth_route_text(route_context)
+	var prepare_character := _as_dictionary(current_prepare_result.get("character", {}))
+	var prepare_character_id := _normalize_id_string(prepare_character.get("character_id", ""))
+	var settle_character_id := _normalize_id_string(settle_page.get_character_id_text())
+	var matches_recent_battle := (
+		character_id == prepare_character_id
+		or (not settle_character_id.is_empty() and character_id == settle_character_id)
+	)
+
+	if matches_recent_battle and not current_settle_result.is_empty():
+		var drop_count := _as_array(current_settle_result.get("drop_results", [])).size()
+		var reward_count := _as_array(current_settle_result.get("reward_results", [])).size()
+		var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
+		var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+		var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
+		context["has_new_equipment"] = not created_equipment_instances.is_empty()
+		context["has_recent_inventory_gain"] = inventory_entry_count > 0
+		context["recent_result_text"] = "最近一场：%s 已%s，带回掉落 %d 项、奖励 %d 份、入包 %d 条。" % [
+			route_text,
+			"打完" if int(current_settle_result.get("is_cleared", 0)) == 1 else "收束",
+			drop_count,
+			reward_count,
+			inventory_entry_count,
+		]
+		if not created_equipment_instances.is_empty():
+			context["growth_focus_text"] = "其中有 %d 件新装备，最顺的是先去穿戴试装。" % created_equipment_instances.size()
+		elif inventory_entry_count > 0:
+			context["growth_focus_text"] = "这轮收益已经落袋，先去背包整理会更清楚。"
+		else:
+			context["growth_focus_text"] = "这轮更像一次过程确认，可以直接再打一场，或回主线换目标。"
+		return context
+
+	if matches_recent_battle and not current_prepare_result.is_empty():
+		var monster_count := _as_array(current_prepare_result.get("monster_list", [])).size()
+		context["next_target_text"] = "%s 已锁定，前方共有 %d 个敌人，随时可以走进战场。" % [route_text, monster_count]
+		return context
+
+	if not str(route_context.get("stage_difficulty_id", "")).strip_edges().is_empty() and int(character.get("is_active", 0)) == 1:
+		context["next_target_text"] = "下一场目标是 %s。" % route_text
+		return context
+
+	return {}
+
+
+func _build_growth_route_text(route_context: Dictionary) -> String:
+	var chapter_name := str(route_context.get("chapter_name", "章节待选"))
+	var stage_name := str(route_context.get("stage_name", "关卡待选"))
+	var difficulty_name := str(route_context.get("difficulty_name", "难度待选"))
+	if str(route_context.get("stage_difficulty_id", "")).strip_edges().is_empty():
+		return _build_flow_route_summary(route_context)
+	return "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
+
+
 func _build_equipment_feedback(
 	character_id: int,
 	change_type: String,
@@ -823,6 +902,7 @@ func _refresh_product_pages() -> void:
 	var current_character := _find_character_record(character_page.get_character_id_text())
 	character_page.set_character_stat_snapshot(_build_character_stat_snapshot(current_character))
 	character_page.set_character_equipment_context(_build_character_equipment_context(current_character))
+	character_page.set_recent_growth_context(_build_character_growth_context(current_character))
 	character_page.show_character_summary(current_character)
 
 	var battle_character := _find_character_record(prepare_page.get_character_id_text())
@@ -965,14 +1045,14 @@ func _focus_on_auth() -> void:
 func _open_inventory_from_settle() -> void:
 	_set_current_tab(INVENTORY_PAGE)
 	if current_settle_result.is_empty():
-		inventory_page.set_page_state("empty", "这轮收益还没生成，先完成正式结算，再回来整理背包。")
-		inventory_page.show_handoff_summary("这轮收益还没生成；先完成结算，再回背包看新装备和关键材料。")
+		inventory_page.set_page_state("empty", "这轮收益还没收稳，先把结算走完，再回来整理背包。")
+		inventory_page.show_handoff_summary("这轮收益还没收好；先完成结算，再回背包看新装备和关键材料。")
 		return
 
 	var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
 	var stack_results := _as_array(inventory_results.get("stack_results", []))
 	var equipment_results := _as_array(inventory_results.get("equipment_instance_results", []))
-	inventory_page.set_page_state("success", "本轮收益已经承接到背包，新增装备和关键材料会优先显示。")
+	inventory_page.set_page_state("success", "本轮收益已经承接到背包，新增装备和关键材料已经被顶到最前。")
 	inventory_page.set_summary_text("本轮收获：掉落 %d | 奖励 %d | 入包 %d | 新装备 %d" % [
 		_as_array(current_settle_result.get("drop_results", [])).size(),
 		_as_array(current_settle_result.get("reward_results", [])).size(),
@@ -980,7 +1060,7 @@ func _open_inventory_from_settle() -> void:
 		equipment_results.size(),
 	])
 	inventory_page.show_handoff_summary(
-		"已带着本轮结果来到背包；先看新装备和关键材料，再决定前往穿戴、查看角色还是继续主线，会更顺。"
+		"已带着本轮结果来到背包；先看这轮真正新增了什么，再决定去穿戴试装、回角色确认成长，还是继续主线。"
 	)
 
 
@@ -996,7 +1076,7 @@ func _open_equipment_from_settle() -> void:
 	if latest_equipment.is_empty():
 		equipment_page.set_page_state("empty", "本轮没有新增装备可直接试穿。")
 		equipment_page.set_summary_text("当前角色上下文已保留，你仍可刷新穿戴槽查看现有装备。")
-		equipment_page.show_handoff_summary("这轮没有新装备可直达试穿，但当前角色上下文还在，你可以继续查看现有穿戴。")
+		equipment_page.show_handoff_summary("这轮没有新装备可直达试穿，但当前角色和当前搭配都还在，你可以继续查看现有穿戴。")
 		return
 
 	equipment_page.set_selected_equipment_instance(
@@ -1005,7 +1085,7 @@ func _open_equipment_from_settle() -> void:
 		str(latest_equipment.get("equipment_slot", ""))
 	)
 	equipment_page.set_page_state("success", "已带上本轮新装备，当前槽位和候选区会优先围绕它展开。")
-	equipment_page.show_handoff_summary("已承接本轮新装备；先看它更适合哪一格，再决定回角色还是继续主线。")
+	equipment_page.show_handoff_summary("已承接本轮新装备；先看它更适合哪一格，再回角色或主线确认这轮成长值不值得留下。")
 
 
 func _open_character_page(from_settle: bool = false) -> void:
@@ -1036,14 +1116,14 @@ func _open_character_page(from_settle: bool = false) -> void:
 	character_page.show_character_summary(character_record)
 	character_page.show_growth_handoff(_build_character_growth_handoff(current_character_id, from_settle))
 	if from_settle:
-		character_page.set_page_state("success", "已回到角色页，可以继续查看本轮战后成长。")
+		character_page.set_page_state("success", "已回到角色页，可以继续查看这轮战后成长。")
 	else:
 		character_page.set_page_state("success", "已回到角色页，当前角色和成长入口都已就位。")
 
 
 func _open_stage_from_settle() -> void:
 	_set_current_tab(STAGE_PAGE)
-	stage_page.set_page_state("success", "已回到主线，当前章节、关卡和难度都已保留。")
+	stage_page.set_page_state("success", "已回到主线，当前章节、关卡和难度都还保留着。")
 
 
 func _latest_created_equipment_instance() -> Dictionary:
@@ -1103,6 +1183,13 @@ func _build_character_growth_handoff(character_id: String, from_settle: bool) ->
 				]
 
 	if from_settle:
+		var created_equipment_instances := _as_array(current_settle_result.get("created_equipment_instances", []))
+		var inventory_results := _as_dictionary(current_settle_result.get("inventory_results", {}))
+		var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
+		if not created_equipment_instances.is_empty():
+			return "这轮结果已经回流到角色页；你可以先去穿戴试这轮新装备，再回来看看这次成长，最后决定继续刷还是回主线。"
+		if inventory_entry_count > 0:
+			return "这轮收益已经回流到角色页；如果还没整理完，先去背包看新增，再决定继续刷这一关还是回主线换目标。"
 		return "这轮结果已经回流到角色页；你可以继续前往穿戴试装，或直接回主线再战一场。"
 
 	return "角色页会承接你当前的成长进度；接下来前往背包、穿戴或主线都可以。"
@@ -2006,9 +2093,9 @@ func _on_prepare_pressed() -> void:
 	)
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
-	prepare_page.set_page_state("success", "出战信息已经锁定，马上进入战斗。")
-	battle_page.set_page_state("success", "战场已经准备好，可以开始接敌和清场。")
-	settle_page.set_page_state("success", "这一场结束后，这里会自动展开本场收获。")
+	prepare_page.set_page_state("success", "出战信息已经锁定，走进战场吧。")
+	battle_page.set_page_state("success", "战场已经准备好，该前压接敌了。")
+	settle_page.set_page_state("success", "这一场打完后，这里会先把战利品和成长路线收好。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -2119,7 +2206,7 @@ func _submit_settle_request(
 	stage_page.set_selected_stage_difficulty(stage_difficulty_id_value)
 	_persist_runtime_config()
 	if from_battle_page:
-		battle_page.set_page_state("settling", "战斗结束，正在提交正式结算。")
+		battle_page.set_page_state("settling", "战斗结束，正在把这场战果收好。")
 	settle_page.set_page_state("settling", "正在整理这一场的结果。")
 	var result: Dictionary = await api.request_json(
 		"POST",
@@ -2145,8 +2232,8 @@ func _submit_settle_request(
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
 	settle_page.show_settlement_summary(data)
 	if from_battle_page:
-		battle_page.set_page_state("success", "战斗已收束，结果页已经生成。")
-	settle_page.set_page_state("success", "这一场已经打完，掉落、奖励和入包结果都整理好了。")
+		battle_page.set_page_state("success", "战斗已收束，结果页已经接住这轮战果。")
+	settle_page.set_page_state("success", "这一场已经打完，掉落、奖励、入包和后续路线都整理好了。")
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),

@@ -13,6 +13,7 @@ var current_role_tag_row: HBoxContainer
 var summary_meta_label: Label
 var summary_equipment_label: Label
 var summary_stats_label: Label
+var summary_progress_label: Label
 var summary_hint_label: Label
 
 var action_status_label: Label
@@ -38,6 +39,7 @@ var tech_box: VBoxContainer
 var _current_records: Array = []
 var _current_stat_snapshot: Dictionary = {}
 var _current_equipment_context: Dictionary = {}
+var _current_growth_context: Dictionary = {}
 
 
 func _init() -> void:
@@ -73,6 +75,11 @@ func _init() -> void:
 	summary_stats_label = Label.new()
 	summary_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary_card.add_child(summary_stats_label)
+
+	summary_progress_label = Label.new()
+	summary_progress_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary_progress_label.modulate = BODY_TEXT
+	summary_card.add_child(summary_progress_label)
 
 	summary_hint_label = Label.new()
 	summary_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -177,6 +184,11 @@ func set_character_equipment_context(context: Dictionary) -> void:
 	_refresh_hero_from_records()
 
 
+func set_recent_growth_context(context: Dictionary) -> void:
+	_current_growth_context = context.duplicate(true)
+	_refresh_hero_from_records()
+
+
 func set_character_list(records: Array, current_character_id: String) -> String:
 	_current_records = records.duplicate(true)
 
@@ -236,6 +248,7 @@ func show_character_summary(character: Dictionary) -> void:
 		summary_meta_label.text = "锁定当前角色后，这里会马上告诉你该往哪里走。"
 		summary_equipment_label.text = "当前穿戴：待确认"
 		summary_stats_label.text = "攻击：待确认 | 防御：待确认 | 生命：待确认"
+		summary_progress_label.text = "最近进度：锁定角色后，这里会回看最近一场和下一场。"
 		summary_hint_label.text = "最近一次正式出战的属性快照，会在这里回来看。"
 	else:
 		current_role_name_label.text = str(resolved.get("character_name", "角色"))
@@ -263,6 +276,7 @@ func show_character_summary(character: Dictionary) -> void:
 		]
 		summary_equipment_label.text = _build_equipment_summary_text(resolved)
 		summary_stats_label.text = _build_stat_summary_text(resolved)
+		summary_progress_label.text = _build_growth_progress_text(resolved)
 		summary_hint_label.text = _build_summary_hint_text(resolved)
 
 	_refresh_action_panel(resolved)
@@ -461,6 +475,25 @@ func _build_summary_hint_text(character: Dictionary) -> String:
 	return "先启用这名角色，再去主线和出战页会更顺。"
 
 
+func _build_growth_progress_text(character: Dictionary) -> String:
+	if not _growth_context_matches_character(character):
+		if int(character.get("is_active", 0)) == 1:
+			return "最近进度：主角已经就位，下一场目标和战后回流会在这里承接。"
+		return "最近进度：先启用这名角色，主线、战斗和成长回流才会真正接上。"
+
+	var recent_result_text := str(_current_growth_context.get("recent_result_text", "")).strip_edges()
+	var growth_focus_text := str(_current_growth_context.get("growth_focus_text", "")).strip_edges()
+	var next_target_text := str(_current_growth_context.get("next_target_text", "")).strip_edges()
+
+	if not recent_result_text.is_empty() and not growth_focus_text.is_empty():
+		return "最近进度：%s %s" % [recent_result_text, growth_focus_text]
+	if not recent_result_text.is_empty():
+		return "最近进度：%s" % recent_result_text
+	if not next_target_text.is_empty():
+		return "最近进度：下一场已经定下，%s" % next_target_text
+	return "最近进度：当前成长节奏已经接回角色页。"
+
+
 func _stat_snapshot_matches_character(character: Dictionary) -> bool:
 	if character.is_empty() or _current_stat_snapshot.is_empty():
 		return false
@@ -477,6 +510,13 @@ func _equipment_context_matches_character(character: Dictionary) -> bool:
 
 func _has_recent_equipment_change(character: Dictionary) -> bool:
 	return _equipment_context_matches_character(character) and not str(_current_equipment_context.get("change_type", "")).strip_edges().is_empty()
+
+
+func _growth_context_matches_character(character: Dictionary) -> bool:
+	if character.is_empty() or _current_growth_context.is_empty():
+		return false
+
+	return normalize_id_string(_current_growth_context.get("character_id", "")) == normalize_id_string(character.get("character_id", ""))
 
 
 func _build_equipment_summary_text(character: Dictionary) -> String:
@@ -519,6 +559,11 @@ func _refresh_action_panel(character: Dictionary) -> void:
 		return
 
 	if int(character.get("is_active", 0)) == 1:
+		if _growth_context_matches_character(character) and bool(_current_growth_context.get("has_new_equipment", false)):
+			action_status_label.text = "这轮还有新装备待试穿，先去穿戴会最顺；试完后再回主线打一场，更容易感到成长。"
+			activate_button.text = "已经启用"
+			activate_button.disabled = true
+			return
 		if _has_recent_equipment_change(character):
 			action_status_label.text = "最近一次换装已经同步到当前角色；现在最自然的是去主线或出战确认这次变化，也可以回穿戴继续调整。"
 			activate_button.text = "已经启用"
@@ -554,6 +599,16 @@ func _refresh_recommendation(character: Dictionary) -> void:
 	if int(character.get("is_active", 0)) == 0:
 		recommendation_label.text = "先启用这名角色，再去主线推进会更自然。"
 		_set_recommendation_action("启用这名角色", "activate_current_character")
+		return
+
+	if _growth_context_matches_character(character) and bool(_current_growth_context.get("has_new_equipment", false)):
+		recommendation_label.text = "这轮最顺的下一步是去穿戴试新装备，试完再回主线打一场，最容易看出成长。"
+		_set_recommendation_action("去穿戴", "navigate_equipment")
+		return
+
+	if _growth_context_matches_character(character) and bool(_current_growth_context.get("has_recent_inventory_gain", false)):
+		recommendation_label.text = "这轮收益已经接回角色页，如果还没整理完，先去背包看新增，再决定继续刷还是换目标。"
+		_set_recommendation_action("去背包", "navigate_inventory")
 		return
 
 	if _has_recent_equipment_change(character):

@@ -23,6 +23,9 @@ var result_tag_row: HBoxContainer
 var spotlight_title_label: Label
 var spotlight_detail_label: Label
 var spotlight_box: VBoxContainer
+var growth_route_title_label: Label
+var growth_route_detail_label: Label
+var growth_route_box: VBoxContainer
 
 var drop_box: VBoxContainer
 var reward_box: VBoxContainer
@@ -73,6 +76,21 @@ func _init() -> void:
 	spotlight_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spotlight_box.add_theme_constant_override("separation", 10)
 	spotlight_card.add_child(spotlight_box)
+
+	var growth_route_card := add_card("打完后怎么接", "")
+	growth_route_title_label = Label.new()
+	growth_route_title_label.add_theme_font_size_override("font_size", 22)
+	growth_route_card.add_child(growth_route_title_label)
+
+	growth_route_detail_label = Label.new()
+	growth_route_detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	growth_route_detail_label.modulate = CARD_TEXT_MUTED
+	growth_route_card.add_child(growth_route_detail_label)
+
+	growth_route_box = VBoxContainer.new()
+	growth_route_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	growth_route_box.add_theme_constant_override("separation", 10)
+	growth_route_card.add_child(growth_route_box)
 
 	var drop_card := add_card("怪物掉了什么", "这部分只看这一场实际掉了什么。")
 	drop_box = VBoxContainer.new()
@@ -264,6 +282,7 @@ func is_cleared() -> bool:
 
 func show_settlement_summary(payload: Dictionary) -> void:
 	clear_container(spotlight_box)
+	clear_container(growth_route_box)
 	clear_container(drop_box)
 	clear_container(reward_box)
 	clear_container(inventory_box)
@@ -276,6 +295,9 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		spotlight_title_label.text = "这一场最值得先看的收获"
 		spotlight_detail_label.text = "如果有新装备、主要掉落或奖励变化，这里会先把最值得马上看的内容顶出来。"
 		spotlight_box.add_child(_build_empty_label("现在还没有新的结果回流。"))
+		growth_route_title_label.text = "这一场打完后，成长路线会在这里收好"
+		growth_route_detail_label.text = "这里会优先告诉你该先去背包、穿戴、角色，还是直接回主线继续刷下一场。"
+		growth_route_box.add_child(_build_empty_label("结果回来后，这里会先给出本轮最顺的承接路线。"))
 		growth_hint_label.text = "结算完成后，可以先看背包，再决定前往穿戴、查看角色，还是继续主线。"
 		primary_inventory_button.text = "先整理本轮收益"
 		equipment_followup_button.text = "去穿戴看装备"
@@ -314,6 +336,14 @@ func show_settlement_summary(payload: Dictionary) -> void:
 	)
 	_render_result_tags(payload, drop_results, reward_results, stack_results, equipment_instance_results, reward_status_data)
 	_render_spotlight_section(drop_results, reward_results, created_equipment_instances, reward_status_data)
+	_render_growth_route_section(
+		payload,
+		drop_results,
+		reward_results,
+		stack_results,
+		created_equipment_instances,
+		reward_status_data
+	)
 	growth_hint_label.text = _build_growth_hint(
 		reward_status_data,
 		drop_results,
@@ -412,6 +442,7 @@ func show_settlement_summary(payload: Dictionary) -> void:
 
 func show_handoff_summary(character_id: String, stage_difficulty_id: String, battle_context_id: String, monster_count: int) -> void:
 	clear_container(spotlight_box)
+	clear_container(growth_route_box)
 	clear_container(drop_box)
 	clear_container(reward_box)
 	clear_container(inventory_box)
@@ -422,6 +453,9 @@ func show_handoff_summary(character_id: String, stage_difficulty_id: String, bat
 	spotlight_title_label.text = "这一场的亮点还在路上"
 	spotlight_detail_label.text = "一旦结果回来，这里会先告诉你有没有新装备、主要掉落或奖励变化。"
 	spotlight_box.add_child(_build_empty_label("现在只差这一场的正式结果返回。"))
+	growth_route_title_label.text = "这一场的承接路线正在整理"
+	growth_route_detail_label.text = "结果回来后，这里会先告诉你该去背包、穿戴、角色，还是继续回主线刷下一场。"
+	growth_route_box.add_child(_build_empty_label("先等这场结果回来，成长路线马上就会补上。"))
 	drop_box.add_child(_build_empty_label("结果返回后，这里会展示本次掉落。"))
 	reward_box.add_child(_build_empty_label("结果返回后，这里会展示当前奖励状态变化。"))
 	inventory_box.add_child(_build_empty_label("结果返回后，这里会展示哪些收获已经进包。"))
@@ -565,6 +599,93 @@ func _render_spotlight_section(
 	spotlight_box.add_child(_build_empty_label("本次没有需要特别关注的新装备或新增收益。"))
 
 
+func _render_growth_route_section(
+	payload: Dictionary,
+	drop_results: Array,
+	reward_results: Array,
+	stack_results: Array,
+	created_equipment_instances: Array,
+	reward_status: Dictionary
+) -> void:
+	var inventory_entry_count := stack_results.size() + created_equipment_instances.size()
+	if not created_equipment_instances.is_empty():
+		growth_route_title_label.text = "这轮成长最顺的是先试新装备"
+		growth_route_detail_label.text = "新装备已经正式进包，先去穿戴试装，再回角色看战后成长，最后决定继续刷这一关还是回主线换目标。"
+		var recent_names: Array = []
+		for equipment in created_equipment_instances:
+			if recent_names.size() >= 3:
+				break
+			recent_names.append(_build_equipment_growth_title(_as_dictionary(equipment)))
+		growth_route_box.add_child(_build_result_card(
+			"先试穿",
+			("%s 已经准备好去试装。" % "、".join(recent_names))
+				if not recent_names.is_empty()
+				else "本轮新装备已经准备好去试装。",
+			INVENTORY_TINT
+		))
+		growth_route_box.add_child(_build_result_card(
+			"再看角色",
+			"试完新装备后，角色页会把最近一次换装和战斗快照一起接回来，更容易判断这轮是不是已经变强。",
+			REWARD_TINT
+		))
+		if int(reward_status.get("has_reward", 0)) == 1 and int(reward_status.get("has_granted", 0)) == 1:
+			growth_route_box.add_child(_build_result_card(
+				"最后再决定去向",
+				"首通奖励也已经拿到手，接下来可以回主线推进，或留下来继续刷这一关的装备和材料。",
+				DROP_TINT
+			))
+		else:
+			growth_route_box.add_child(_build_result_card(
+				"最后再决定去向",
+				"如果这件新装备已经让你更有把握，就直接回主线继续推进；想继续刷收益，也可以立刻再开一场。",
+				DROP_TINT
+			))
+		return
+
+	if not reward_results.is_empty():
+		growth_route_title_label.text = "这轮更适合顺势推进"
+		growth_route_detail_label.text = "固定奖励已经到账，说明这关的推进价值已经兑现；整理完背包后，通常就该继续往主线前走。"
+		growth_route_box.add_child(_build_result_card(
+			"先收好奖励",
+			"固定奖励和入包变化都已经落定，背包页会把它们先承接住。",
+			REWARD_TINT
+		))
+		growth_route_box.add_child(_build_result_card(
+			"再定下一场",
+			"这轮更像推进成功后的结果页，整理完就可以回主线挑下一关或更高目标。",
+			DROP_TINT
+		))
+		return
+
+	if inventory_entry_count > 0 or not drop_results.is_empty():
+		growth_route_title_label.text = "这轮更像稳定刷收益"
+		growth_route_detail_label.text = "掉落和入包已经落袋，先回背包把这轮收益看清，再决定继续刷这一关，还是带着收获回主线。"
+		growth_route_box.add_child(_build_result_card(
+			"先整理收益",
+			"本轮共整理出 %d 条正式入包变化，背包页会优先把新增收益和已有物资排清楚。" % inventory_entry_count,
+			INVENTORY_TINT
+		))
+		growth_route_box.add_child(_build_result_card(
+			"再决定去留",
+			"如果这关还在稳定掉你想要的东西，就再打一场；如果收益偏平，可以回主线换目标。",
+			DROP_TINT
+		))
+		return
+
+	growth_route_title_label.text = "这轮先别纠结收益"
+	growth_route_detail_label.text = "没有明显新增收获并不代表异常，只说明这一场更像一次过程确认。"
+	growth_route_box.add_child(_build_result_card(
+		"继续刷一场",
+		"如果你只是想把这关刷顺，最直接的做法就是再开一场，看看下一轮掉落会不会更好。",
+		DROP_TINT
+	))
+	growth_route_box.add_child(_build_result_card(
+		"或者回主线换目标",
+		"如果这关已经不给你新的动力，就回主线换难度或换下一关，更容易重新找回成长感。",
+		REWARD_TINT
+	))
+
+
 func _render_result_tags(
 	payload: Dictionary,
 	drop_results: Array,
@@ -633,7 +754,7 @@ func _build_result_summary_text(
 	inventory_count: int,
 	reward_status: Dictionary
 ) -> String:
-	return "这一场已经%s，本轮收获：掉落 %d 项 / 奖励 %d 份 / 入包 %d 条。%s" % [
+	return "这一场已经%s：掉落 %d 项，固定奖励 %d 份，真正进包 %d 条。%s" % [
 		"打完" if is_cleared else "收束",
 		drop_count,
 		reward_count,
@@ -646,7 +767,7 @@ func _build_drop_meta(entry: Dictionary) -> String:
 	var rarity_text := str(entry.get("rarity", "")).strip_edges()
 	if rarity_text.is_empty():
 		return "怪物掉落，已经计入这场收获。"
-	return "怪物掉落 | 稀有度 %s" % rarity_text
+	return "怪物掉落 | 稀有度 %s" % _rarity_text(rarity_text)
 
 
 func _display_named_item(entry: Dictionary, fallback: String) -> String:
@@ -711,6 +832,60 @@ func _build_created_equipment_map(created_equipment_instances: Array) -> Diction
 		equipment_name_map[equipment_instance_id] = _display_named_item(equipment_entry, "新装备")
 
 	return equipment_name_map
+
+
+func _build_equipment_growth_title(entry: Dictionary) -> String:
+	var item_name := _display_named_item(entry, "新装备")
+	var meta_parts: Array = []
+	var slot_text := _equipment_slot_text(str(entry.get("equipment_slot", "")))
+	var rarity_text := _rarity_text(str(entry.get("rarity", "")))
+	if not slot_text.is_empty():
+		meta_parts.append(slot_text)
+	if not rarity_text.is_empty():
+		meta_parts.append(rarity_text)
+	if meta_parts.is_empty():
+		return item_name
+	return "%s（%s）" % [item_name, " | ".join(meta_parts)]
+
+
+func _equipment_slot_text(slot: String) -> String:
+	match slot:
+		"main_weapon":
+			return "主武器"
+		"sub_weapon":
+			return "副武器"
+		"armor":
+			return "护甲"
+		"leggings":
+			return "下装"
+		"gloves":
+			return "手部"
+		"boots":
+			return "鞋履"
+		"cloak":
+			return "披风"
+		"necklace":
+			return "项链"
+		"ring":
+			return "戒指"
+		"bracelet":
+			return "手镯"
+		_:
+			return ""
+
+
+func _rarity_text(rarity: String) -> String:
+	match rarity:
+		"common":
+			return "普通"
+		"rare":
+			return "稀有"
+		"epic":
+			return "史诗"
+		"legendary":
+			return "传说"
+		_:
+			return rarity
 
 
 func _move_secondary_sections_to_bottom() -> void:

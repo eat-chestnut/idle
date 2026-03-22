@@ -27,6 +27,7 @@ var inventory_rows_box: VBoxContainer
 
 var action_status_label: Label
 var handoff_label: Label
+var action_route_label: Label
 var equipment_entry_button: Button
 var character_entry_button: Button
 var stage_entry_button: Button
@@ -117,6 +118,11 @@ func _init() -> void:
 	handoff_label.modulate = CARD_TEXT_MUTED
 	action_card.add_child(handoff_label)
 
+	action_route_label = Label.new()
+	action_route_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	action_route_label.modulate = BODY_TEXT
+	action_card.add_child(action_route_label)
+
 	var action_buttons := add_button_row(action_card)
 	equipment_entry_button = add_action_button(action_buttons, "去穿戴", "navigate_equipment")
 	style_primary_button(equipment_entry_button)
@@ -192,6 +198,9 @@ func _refresh_header() -> void:
 		header_tag_row.add_child(create_pill("本轮有关键材料", MATERIAL_TINT))
 	if _recent_other_rows().size() > 0:
 		header_tag_row.add_child(create_pill("本轮有其他收益", OTHER_TINT))
+	var recent_entry_count := _recent_inventory_entry_count()
+	if recent_entry_count > 0:
+		header_tag_row.add_child(create_pill("本轮入包 %d" % recent_entry_count, MATERIAL_TINT))
 
 
 func _refresh_focus_area() -> void:
@@ -204,10 +213,10 @@ func _refresh_focus_area() -> void:
 
 	if recent_equipment.size() > 0:
 		focus_title_label.text = "先看新装备"
-		focus_hint_label.text = "本轮最值得马上处理的是新装备；先看哪件值得试穿，再决定回角色还是继续主线。"
+		focus_hint_label.text = "本轮最值得马上处理的是新装备；先认出哪件最想试穿，再决定回角色确认成长，还是继续主线推进。"
 		focus_box.add_child(_build_focus_card(
 			"新装备 %d 件" % recent_equipment.size(),
-			_trimmed_row_titles(recent_equipment, 3, "已经进包，建议先去穿戴页确认。"),
+			_trimmed_row_titles(recent_equipment, 3, "已经进包，建议先点开其中一件再去穿戴页确认。"),
 			EQUIPMENT_TINT
 		))
 		if recent_materials.size() > 0:
@@ -226,7 +235,7 @@ func _refresh_focus_area() -> void:
 
 	if recent_materials.size() > 0 or recent_others.size() > 0:
 		focus_title_label.text = "先把本轮收益认清楚"
-		focus_hint_label.text = "没有新装备时，关键材料和其他新增收益会先顶出来，方便你决定接下来是回角色还是继续主线。"
+		focus_hint_label.text = "没有新装备时，关键材料和其他新增收益会先顶出来，方便你判断这一关值不值得继续刷。"
 		if recent_materials.size() > 0:
 			focus_box.add_child(_build_focus_card(
 				"关键材料 %d 种" % recent_materials.size(),
@@ -297,16 +306,17 @@ func _refresh_inventory_list() -> void:
 func _refresh_action_area() -> void:
 	var recent_equipment_count := _recent_equipment_rows().size()
 	if recent_equipment_count > 0:
-		action_status_label.text = "这轮新装备已经优先顶出来了，最自然的下一步是去穿戴看看。"
+		action_status_label.text = "这轮新装备已经优先顶出来了，最自然的下一步是挑一件去穿戴试装。"
 	elif not _combined_inventory_rows().is_empty():
-		action_status_label.text = "背包已经整理成基础分区；接下来可以去穿戴、回角色，或继续主线推进。"
+		action_status_label.text = "背包已经整理成收益分区；接下来可以判断是继续刷这一关，还是带着收获回主线。"
 	else:
 		action_status_label.text = "背包还没有内容时，可以先回主线推进，或回角色页确认当前状态。"
 
 	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "整理完这轮收益后，通常会先去穿戴看新装备，再决定回角色还是继续主线。"
-	equipment_entry_button.text = "去穿戴新装备" if recent_equipment_count > 0 else "去穿戴"
+	action_route_label.text = _build_action_route_text()
+	equipment_entry_button.text = "去试这轮新装备" if recent_equipment_count > 0 else "去穿戴"
 	character_entry_button.text = "回角色看成长"
-	stage_entry_button.text = "返回主线继续推进"
+	stage_entry_button.text = "回主线继续刷"
 
 
 func _select_section(section: String) -> void:
@@ -585,6 +595,24 @@ func _build_recent_gain_summary() -> String:
 		recent_material_count,
 		recent_other_count,
 	]
+
+
+func _recent_inventory_entry_count() -> int:
+	return _recent_equipment_lookup().size() + _recent_stack_lookup().size()
+
+
+func _build_action_route_text() -> String:
+	var recent_equipment_count := _recent_equipment_rows().size()
+	var recent_material_count := _recent_material_rows().size()
+	var recent_other_count := _recent_other_rows().size()
+
+	if recent_equipment_count > 0:
+		return "推荐路线：先点一件新装备去试穿，再回角色确认这轮成长，最后决定继续刷这一关还是回主线推进。"
+	if recent_material_count > 0 or recent_other_count > 0:
+		return "推荐路线：先把本轮新增收益看清，再判断这关值不值得继续刷；如果收益已经够了，就带着它回主线。"
+	if not _combined_inventory_rows().is_empty():
+		return "推荐路线：当前背包更像长期仓库，穿戴和角色页会更容易帮你做下一步决策。"
+	return "推荐路线：当前还没有新增收益，直接回主线继续打，通常会比停在背包里更有推进感。"
 
 
 func _settle_item_info_map() -> Dictionary:
