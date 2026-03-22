@@ -64,6 +64,7 @@ var current_difficulties: Dictionary = {}
 var current_reward_status: Dictionary = {}
 var current_prepare_result: Dictionary = {}
 var current_settle_result: Dictionary = {}
+var current_character_equipment_feedback: Dictionary = {}
 var current_prepared_monster_ids: PackedStringArray = []
 var recent_battle_context_ids: Array = []
 var has_loaded_character_list := false
@@ -630,7 +631,7 @@ func _build_flow_route_summary(route_context: Dictionary) -> String:
 
 
 func _find_character_record(character_id: String) -> Dictionary:
-	var normalized_id := character_id.strip_edges()
+	var normalized_id := _normalize_id_string(character_id)
 	if normalized_id.is_empty():
 		return {}
 
@@ -673,6 +674,106 @@ func _build_character_stat_snapshot(character: Dictionary) -> Dictionary:
 
 	stats["character_id"] = character_id
 	return stats
+
+
+func _build_character_equipment_context(character: Dictionary) -> Dictionary:
+	if character.is_empty():
+		return {}
+
+	var character_id := _normalize_id_string(character.get("character_id", ""))
+	if character_id.is_empty():
+		return {}
+
+	var slot_count := 0
+	var equipped_count := 0
+	var has_slot_snapshot := _normalize_id_string(current_slots.get("character_id", "")) == character_id
+	if has_slot_snapshot:
+		var slot_entries := _as_array(current_slots.get("slots", []))
+		slot_count = slot_entries.size()
+		for slot in slot_entries:
+			var entry := _as_dictionary(slot)
+			if not _normalize_id_string(entry.get("equipped_instance_id", "")).is_empty():
+				equipped_count += 1
+
+	var context := {
+		"character_id": character_id,
+		"has_slot_snapshot": has_slot_snapshot,
+		"slot_count": slot_count,
+		"equipped_count": equipped_count,
+		"empty_count": maxi(slot_count - equipped_count, 0),
+	}
+
+	if _normalize_id_string(current_character_equipment_feedback.get("character_id", "")) == character_id:
+		for key in current_character_equipment_feedback.keys():
+			context[key] = current_character_equipment_feedback[key]
+
+	return context
+
+
+func _build_equipment_feedback(
+	character_id: int,
+	change_type: String,
+	slot_key: String,
+	fallback_item_name: String = ""
+) -> Dictionary:
+	var slot_entry := _find_slot_snapshot_entry(current_slots, slot_key)
+	var equipment := _as_dictionary(slot_entry.get("equipment", {}))
+	var item_name := fallback_item_name.strip_edges()
+	if item_name.is_empty():
+		item_name = str(equipment.get("item_name", "这件装备")).strip_edges()
+	if item_name.is_empty():
+		item_name = "这件装备"
+
+	return {
+		"character_id": _normalize_id_string(character_id),
+		"change_type": change_type,
+		"slot_key": slot_key,
+		"slot_name": _slot_display_name(slot_key),
+		"item_name": item_name,
+	}
+
+
+func _find_slot_snapshot_entry(slots_payload: Dictionary, slot_key: String) -> Dictionary:
+	var normalized_slot_key := slot_key.strip_edges()
+	if normalized_slot_key.is_empty():
+		return {}
+
+	for slot in _as_array(slots_payload.get("slots", [])):
+		var entry := _as_dictionary(slot)
+		if str(entry.get("slot_key", "")).strip_edges() == normalized_slot_key:
+			return entry
+
+	return {}
+
+
+func _slot_display_name(slot_key: String) -> String:
+	match slot_key:
+		"main_weapon":
+			return "主武器"
+		"sub_weapon":
+			return "副武器"
+		"armor":
+			return "护甲"
+		"leggings":
+			return "护腿"
+		"gloves":
+			return "手套"
+		"boots":
+			return "靴子"
+		"cloak":
+			return "披风"
+		"necklace":
+			return "项链"
+		"ring_1":
+			return "戒指 1"
+		"ring_2":
+			return "戒指 2"
+		"bracelet_1":
+			return "手镯 1"
+		"bracelet_2":
+			return "手镯 2"
+		_:
+			return slot_key
 
 
 func _find_selected_chapter_context() -> Dictionary:
@@ -721,6 +822,7 @@ func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
 func _refresh_product_pages() -> void:
 	var current_character := _find_character_record(character_page.get_character_id_text())
 	character_page.set_character_stat_snapshot(_build_character_stat_snapshot(current_character))
+	character_page.set_character_equipment_context(_build_character_equipment_context(current_character))
 	character_page.show_character_summary(current_character)
 
 	var battle_character := _find_character_record(prepare_page.get_character_id_text())
@@ -928,22 +1030,15 @@ func _open_character_page(from_settle: bool = false) -> void:
 	var character_record: Dictionary = _find_character_record(current_character_id)
 	if character_record.is_empty():
 		character_page.set_page_state("success", "已回到角色页，当前主流程都已接回。")
-		character_page.show_growth_handoff(
-			"当前角色信息已经接回；接下来可以前往背包、穿戴，或直接继续主线。"
-		)
+		character_page.show_growth_handoff("当前角色信息已经接回；接下来可以前往背包、穿戴，或直接继续主线。")
 		return
 
 	character_page.show_character_summary(character_record)
+	character_page.show_growth_handoff(_build_character_growth_handoff(current_character_id, from_settle))
 	if from_settle:
 		character_page.set_page_state("success", "已回到角色页，可以继续查看本轮战后成长。")
-		character_page.show_growth_handoff(
-			"这轮结果已经回流到角色页；你可以继续前往穿戴试装，或直接回主线再战一场。"
-		)
 	else:
 		character_page.set_page_state("success", "已回到角色页，当前角色和成长入口都已就位。")
-		character_page.show_growth_handoff(
-			"角色页会承接你当前的成长进度；接下来前往背包、穿戴或主线都可以。"
-		)
 
 
 func _open_stage_from_settle() -> void:
@@ -985,9 +1080,32 @@ func _merge_slot_snapshot_payload(character_id: int, slot_snapshot: Array) -> Di
 		merged_slots = slot_snapshot.duplicate(true)
 
 	return {
-		"character_id": character_id,
+		"character_id": _normalize_id_string(character_id),
 		"slots": merged_slots,
 	}
+
+
+func _build_character_growth_handoff(character_id: String, from_settle: bool) -> String:
+	var normalized_character_id := _normalize_id_string(character_id)
+	if not normalized_character_id.is_empty() and _normalize_id_string(current_character_equipment_feedback.get("character_id", "")) == normalized_character_id:
+		var slot_name := str(current_character_equipment_feedback.get("slot_name", "这格装备")).strip_edges()
+		var item_name := str(current_character_equipment_feedback.get("item_name", "当前装备")).strip_edges()
+		match str(current_character_equipment_feedback.get("change_type", "")):
+			"equip":
+				return "最近一次换装已同步：%s 现在穿着 %s；当前角色和穿戴已经连上，可以继续回主线试试这次变化。" % [
+					slot_name,
+					item_name,
+				]
+			"unequip":
+				return "最近一次换装已同步：%s 已卸下 %s；当前角色和穿戴已经连上，可以继续整理后再出战。" % [
+					slot_name,
+					item_name,
+				]
+
+	if from_settle:
+		return "这轮结果已经回流到角色页；你可以继续前往穿戴试装，或直接回主线再战一场。"
+
+	return "角色页会承接你当前的成长进度；接下来前往背包、穿戴或主线都可以。"
 
 
 func _handle_failure(page, result: Dictionary, fallback: String) -> void:
@@ -1545,6 +1663,7 @@ func _on_equip_pressed() -> void:
 		current_slots = _as_dictionary(slots_refresh_result.get("data", {}))
 	else:
 		equipment_page.show_handoff_summary("穿戴已成功；当前槽位已按服务端变更更新，完整快照稍后再刷新一次也可以。")
+	current_character_equipment_feedback = _build_equipment_feedback(character_id_value, "equip", target_slot)
 	equipment_page.render_slots(current_slots)
 	equipment_page.set_page_state(
 		"success",
@@ -1552,11 +1671,15 @@ func _on_equip_pressed() -> void:
 		if slots_refresh_result.get("ok", false)
 		else "穿戴完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
 	)
+	_refresh_product_pages()
+	_refresh_flow_summary()
 
 
 func _on_unequip_pressed() -> void:
 	var character_id_value = _parse_character_id(equipment_page.get_character_id_text())
 	var target_slot = equipment_page.get_target_slot_key()
+	var previous_slot_entry := _find_slot_snapshot_entry(current_slots, target_slot)
+	var previous_equipment := _as_dictionary(previous_slot_entry.get("equipment", {}))
 
 	if character_id_value <= 0:
 		equipment_page.set_page_state("error", "请先填写有效的角色编号。")
@@ -1589,6 +1712,12 @@ func _on_unequip_pressed() -> void:
 		current_slots = _as_dictionary(slots_refresh_result.get("data", {}))
 	else:
 		equipment_page.show_handoff_summary("卸下已成功；当前槽位已按服务端变更更新，完整快照稍后再刷新一次也可以。")
+	current_character_equipment_feedback = _build_equipment_feedback(
+		character_id_value,
+		"unequip",
+		target_slot,
+		str(previous_equipment.get("item_name", "原装备"))
+	)
 	equipment_page.render_slots(current_slots)
 	equipment_page.set_page_state(
 		"success",
@@ -1596,6 +1725,8 @@ func _on_unequip_pressed() -> void:
 		if slots_refresh_result.get("ok", false)
 		else "卸下完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
 	)
+	_refresh_product_pages()
+	_refresh_flow_summary()
 
 
 func _on_load_chapters_pressed() -> void:
@@ -2118,8 +2249,8 @@ func _extract_monster_ids(payload: Dictionary) -> PackedStringArray:
 	return monster_ids
 
 
-func _parse_character_id(text: String) -> int:
-	var trimmed := _normalize_id_string(text)
+func _parse_character_id(value: Variant) -> int:
+	var trimmed := _normalize_id_string(value)
 	if trimmed.is_empty() or not trimmed.is_valid_int():
 		return -1
 	return int(trimmed)

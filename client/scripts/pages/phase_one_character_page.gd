@@ -11,6 +11,7 @@ var current_role_status_label: Label
 var current_role_tag_row: HBoxContainer
 
 var summary_meta_label: Label
+var summary_equipment_label: Label
 var summary_stats_label: Label
 var summary_hint_label: Label
 
@@ -36,6 +37,7 @@ var tech_box: VBoxContainer
 
 var _current_records: Array = []
 var _current_stat_snapshot: Dictionary = {}
+var _current_equipment_context: Dictionary = {}
 
 
 func _init() -> void:
@@ -63,6 +65,10 @@ func _init() -> void:
 	summary_meta_label = Label.new()
 	summary_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary_card.add_child(summary_meta_label)
+
+	summary_equipment_label = Label.new()
+	summary_equipment_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary_card.add_child(summary_equipment_label)
 
 	summary_stats_label = Label.new()
 	summary_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -166,6 +172,11 @@ func set_character_stat_snapshot(snapshot: Dictionary) -> void:
 	_refresh_hero_from_records()
 
 
+func set_character_equipment_context(context: Dictionary) -> void:
+	_current_equipment_context = context.duplicate(true)
+	_refresh_hero_from_records()
+
+
 func set_character_list(records: Array, current_character_id: String) -> String:
 	_current_records = records.duplicate(true)
 
@@ -223,6 +234,7 @@ func show_character_summary(character: Dictionary) -> void:
 			current_role_tag_row.add_child(create_pill("等待创建", WARNING_TINT))
 
 		summary_meta_label.text = "锁定当前角色后，这里会马上告诉你该往哪里走。"
+		summary_equipment_label.text = "当前穿戴：待确认"
 		summary_stats_label.text = "攻击：待确认 | 防御：待确认 | 生命：待确认"
 		summary_hint_label.text = "最近一次正式出战的属性快照，会在这里回来看。"
 	else:
@@ -249,6 +261,7 @@ func show_character_summary(character: Dictionary) -> void:
 			str(resolved.get("level", "1")),
 			str(resolved.get("unspent_stat_points", "0")),
 		]
+		summary_equipment_label.text = _build_equipment_summary_text(resolved)
 		summary_stats_label.text = _build_stat_summary_text(resolved)
 		summary_hint_label.text = _build_summary_hint_text(resolved)
 
@@ -412,12 +425,24 @@ func _describe_character_brief(character: Dictionary) -> String:
 
 func _build_stat_summary_text(character: Dictionary) -> String:
 	if _stat_snapshot_matches_character(character):
-		return "攻击：%s | 防御：物防 %s / 法防 %s | 生命：%s" % [
+		var prefix := "最近一次正式出战" if _has_recent_equipment_change(character) else "攻击"
+		if prefix == "攻击":
+			return "攻击：%s | 防御：物防 %s / 法防 %s | 生命：%s" % [
+				str(_current_stat_snapshot.get("attack", "-")),
+				str(_current_stat_snapshot.get("physical_defense", "-")),
+				str(_current_stat_snapshot.get("magic_defense", "-")),
+				str(_current_stat_snapshot.get("hp", "-")),
+			]
+		return "%s：攻击 %s | 防御 物防 %s / 法防 %s | 生命 %s" % [
+			prefix,
 			str(_current_stat_snapshot.get("attack", "-")),
 			str(_current_stat_snapshot.get("physical_defense", "-")),
 			str(_current_stat_snapshot.get("magic_defense", "-")),
 			str(_current_stat_snapshot.get("hp", "-")),
 		]
+
+	if _has_recent_equipment_change(character):
+		return "当前成长：最近一次换装已经同步，精确战斗属性会在下一场正式出战时回读。"
 
 	return "攻击：待出战确认 | 防御：待出战确认 | 生命：待出战确认"
 
@@ -425,6 +450,10 @@ func _build_stat_summary_text(character: Dictionary) -> String:
 func _build_summary_hint_text(character: Dictionary) -> String:
 	if character.is_empty():
 		return "锁定当前角色后，这里会立刻切到可推进状态。"
+	if _has_recent_equipment_change(character):
+		if _stat_snapshot_matches_character(character):
+			return "最近一次换装已经同步到角色；上面数值仍是最近一次正式出战摘要，如要确认这次变化，直接回主线或出战会更自然。"
+		return "最近一次换装已经同步到角色；当前穿戴是最新的，精确战斗属性会在下一场正式出战时回读。"
 	if _stat_snapshot_matches_character(character):
 		return "以上攻击、防御、生命来自最近一次正式出战快照。"
 	if int(character.get("is_active", 0)) == 1:
@@ -437,6 +466,43 @@ func _stat_snapshot_matches_character(character: Dictionary) -> bool:
 		return false
 
 	return normalize_id_string(_current_stat_snapshot.get("character_id", "")) == normalize_id_string(character.get("character_id", ""))
+
+
+func _equipment_context_matches_character(character: Dictionary) -> bool:
+	if character.is_empty() or _current_equipment_context.is_empty():
+		return false
+
+	return normalize_id_string(_current_equipment_context.get("character_id", "")) == normalize_id_string(character.get("character_id", ""))
+
+
+func _has_recent_equipment_change(character: Dictionary) -> bool:
+	return _equipment_context_matches_character(character) and not str(_current_equipment_context.get("change_type", "")).strip_edges().is_empty()
+
+
+func _build_equipment_summary_text(character: Dictionary) -> String:
+	if not _equipment_context_matches_character(character):
+		return "当前穿戴：回到穿戴页后，这里会承接最新换装状态。"
+
+	var slot_count := int(_current_equipment_context.get("slot_count", 0))
+	var equipped_count := int(_current_equipment_context.get("equipped_count", 0))
+	var empty_count := int(_current_equipment_context.get("empty_count", maxi(slot_count - equipped_count, 0)))
+	var has_slot_snapshot := bool(_current_equipment_context.get("has_slot_snapshot", false))
+	var base_text := "当前穿戴：已同步最新穿戴状态。"
+	if has_slot_snapshot and slot_count > 0:
+		base_text = "当前穿戴：已穿戴 %d / 空槽 %d。" % [equipped_count, empty_count]
+
+	if not _has_recent_equipment_change(character):
+		return base_text
+
+	var slot_name := str(_current_equipment_context.get("slot_name", "当前槽位")).strip_edges()
+	var item_name := str(_current_equipment_context.get("item_name", "当前装备")).strip_edges()
+	match str(_current_equipment_context.get("change_type", "")):
+		"equip":
+			return "%s 最近一次换装：%s 现在穿着 %s。" % [base_text, slot_name, item_name]
+		"unequip":
+			return "%s 最近一次换装：%s 已卸下 %s。" % [base_text, slot_name, item_name]
+		_:
+			return base_text
 
 
 func _refresh_action_panel(character: Dictionary) -> void:
@@ -453,6 +519,11 @@ func _refresh_action_panel(character: Dictionary) -> void:
 		return
 
 	if int(character.get("is_active", 0)) == 1:
+		if _has_recent_equipment_change(character):
+			action_status_label.text = "最近一次换装已经同步到当前角色；现在最自然的是去主线或出战确认这次变化，也可以回穿戴继续调整。"
+			activate_button.text = "已经启用"
+			activate_button.disabled = true
+			return
 		action_status_label.text = "这名角色已经能直接上阵，可以继续去背包、穿戴或主线。"
 		activate_button.text = "已经启用"
 		activate_button.disabled = true
@@ -483,6 +554,11 @@ func _refresh_recommendation(character: Dictionary) -> void:
 	if int(character.get("is_active", 0)) == 0:
 		recommendation_label.text = "先启用这名角色，再去主线推进会更自然。"
 		_set_recommendation_action("启用这名角色", "activate_current_character")
+		return
+
+	if _has_recent_equipment_change(character):
+		recommendation_label.text = "最近一次换装已经接回角色，最顺的下一步是去主线或出战确认这次变化。"
+		_set_recommendation_action("去主线", "navigate_stage")
 		return
 
 	recommendation_label.text = "先去主线推进；如果想先整理收益，也可以顺手前往背包或穿戴。"
