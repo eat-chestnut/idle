@@ -10,9 +10,11 @@ const DEFAULTS := {
 	"character_name": "联调角色",
 	"character_id": "1001",
 	"battle_character_id": "1001",
+	"chapter_id": "",
 	"stage_id": "stage_nanshan_001",
 	"stage_difficulty_id": "stage_nanshan_001_normal",
 	"recent_characters": [],
+	"recent_chapter_ids": [],
 	"recent_stage_ids": ["stage_nanshan_001"],
 	"recent_stage_difficulty_ids": ["stage_nanshan_001_normal"],
 }
@@ -33,6 +35,7 @@ static func load_config() -> Dictionary:
 		"character_name",
 		"character_id",
 		"battle_character_id",
+		"chapter_id",
 		"stage_id",
 		"stage_difficulty_id",
 	]:
@@ -40,6 +43,9 @@ static func load_config() -> Dictionary:
 
 	resolved["recent_characters"] = _normalize_recent_characters(
 		config.get_value(CONFIG_SECTION, "recent_characters", DEFAULTS["recent_characters"])
+	)
+	resolved["recent_chapter_ids"] = _normalize_string_list(
+		config.get_value(CONFIG_SECTION, "recent_chapter_ids", DEFAULTS["recent_chapter_ids"])
 	)
 	resolved["recent_stage_ids"] = _normalize_string_list(
 		config.get_value(CONFIG_SECTION, "recent_stage_ids", DEFAULTS["recent_stage_ids"])
@@ -65,6 +71,7 @@ static func save_config(values: Dictionary) -> int:
 		"character_name",
 		"character_id",
 		"battle_character_id",
+		"chapter_id",
 		"stage_id",
 		"stage_difficulty_id",
 	]:
@@ -74,6 +81,11 @@ static func save_config(values: Dictionary) -> int:
 		CONFIG_SECTION,
 		"recent_characters",
 		_normalize_recent_characters(values.get("recent_characters", DEFAULTS["recent_characters"]))
+	)
+	config.set_value(
+		CONFIG_SECTION,
+		"recent_chapter_ids",
+		_normalize_string_list(values.get("recent_chapter_ids", DEFAULTS["recent_chapter_ids"]))
 	)
 	config.set_value(
 		CONFIG_SECTION,

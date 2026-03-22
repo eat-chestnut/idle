@@ -24,6 +24,7 @@ var reward_status_label: Label
 var reward_detail_label: Label
 var reward_tag_row: HBoxContainer
 
+var target_summary_label: Label
 var next_action_label: Label
 var next_action_button: Button
 
@@ -98,6 +99,20 @@ func _init() -> void:
 	difficulty_cards_box.add_theme_constant_override("separation", 10)
 	difficulty_card.add_child(difficulty_cards_box)
 
+	var action_card := add_card("当前目标", "锁定章节、关卡和难度后，这里会直接给出出战入口。")
+	target_summary_label = Label.new()
+	target_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	target_summary_label.modulate = CARD_TEXT_MUTED
+	action_card.add_child(target_summary_label)
+
+	next_action_label = Label.new()
+	next_action_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	action_card.add_child(next_action_label)
+
+	var action_buttons := add_button_row(action_card)
+	next_action_button = add_action_button(action_buttons, "进入出战", "navigate_prepare")
+	style_primary_button(next_action_button)
+
 	var reward_card := add_card("当前奖励状态", "首通奖励状态会跟着当前难度一起刷新。")
 	reward_status_label = Label.new()
 	reward_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -111,15 +126,6 @@ func _init() -> void:
 	reward_tag_row = HBoxContainer.new()
 	reward_tag_row.add_theme_constant_override("separation", 8)
 	reward_card.add_child(reward_tag_row)
-
-	var action_card := add_card("下一步", "目标锁定后，直接进入出战页。")
-	next_action_label = Label.new()
-	next_action_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	action_card.add_child(next_action_label)
-
-	var action_buttons := add_button_row(action_card)
-	next_action_button = add_action_button(action_buttons, "进入出战", "navigate_prepare")
-	style_primary_button(next_action_button)
 
 	var tech_card := add_card("联调覆盖", "手动读取与技术字段都下沉到次级区域。")
 	var tech_buttons := add_button_row(tech_card)
@@ -182,36 +188,40 @@ func get_selected_stage_difficulty() -> String:
 	return _selected_stage_difficulty_id
 
 
-func render_chapters(payload: Dictionary, current_chapter_id: String = "") -> void:
+func render_chapters(payload: Dictionary, preferred_chapter_ids: Array = []) -> void:
 	_chapters_payload = payload.duplicate(true)
 	var chapters: Array = _as_dictionary_array(payload.get("chapters", []))
 	_selected_chapter_id = _resolve_preferred_identifier(
 		chapters,
 		"chapter_id",
-		[current_chapter_id, _selected_chapter_id]
+		preferred_chapter_ids
 	)
 	_refresh_stage_page()
 
 
-func render_stages(payload: Dictionary) -> void:
+func render_stages(payload: Dictionary, preferred_stage_ids: Array = []) -> void:
 	_stages_payload = payload.duplicate(true)
 	var stages: Array = _as_dictionary_array(payload.get("stages", []))
 	_selected_stage_id = _resolve_preferred_identifier(
 		stages,
 		"stage_id",
-		[get_stage_id_text()]
+		preferred_stage_ids
 	)
 	stage_id_input.text = _selected_stage_id
 	_refresh_stage_page()
 
 
-func render_difficulties(payload: Dictionary, reward_status: Dictionary) -> void:
+func render_difficulties(
+	payload: Dictionary,
+	reward_status: Dictionary,
+	preferred_stage_difficulty_ids: Array = []
+) -> void:
 	_difficulties_payload = payload.duplicate(true)
 	_reward_status_payload = reward_status.duplicate(true)
 	_selected_stage_difficulty_id = _resolve_preferred_identifier(
 		_as_dictionary_array(payload.get("difficulties", [])),
 		"stage_difficulty_id",
-		[_selected_stage_difficulty_id]
+		preferred_stage_difficulty_ids
 	)
 	_refresh_stage_page()
 	set_output_json({
@@ -552,25 +562,34 @@ func _refresh_next_action() -> void:
 	var difficulty := _find_difficulty(_selected_stage_difficulty_id)
 
 	if chapter.is_empty():
-		next_action_label.text = "先让主线页自动锁定一个当前章节。"
+		target_summary_label.text = "主线页会先帮你锁定一个可推进章节，再把这一章的关卡直接铺开。"
+		next_action_label.text = "当前还没锁定章节，稍后会自动展开可推进内容。"
 		next_action_button.disabled = true
 		return
 
 	if stage.is_empty():
-		next_action_label.text = "下一步先选一关。选中关卡后，这里会直接给你进入出战入口。"
+		target_summary_label.text = "当前章节：%s。先从这一章里挑一关，难度区就会立刻展开。" % [
+			str(chapter.get("chapter_name", "当前章节")),
+		]
+		next_action_label.text = "这一章已经展开，先选一关再决定挑战难度。"
 		next_action_button.disabled = true
 		return
 
 	if difficulty.is_empty():
-		next_action_label.text = "当前关卡已经锁定，下一步请选择难度。"
+		target_summary_label.text = "当前目标：%s / %s。下一步从下方难度里选一档。" % [
+			str(chapter.get("chapter_name", "当前章节")),
+			str(stage.get("stage_name", "当前关卡")),
+		]
+		next_action_label.text = "这一关已经锁定，选好难度后就能直接进入出战。"
 		next_action_button.disabled = true
 		return
 
-	next_action_label.text = "当前推荐：%s / %s / %s，已经可以进入出战。" % [
+	target_summary_label.text = "当前目标：%s / %s / %s。" % [
 		str(chapter.get("chapter_name", "当前章节")),
 		str(stage.get("stage_name", "当前关卡")),
 		str(difficulty.get("difficulty_name", "当前难度")),
 	]
+	next_action_label.text = "目标已经锁定，首通奖励状态也会跟着更新，现在可以直接进入出战。"
 	next_action_button.disabled = false
 
 

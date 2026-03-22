@@ -224,7 +224,7 @@ func _set_initial_states() -> void:
 	equipment_page.set_page_state("empty", "先确认当前角色，再刷新穿戴槽。")
 	equipment_page.set_output_text("等待穿戴槽刷新。")
 
-	stage_page.set_page_state("empty", "进入主线后，会自动展开当前章节和可挑战关卡。")
+	stage_page.set_page_state("loading", "进入主线后，会自动展开当前章节、关卡和难度。")
 	stage_page.set_output_text("等待章节、关卡、难度与首通奖励状态回读。")
 
 	prepare_page.set_page_state("empty", "当前角色和目标锁定后，这里就能直接开始战斗。")
@@ -310,6 +310,27 @@ func _build_available_stage_difficulty_ids() -> Array:
 		return difficulty_ids
 
 	return _as_array(saved_config.get("recent_stage_difficulty_ids", []))
+
+
+func _build_available_chapter_ids() -> Array:
+	var chapter_ids: Array = []
+	for chapter_id in _as_array(saved_config.get("recent_chapter_ids", [])):
+		var normalized_chapter_id := str(chapter_id).strip_edges()
+		if normalized_chapter_id.is_empty() or chapter_ids.has(normalized_chapter_id):
+			continue
+		chapter_ids.append(normalized_chapter_id)
+		if chapter_ids.size() >= 8:
+			return chapter_ids
+	for chapter in _as_array(current_chapters.get("chapters", [])):
+		var entry := _as_dictionary(chapter)
+		var chapter_id = str(entry.get("chapter_id", "")).strip_edges()
+		if chapter_id.is_empty() or chapter_ids.has(chapter_id):
+			continue
+		chapter_ids.append(chapter_id)
+		if chapter_ids.size() >= 8:
+			return chapter_ids
+
+	return chapter_ids
 
 
 func _build_recent_character_records() -> Array:
@@ -504,55 +525,43 @@ func _refresh_flow_summary() -> void:
 	var detail_character = _describe_character(character_page.get_character_id_text())
 	var battle_character = _describe_character(prepare_page.get_character_id_text())
 	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
-	var chapter_id := str(route_context.get("chapter_id", "")).strip_edges()
-	var stage_id := str(route_context.get("stage_id", "")).strip_edges()
-	var stage_difficulty_id := str(route_context.get("stage_difficulty_id", "")).strip_edges()
-	var chapter_name := str(route_context.get("chapter_name", "章节待选择"))
-	var stage_name := str(route_context.get("stage_name", "关卡待选择"))
-	var difficulty_name := str(route_context.get("difficulty_name", "难度待选择"))
 	var battle_context_id = settle_page.get_battle_context_text()
-	var next_step = "先在“环境与 Token”页完成 /readyz 预检。"
+	var route_summary := _build_flow_route_summary(route_context)
+	var lines := ["当前主流程：角色成长 -> 主线推进 -> 出战 -> 战斗 -> 结果"]
 
-	if str(config_values.get("base_url", "")).strip_edges().is_empty():
-		next_step = "先填写 backend 地址。"
-	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
-		next_step = "先填写 Bearer Token。"
-	elif not has_loaded_character_list and current_character_detail.is_empty():
-		next_step = "读取角色列表；若为空，再创建角色。"
-	elif prepare_page.get_character_id_text().strip_edges().is_empty():
-		next_step = "确认当前出战角色，并在需要时先执行角色激活。"
-	elif stage_id.is_empty():
-		next_step = "进入主线页读取章节与关卡。"
-	elif stage_difficulty_id.is_empty():
-		next_step = "选择难度，系统会同步首通奖励状态。"
-	elif battle_context_id.is_empty():
-		next_step = "进入出战页，锁定本次战斗信息。"
-	elif current_settle_result.is_empty():
-		next_step = "进入战斗页推进走位并完成结算。"
+	if detail_character == battle_character:
+		lines.append("当前角色：%s" % detail_character)
 	else:
-		next_step = "查看战斗结果，并决定返回主线还是去背包。"
+		lines.append("当前角色：详情 %s | 出战 %s" % [detail_character, battle_character])
 
-	var lines := [
-		"正式主流程：1 角色主页 -> 2 背包/穿戴 -> 3 主线推进 -> 4 出战确认 -> 5 战斗 -> 6 结果页",
-		"当前推进：详情角色 %s | 出战角色 %s | 主线 %s / %s / %s" % [
-			detail_character,
-			battle_character,
-			chapter_name,
-			stage_name,
-			difficulty_name,
-		],
-	]
+	lines.append("主线目标：%s" % route_summary)
 
 	if not battle_context_id.is_empty():
-		lines.append("当前战斗上下文已承接，可继续推进战斗和结算。")
+		lines.append("出战信息已经就位，可以继续推进这一场战斗。")
+	elif prepare_page.get_character_id_text().strip_edges().is_empty():
+		lines.append("先确认出战角色，再去锁定本次目标。")
+	elif stage_page.get_selected_chapter_id().is_empty():
+		lines.append("进入主线页后，会自动展开当前可推进章节。")
+	elif stage_page.get_stage_id_text().is_empty():
+		lines.append("这一章已经展开，挑一关后就会出现难度。")
+	elif stage_page.get_selected_stage_difficulty().is_empty():
+		lines.append("难度锁定后，主线页会把当前目标直接带去出战。")
+	elif current_settle_result.is_empty():
+		lines.append("目标已经锁定，去“出战”页就能开始这一场战斗。")
+	else:
+		lines.append("这轮结果已经回流，可以回主线继续推进或去背包整理收获。")
 
-	lines.append("下一步建议：%s" % next_step)
+	if str(config_values.get("base_url", "")).strip_edges().is_empty():
+		lines.append("先补上 backend 地址，再继续当前主流程。")
+	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
+		lines.append("先补上 Bearer Token，再继续当前主流程。")
+	elif not has_loaded_character_list and current_character_detail.is_empty():
+		lines.append("角色列表还没同步，先去角色页确认当前角色。")
 
 	var current_character = _as_dictionary(current_character_detail.get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
 		lines.append(
-			"提示：当前详情角色还未启用；"
-			+ "可在角色页或出战页先激活后再进入战斗。"
+			"提示：当前详情角色还未启用；可在角色页或出战页先激活后再进入战斗。"
 		)
 
 	flow_summary_label.text = "\n".join(lines)
@@ -561,7 +570,7 @@ func _refresh_flow_summary() -> void:
 func _describe_character(character_id: String) -> String:
 	var normalized_id = character_id.strip_edges()
 	if normalized_id.is_empty():
-		return "(未选择)"
+		return "待确认"
 
 	for record in _as_array(current_character_list.get("characters", [])):
 		var listed_entry := _as_dictionary(record)
@@ -582,6 +591,23 @@ func _describe_character(character_id: String) -> String:
 			return "%s #%s" % [str(entry.get("character_name", "角色")), normalized_id]
 
 	return "#%s" % normalized_id
+
+
+func _build_flow_route_summary(route_context: Dictionary) -> String:
+	var chapter_id := str(route_context.get("chapter_id", "")).strip_edges()
+	var stage_id := str(route_context.get("stage_id", "")).strip_edges()
+	var stage_difficulty_id := str(route_context.get("stage_difficulty_id", "")).strip_edges()
+	var chapter_name := str(route_context.get("chapter_name", "待选章节"))
+	var stage_name := str(route_context.get("stage_name", "待选关卡"))
+	var difficulty_name := str(route_context.get("difficulty_name", "待选难度"))
+
+	if chapter_id.is_empty():
+		return "准备查看当前可推进章节"
+	if stage_id.is_empty():
+		return "%s，正在挑选关卡" % chapter_name
+	if stage_difficulty_id.is_empty():
+		return "%s -> %s，正在挑选难度" % [chapter_name, stage_name]
+	return "%s -> %s -> %s" % [chapter_name, stage_name, difficulty_name]
 
 
 func _find_character_record(character_id: String) -> Dictionary:
@@ -1055,7 +1081,11 @@ func _on_fill_default_config_pressed() -> void:
 		"character_id": "1001",
 	})
 	equipment_page.set_character_id("1001")
-	stage_page.apply_config({"stage_id": "stage_nanshan_001"})
+	stage_page.apply_config({
+		"chapter_id": "chapter_nanshan_001",
+		"stage_id": "stage_nanshan_001",
+		"stage_difficulty_id": "stage_nanshan_001_normal",
+	})
 	prepare_page.apply_config({
 		"battle_character_id": "1001",
 		"stage_difficulty_id": "stage_nanshan_001_normal",
@@ -1487,7 +1517,7 @@ func _on_load_chapters_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_chapters = data
-	stage_page.render_chapters(data, stage_page.get_selected_chapter_id())
+	stage_page.render_chapters(data, _build_preferred_chapter_ids())
 
 	if _as_array(data.get("chapters", [])).is_empty():
 		has_loaded_stages = false
@@ -1523,6 +1553,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 
 	_persist_runtime_config()
 	stage_page.set_selected_chapter_id(chapter_id_value)
+	_remember_chapter_id(chapter_id_value)
 	stage_page.set_page_state("loading", "正在展开当前章节的关卡。")
 	var result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id_value)
 
@@ -1538,7 +1569,7 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	current_reward_status = {}
 	prepare_page.set_stage_difficulty_id("")
 	settle_page.set_stage_difficulty_id("")
-	stage_page.render_stages(data)
+	stage_page.render_stages(data, _build_preferred_stage_ids())
 	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
@@ -1579,7 +1610,7 @@ func _on_load_difficulties_pressed() -> void:
 	current_difficulties = data
 	has_loaded_difficulties = true
 	current_reward_status = {}
-	stage_page.render_difficulties(data, current_reward_status)
+	stage_page.render_difficulties(data, current_reward_status, _build_preferred_stage_difficulty_ids())
 	stage_page.set_stage_summary(
 		_as_array(current_chapters.get("chapters", [])).size(),
 		_as_array(current_stages.get("stages", [])).size(),
@@ -1924,11 +1955,63 @@ func _remember_stage_id(stage_id: String) -> void:
 	)
 
 
+func _remember_chapter_id(chapter_id: String) -> void:
+	var normalized_chapter_id := chapter_id.strip_edges()
+	if normalized_chapter_id.is_empty():
+		return
+
+	saved_config["chapter_id"] = normalized_chapter_id
+	saved_config["recent_chapter_ids"] = ClientConfigStoreScript.upsert_recent_string(
+		_as_array(saved_config.get("recent_chapter_ids", [])),
+		normalized_chapter_id
+	)
+
+
 func _remember_stage_difficulty_id(stage_difficulty_id: String) -> void:
 	saved_config["recent_stage_difficulty_ids"] = ClientConfigStoreScript.upsert_recent_string(
 		_as_array(saved_config.get("recent_stage_difficulty_ids", [])),
 		stage_difficulty_id
 	)
+
+
+func _build_preferred_chapter_ids() -> Array:
+	var candidates: Array = [
+		stage_page.get_selected_chapter_id(),
+		str(current_stages.get("chapter_id", "")).strip_edges(),
+		str(saved_config.get("chapter_id", "")).strip_edges(),
+	]
+
+	for chapter_id in _build_available_chapter_ids():
+		candidates.append(chapter_id)
+
+	return candidates
+
+
+func _build_preferred_stage_ids() -> Array:
+	var candidates: Array = [
+		stage_page.get_stage_id_text(),
+		str(current_difficulties.get("stage_id", "")).strip_edges(),
+		str(saved_config.get("stage_id", "")).strip_edges(),
+	]
+
+	for stage_id in _as_array(saved_config.get("recent_stage_ids", [])):
+		candidates.append(str(stage_id).strip_edges())
+
+	return candidates
+
+
+func _build_preferred_stage_difficulty_ids() -> Array:
+	var candidates: Array = [
+		stage_page.get_selected_stage_difficulty(),
+		prepare_page.get_stage_difficulty_text(),
+		settle_page.get_stage_difficulty_text(),
+		str(saved_config.get("stage_difficulty_id", "")).strip_edges(),
+	]
+
+	for stage_difficulty_id in _as_array(saved_config.get("recent_stage_difficulty_ids", [])):
+		candidates.append(str(stage_difficulty_id).strip_edges())
+
+	return candidates
 
 
 func _extract_monster_ids(payload: Dictionary) -> PackedStringArray:
