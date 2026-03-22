@@ -75,7 +75,7 @@ func _ready() -> void:
 func _init() -> void:
 	setup_page("战斗", [])
 
-	var header_card := add_card("战场进行中", "")
+	var header_card := add_card("我正在战斗", "")
 	route_title_label = Label.new()
 	route_title_label.add_theme_font_size_override("font_size", 22)
 	header_card.add_child(route_title_label)
@@ -104,10 +104,10 @@ func _init() -> void:
 	header_card.add_child(target_status_label)
 
 	var header_buttons := add_button_row(header_card)
-	add_action_button(header_buttons, "回到出战", "navigate_prepare")
+	add_action_button(header_buttons, "回出战页", "navigate_prepare")
 	pause_button = add_button(header_buttons, "暂停", _toggle_pause)
 
-	var arena_card := add_card("当前战场", "")
+	var arena_card := add_card("这一场战场", "")
 	battle_view = Control.new()
 	battle_view.custom_minimum_size = Vector2(0, 590)
 	battle_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -119,7 +119,7 @@ func _init() -> void:
 	battle_world.position = Vector2.ZERO
 	battle_view.add_child(battle_world)
 
-	var action_card := add_card("我的动作", "")
+	var action_card := add_card("战场动作", "")
 
 	player_feedback_label = Label.new()
 	player_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -161,7 +161,7 @@ func _init() -> void:
 	add_button(movement_row, "后撤", func() -> void:
 		_move_player(Vector2(0.0, 36.0), "后撤调整")
 	)
-	add_button(movement_row, "收束这一场", func() -> void:
+	add_button(movement_row, "收兵结算", func() -> void:
 		_request_settle(false)
 	)
 
@@ -199,7 +199,7 @@ func load_battle(payload: Dictionary, route_context: Dictionary, reward_status: 
 	_build_monster_states()
 	_sync_header()
 	_sync_world()
-	set_page_state("success", "敌人已经出现，这一场可以直接接敌。")
+	set_page_state("success", "敌人已经现身，这一场可以直接开打。")
 	set_output_json(payload)
 
 
@@ -223,17 +223,17 @@ func reset_battle_space() -> void:
 	_screen_shake_timer = 0.0
 	_screen_shake_strength = 0.0
 	_message_cooldown = 0.0
-	route_title_label.text = "等待进入战场"
-	route_meta_label.text = "先回出战页锁定角色和目标，再进入这一场。"
-	battle_hint_label.text = "玩家会在中下区域迎敌，怪物会从中上区域继续压近。"
-	battle_state_label.text = "战场状态：等待开打。"
-	progress_label.text = "战场进度：还没有敌方数据。"
-	target_status_label.text = "当前目标：等待敌方入场。"
-	drop_status_label.text = "掉落显现：敌人倒下后会短暂出现战利品影子。"
-	movement_status_label.text = "可用动作：前压、左右微调、后撤、出手、收束。"
+	route_title_label.text = "等待进场"
+	route_meta_label.text = "先回出战页定下角色和目标，再走进这一场。"
+	battle_hint_label.text = "怪物会从前方压过来，主角会在下方迎敌。"
+	battle_state_label.text = "战场状态：等待进场。"
+	progress_label.text = "战场进度：敌方尚未现身。"
+	target_status_label.text = "当前目标：等待敌方露面。"
+	drop_status_label.text = "战利品影子：敌人倒下后会短暂浮现。"
+	movement_status_label.text = "可用动作：前压、左右微调、后撤、出手、收兵结算。"
 	player_feedback_label.text = "前线反馈：这一场还没开始。"
-	player_status_label.text = "状态：先在出战页确认角色与难度。"
-	player_position_label.text = "当前位置：进入战场后会在这里回报站位。"
+	player_status_label.text = "状态：先在出战页定下角色和目标。"
+	player_position_label.text = "当前位置：进场后会在这里回报站位。"
 	clear_container(battle_world)
 	set_output_json({})
 	_update_interaction_state()
@@ -247,7 +247,7 @@ func allow_retry_settle() -> void:
 	_battle_phase = "finish_pause" if _alive_monster_count() == 0 else "interactive"
 	_battle_state_text = "可再次收束"
 	_player_status_text = "正式结算未完成，可继续提交"
-	movement_status_label.text = "这一场还没正式收束，可以继续整理站位后再试一次。"
+	movement_status_label.text = "这场还没正式结算，可以继续调整站位后再试一次。"
 	_update_interaction_state()
 	_refresh_status_panels()
 
@@ -319,11 +319,11 @@ func _sync_header() -> void:
 	var stage_name := str(_route_context.get("stage_name", "关卡"))
 	var difficulty_name := str(_route_context.get("difficulty_name", "难度"))
 	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
-	route_meta_label.text = "当前挑战：%s | 推荐战力 %s | 我方在中下区域迎敌" % [
+	route_meta_label.text = "这一场：%s | 推荐战力 %s | 我方在下方迎敌" % [
 		str(_prepare_payload.get("character", {}).get("character_name", "未准备")),
 		str(_route_context.get("recommended_power", "-")),
 	]
-	battle_hint_label.text = "怪物会从中上区域继续压近；建议先前压接敌，再配合左右微调找出手机会。"
+	battle_hint_label.text = "怪物会从前方继续压近；先前压接敌，再配合左右微调找出手机会。"
 	_refresh_progress_text()
 	_refresh_drop_status()
 	_refresh_status_panels()

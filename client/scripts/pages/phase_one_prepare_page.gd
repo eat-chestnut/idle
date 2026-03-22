@@ -49,7 +49,7 @@ var _prepare_payload: Dictionary = {}
 func _init() -> void:
 	setup_page("出战", [])
 
-	var header_card := add_card("出战前确认", "")
+	var header_card := add_card("这场要不要打", "")
 	header_target_label = Label.new()
 	header_target_label.add_theme_font_size_override("font_size", 24)
 	header_card.add_child(header_target_label)
@@ -62,7 +62,7 @@ func _init() -> void:
 	header_tag_row.add_theme_constant_override("separation", 8)
 	header_card.add_child(header_tag_row)
 
-	var character_card := add_card("当前角色", "")
+	var character_card := add_card("出战的是谁", "")
 	character_name_label = Label.new()
 	character_name_label.add_theme_font_size_override("font_size", 22)
 	character_card.add_child(character_name_label)
@@ -80,7 +80,7 @@ func _init() -> void:
 	character_tag_row.add_theme_constant_override("separation", 8)
 	character_card.add_child(character_tag_row)
 
-	var route_card := add_card("当前目标", "")
+	var route_card := add_card("这一场打哪里", "")
 	route_title_label = Label.new()
 	route_title_label.add_theme_font_size_override("font_size", 22)
 	route_card.add_child(route_title_label)
@@ -98,7 +98,7 @@ func _init() -> void:
 	route_tag_row.add_theme_constant_override("separation", 8)
 	route_card.add_child(route_tag_row)
 
-	var enemy_card := add_card("敌方阵容", "")
+	var enemy_card := add_card("这一场会遇到谁", "")
 	enemy_summary_label = Label.new()
 	enemy_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	enemy_card.add_child(enemy_summary_label)
@@ -113,7 +113,7 @@ func _init() -> void:
 	monster_rows_box.add_theme_constant_override("separation", 10)
 	enemy_card.add_child(monster_rows_box)
 
-	var reward_card := add_card("首通奖励", "")
+	var reward_card := add_card("这一档奖励", "")
 	reward_status_label = Label.new()
 	reward_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	reward_card.add_child(reward_status_label)
@@ -133,10 +133,10 @@ func _init() -> void:
 	action_card.add_child(action_status_label)
 
 	var buttons := add_button_row(action_card)
-	primary_prepare_button = add_action_button(buttons, "开始战斗", "prepare")
+	primary_prepare_button = add_action_button(buttons, "开打这一场", "prepare")
 	style_primary_button(primary_prepare_button)
-	activate_button = add_action_button(buttons, "启用角色", "activate_battle_character")
-	back_stage_button = add_action_button(buttons, "回主线换目标", "navigate_stage")
+	activate_button = add_action_button(buttons, "先启用角色", "activate_battle_character")
+	back_stage_button = add_action_button(buttons, "回主线改目标", "navigate_stage")
 
 	var tech_card := add_card("调试区", "快速切换和技术字段都留在这里，不占首屏。")
 	recent_character_selector = add_labeled_option_button("快速切换角色", tech_card)
@@ -266,11 +266,11 @@ func _refresh_header() -> void:
 	var stage_name := str(route_context.get("stage_name", "请先回主线选关"))
 	var difficulty_name := str(route_context.get("difficulty_name", "请先选难度"))
 
-	header_target_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
+	header_target_label.text = "这一场：%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
 	if character.is_empty():
-		header_character_label.text = "当前角色：待确认"
+		header_character_label.text = "出战角色：待确认"
 	else:
-		header_character_label.text = "当前角色：%s" % _character_title(character)
+		header_character_label.text = "出战角色：%s" % _character_title(character)
 
 	clear_container(header_tag_row)
 	if not character.is_empty():
@@ -289,18 +289,18 @@ func _refresh_character_summary(preview_character: Dictionary, preview_stats: Di
 
 	if character.is_empty():
 		character_name_label.text = "当前角色待确认"
-		character_status_label.text = "请先在角色页确认当前角色，或回主线重新选定目标。"
+		character_status_label.text = "先去角色页认出这次出战的是谁，或回主线改目标。"
 		character_stat_label.text = "攻击 / 防御 / 生命会在开打前按正式快照确认。"
 		character_tag_row.add_child(create_pill("等待角色", CHARACTER_TINT))
 		return
 
 	character_name_label.text = _character_title(character)
 	if int(character.get("is_active", 0)) == 1:
-		character_status_label.text = "当前角色已启用，这一场可以直接出战。"
+		character_status_label.text = "这名角色已经能直接开打。"
 		character_tag_row.add_child(create_pill("当前启用", REWARD_TINT))
 		character_tag_row.add_child(create_pill("可出战", REWARD_TINT))
 	else:
-		character_status_label.text = "当前角色还没启用，先启用后再开始战斗会更顺。"
+		character_status_label.text = "这名角色还没启用，先启用后再开始战斗会更顺。"
 		character_tag_row.add_child(create_pill("待启用", WARNING_TINT))
 		character_tag_row.add_child(create_pill("暂不可出战", WARNING_TINT))
 
@@ -326,7 +326,7 @@ func _refresh_route_summary(preview_stage_difficulty: Dictionary) -> void:
 		recommended_power = str(preview_stage_difficulty.get("recommended_power", recommended_power))
 
 	route_title_label.text = "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
-	route_meta_label.text = "当前挑战：%s · %s · %s | 推荐战力 %s" % [
+	route_meta_label.text = "去向：%s · %s · %s | 推荐战力 %s" % [
 		chapter_name,
 		stage_name,
 		difficulty_name,
@@ -334,9 +334,9 @@ func _refresh_route_summary(preview_stage_difficulty: Dictionary) -> void:
 	]
 
 	if str(route_context.get("stage_difficulty_id", "")).is_empty():
-		route_recommendation_label.text = "先回主线锁定难度，这里就会进入可开打状态。"
+		route_recommendation_label.text = "先回主线定下这一档，这里就会进入可开打状态。"
 	else:
-		route_recommendation_label.text = "当前目标已经锁定；确认角色状态后就可以决定要不要开打。"
+		route_recommendation_label.text = "目标已经定下；确认角色状态后就可以决定要不要开打。"
 
 	clear_container(route_tag_row)
 	if not str(route_context.get("chapter_name", "")).is_empty():
@@ -386,7 +386,7 @@ func _refresh_reward_summary() -> void:
 	if _reward_status.is_empty():
 		reward_detail_label.text = "首通奖励状态会跟着当前难度自动同步。"
 	else:
-		reward_detail_label.text = "当前难度的奖励状态已经同步，开始战斗后会在结果页正式回显。"
+		reward_detail_label.text = "这一档奖励状态已经同步，开打后会在收获页正式回显。"
 
 	clear_container(reward_tag_row)
 	reward_tag_row.add_child(create_pill(_reward_tag_text(_reward_status), REWARD_TINT if int(_reward_status.get("has_reward", 0)) == 1 else CHARACTER_TINT))
@@ -399,13 +399,13 @@ func _refresh_action_area() -> void:
 	var can_start := has_character and has_difficulty and is_active
 
 	if not has_character:
-		action_status_label.text = "先确认当前角色，再决定要不要开打。"
+		action_status_label.text = "先认出这次出战的是谁，再决定要不要开打。"
 	elif not has_difficulty:
-		action_status_label.text = "先回主线锁定难度，再决定要不要开打。"
+		action_status_label.text = "先回主线定下这一档，再决定要不要开打。"
 	elif not is_active:
-		action_status_label.text = "当前角色还没启用，先启用后就能开始战斗。"
+		action_status_label.text = "这名角色还没启用，先启用后就能开始战斗。"
 	else:
-		action_status_label.text = "当前角色和目标都已锁定，可以直接开打。"
+		action_status_label.text = "角色和目标都已定下，可以直接开打。"
 
 	primary_prepare_button.disabled = not can_start
 	activate_button.visible = has_character and not is_active

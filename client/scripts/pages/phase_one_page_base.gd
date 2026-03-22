@@ -16,22 +16,22 @@ const STATUS_COLORS := {
 	"unauthorized": Color(0.97, 0.66, 0.36),
 }
 const STATUS_LABELS := {
-	"empty": "待出发",
+	"empty": "待推进",
 	"loading": "同步中",
 	"preparing": "整备中",
-	"settling": "整理中",
+	"settling": "收束中",
 	"success": "已就位",
-	"error": "需重试",
-	"unauthorized": "需登录",
+	"error": "需调整",
+	"unauthorized": "需重连",
 }
 const STATUS_TITLES := {
-	"empty": "还没走到这一步",
-	"loading": "正在更新当前页",
-	"preparing": "正在整理这一场",
-	"settling": "正在汇总这一场",
-	"success": "当前页已经就位",
-	"error": "这一步暂时没完成",
-	"unauthorized": "登录状态需要重新确认",
+	"empty": "这一步还没开始",
+	"loading": "正在把这一页补齐",
+	"preparing": "正在为这一场做准备",
+	"settling": "正在收回这一场的结果",
+	"success": "这一步已经准备好了",
+	"error": "这一步还没完成",
+	"unauthorized": "需要重新连上后端",
 }
 const STATUS_HINTS := {
 	"empty": "",
@@ -39,8 +39,8 @@ const STATUS_HINTS := {
 	"preparing": "",
 	"settling": "",
 	"success": "",
-	"error": "保持当前选择不变，调整后再试一次。",
-	"unauthorized": "回到“环境”页重新确认 backend 地址和 Bearer Token。",
+	"error": "保持当前选择，补齐这一步后再试一次。",
+	"unauthorized": "回到“环境”页重新确认地址和 Bearer Token。",
 }
 
 const CARD_BACKGROUND := Color(0.09, 0.12, 0.18, 0.96)
@@ -75,15 +75,15 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	page_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	page_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page_margin.add_theme_constant_override("margin_left", 2)
-	page_margin.add_theme_constant_override("margin_top", 4)
+	page_margin.add_theme_constant_override("margin_top", 2)
 	page_margin.add_theme_constant_override("margin_right", 2)
-	page_margin.add_theme_constant_override("margin_bottom", 20)
+	page_margin.add_theme_constant_override("margin_bottom", 16)
 	add_child(page_margin)
 
 	_shell = VBoxContainer.new()
 	_shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_shell.add_theme_constant_override("separation", 12)
+	_shell.add_theme_constant_override("separation", 10)
 	page_margin.add_child(_shell)
 
 	if not hints.is_empty():
@@ -97,20 +97,20 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	_shell.add_child(status_panel)
 
 	var status_margin := MarginContainer.new()
-	status_margin.add_theme_constant_override("margin_left", 14)
-	status_margin.add_theme_constant_override("margin_top", 12)
-	status_margin.add_theme_constant_override("margin_right", 14)
-	status_margin.add_theme_constant_override("margin_bottom", 12)
+	status_margin.add_theme_constant_override("margin_left", 12)
+	status_margin.add_theme_constant_override("margin_top", 8)
+	status_margin.add_theme_constant_override("margin_right", 12)
+	status_margin.add_theme_constant_override("margin_bottom", 8)
 	status_panel.add_child(status_margin)
 
 	var status_card := VBoxContainer.new()
 	status_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_card.add_theme_constant_override("separation", 6)
+	status_card.add_theme_constant_override("separation", 4)
 	status_margin.add_child(status_card)
 
 	var status_head := HBoxContainer.new()
 	status_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_head.add_theme_constant_override("separation", 8)
+	status_head.add_theme_constant_override("separation", 6)
 	status_card.add_child(status_head)
 
 	_state_badge_row = HBoxContainer.new()
@@ -118,7 +118,7 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	status_head.add_child(_state_badge_row)
 
 	_state_title_label = Label.new()
-	_state_title_label.add_theme_font_size_override("font_size", 16)
+	_state_title_label.add_theme_font_size_override("font_size", 14)
 	_state_title_label.modulate = BODY_TEXT
 	status_head.add_child(_state_title_label)
 
@@ -144,10 +144,10 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	_body.add_theme_constant_override("separation", 14)
 	_shell.add_child(_body)
 
-	var output_card := add_card("调试信息", "技术字段保留在这里，不占首屏。")
+	var output_card := add_card("技术详情", "原始字段留在这里，需要时再展开。")
 	_output_toggle = Button.new()
 	_output_toggle.toggle_mode = true
-	_output_toggle.text = "查看调试信息"
+	_output_toggle.text = "展开技术详情"
 	_output_toggle.pressed.connect(_on_output_toggle_pressed)
 	output_card.add_child(_output_toggle)
 
@@ -427,7 +427,7 @@ func set_output_text(text: String) -> void:
 	if text.strip_edges().is_empty():
 		_output_box.visible = false
 		_output_toggle.button_pressed = false
-		_output_toggle.text = "查看调试信息"
+		_output_toggle.text = "展开技术详情"
 
 
 func set_output_json(payload: Variant) -> void:
@@ -485,7 +485,7 @@ func _create_card_style() -> StyleBoxFlat:
 
 func _on_output_toggle_pressed() -> void:
 	_output_box.visible = _output_toggle.button_pressed
-	_output_toggle.text = "收起调试信息" if _output_toggle.button_pressed else "查看调试信息"
+	_output_toggle.text = "收起技术详情" if _output_toggle.button_pressed else "展开技术详情"
 
 
 func _as_dictionary(value: Variant) -> Dictionary:

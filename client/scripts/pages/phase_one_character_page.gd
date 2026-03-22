@@ -41,7 +41,7 @@ var _current_stat_snapshot: Dictionary = {}
 func _init() -> void:
 	setup_page("角色", [])
 
-	var current_card := add_card("当前角色", "先认出你是谁，再决定下一步去哪里。")
+	var current_card := add_card("我是这名角色", "先认出你是谁，再决定接下来先去哪。")
 	current_role_name_label = Label.new()
 	current_role_name_label.add_theme_font_size_override("font_size", 26)
 	current_card.add_child(current_role_name_label)
@@ -59,7 +59,7 @@ func _init() -> void:
 	current_role_tag_row.add_theme_constant_override("separation", 8)
 	current_card.add_child(current_role_tag_row)
 
-	var summary_card := add_card("角色摘要", "这名角色现在能做什么，会先在这里说清楚。")
+	var summary_card := add_card("这名角色近况", "这名角色现在能做什么，会先在这里说清楚。")
 	summary_meta_label = Label.new()
 	summary_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary_card.add_child(summary_meta_label)
@@ -73,25 +73,25 @@ func _init() -> void:
 	summary_hint_label.modulate = CARD_TEXT_MUTED
 	summary_card.add_child(summary_hint_label)
 
-	var action_card := add_card("角色操作", "切换、启用、创建分开处理，让主入口保持清楚。")
+	var action_card := add_card("现在做什么", "先把角色就位，再往主线、背包或穿戴走。")
 	action_status_label = Label.new()
 	action_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	action_status_label.modulate = CARD_TEXT_MUTED
 	action_card.add_child(action_status_label)
 
 	var action_buttons := add_button_row(action_card)
-	activate_button = add_action_button(action_buttons, "启用角色", "activate_current_character")
+	activate_button = add_action_button(action_buttons, "启用这名角色", "activate_current_character")
 	style_primary_button(activate_button, ACTIVE_TINT)
-	add_action_button(action_buttons, "刷新角色", "load_characters")
+	add_action_button(action_buttons, "刷新角色列表", "load_characters")
 
-	var entry_card := add_card("主入口", "背包、穿戴、主线是这名角色当前最常走的三条路。")
+	var entry_card := add_card("常走入口", "背包、穿戴、主线是这名角色当前最常走的三条路。")
 	var entry_buttons := add_button_row(entry_card)
-	inventory_entry_button = add_action_button(entry_buttons, "前往背包", "navigate_inventory")
-	equipment_entry_button = add_action_button(entry_buttons, "前往穿戴", "navigate_equipment")
-	stage_entry_button = add_action_button(entry_buttons, "前往主线", "navigate_stage")
+	inventory_entry_button = add_action_button(entry_buttons, "去背包", "navigate_inventory")
+	equipment_entry_button = add_action_button(entry_buttons, "去穿戴", "navigate_equipment")
+	stage_entry_button = add_action_button(entry_buttons, "去主线", "navigate_stage")
 	style_primary_button(stage_entry_button)
 
-	var recommendation_card := add_card("下一步", "优先告诉你现在最顺的一步。")
+	var recommendation_card := add_card("下一步去哪", "优先告诉你现在最顺的一步。")
 	recommendation_label = Label.new()
 	recommendation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	recommendation_card.add_child(recommendation_label)
@@ -102,20 +102,20 @@ func _init() -> void:
 	recommendation_card.add_child(handoff_label)
 
 	var recommendation_buttons := add_button_row(recommendation_card)
-	recommendation_button = add_button(recommendation_buttons, "前往主线", _on_recommendation_pressed)
+	recommendation_button = add_button(recommendation_buttons, "去主线", _on_recommendation_pressed)
 	style_primary_button(recommendation_button)
 
-	var list_card := add_card("切换角色", "已有角色会突出当前启用角色；你也可以改看别的角色。")
+	var list_card := add_card("换个角色看", "已有角色会突出当前启用角色；你也可以改看别的角色。")
 	character_cards_box = VBoxContainer.new()
 	character_cards_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	character_cards_box.add_theme_constant_override("separation", 10)
 	list_card.add_child(character_cards_box)
 
-	var create_card := add_card("创建角色", "只有真的还没有角色，或你想开一个新角色时才需要这里。")
+	var create_card := add_card("再开新角色", "只有真的还没有角色，或你想开一个新角色时才需要这里。")
 	class_input = add_labeled_input("职业", "class_jingang", create_card)
 	name_input = add_labeled_input("角色名称", "山海行者", create_card)
 	var create_buttons := add_button_row(create_card)
-	add_action_button(create_buttons, "创建角色", "create_character")
+	add_action_button(create_buttons, "创建新角色", "create_character")
 
 	var tech_card := add_card("调试区", "角色编号和手动读取都留在这里，不占首屏。")
 	tech_toggle = add_check_box("显示角色编号输入", false, tech_card)
@@ -129,7 +129,7 @@ func _init() -> void:
 	character_id_input = add_labeled_input("character_id（调试）", "", tech_box)
 	character_id_input.text_changed.connect(_on_character_id_changed)
 	var tech_buttons := add_button_row(tech_box)
-	add_action_button(tech_buttons, "读取当前编号", "load_character")
+	add_action_button(tech_buttons, "读取这个编号", "load_character")
 	add_action_button(tech_buttons, "同步当前角色", "sync_current_character")
 
 	show_character_summary({})
@@ -214,8 +214,8 @@ func show_character_summary(character: Dictionary) -> void:
 	if not has_character:
 		current_role_name_label.text = "当前角色待确认"
 		if has_records:
-			current_role_meta_label.text = "已有角色可用，先从下方角色列表里选一个当前角色。"
-			current_role_status_label.text = "还没锁定当前查看角色；锁定后就能直接前往背包、穿戴或主线。"
+			current_role_meta_label.text = "已有角色可用，先从下方角色列表里挑一名当前主角。"
+			current_role_status_label.text = "锁定后就能直接去背包、穿戴或主线。"
 			current_role_tag_row.add_child(create_pill("等待选择", IDLE_TINT))
 		else:
 			current_role_meta_label.text = "当前还没有角色。"
@@ -224,21 +224,19 @@ func show_character_summary(character: Dictionary) -> void:
 
 		summary_meta_label.text = "锁定当前角色后，这里会马上告诉你该往哪里走。"
 		summary_stats_label.text = "攻击：待确认 | 防御：待确认 | 生命：待确认"
-		summary_hint_label.text = "正式攻击、防御、生命会在出战页带回真实快照。"
+		summary_hint_label.text = "最近一次正式出战的属性快照，会在这里回来看。"
 	else:
-		var character_id := normalize_id_string(resolved.get("character_id", ""))
 		current_role_name_label.text = str(resolved.get("character_name", "角色"))
-		current_role_meta_label.text = "%s | 等级 %s | 角色编号 %s" % [
+		current_role_meta_label.text = "%s | 等级 %s" % [
 			str(resolved.get("class_name", resolved.get("class_id", ""))),
 			str(resolved.get("level", "1")),
-			character_id,
 		]
 		current_role_status_label.text = (
-			"当前启用，可直接出战。"
+			"已经启用，下一步更适合去主线定下这一场。"
 			if is_active
 			else "这名角色还没启用，先启用后再去主线会更顺。"
 		)
-		current_role_tag_row.add_child(create_pill("当前角色", IDLE_TINT))
+		current_role_tag_row.add_child(create_pill("当前主角", IDLE_TINT))
 		current_role_tag_row.add_child(
 			create_pill("当前启用" if is_active else "待启用", ACTIVE_TINT if is_active else WARNING_TINT)
 		)
@@ -314,10 +312,9 @@ func _build_character_card(entry: Dictionary, selected_character_id: String) -> 
 	box.add_child(title)
 
 	var meta := Label.new()
-	meta.text = "%s | 等级 %s | 编号 %s | %s" % [
+	meta.text = "%s | 等级 %s | %s" % [
 		str(entry.get("class_name", entry.get("class_id", ""))),
 		str(entry.get("level", "1")),
-		character_id,
 		"当前启用" if is_active else "未启用",
 	]
 	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -339,7 +336,7 @@ func _build_character_card(entry: Dictionary, selected_character_id: String) -> 
 	box.add_child(actions)
 
 	var select_button := Button.new()
-	select_button.text = "当前角色" if is_selected else "切换角色"
+	select_button.text = "正在查看" if is_selected else "看这名角色"
 	select_button.disabled = is_selected
 	select_button.pressed.connect(func() -> void:
 		character_id_input.text = character_id
@@ -350,7 +347,7 @@ func _build_character_card(entry: Dictionary, selected_character_id: String) -> 
 
 	if not is_active:
 		var activate_card_button := Button.new()
-		activate_card_button.text = "启用角色"
+		activate_card_button.text = "启用这名角色"
 		activate_card_button.pressed.connect(func() -> void:
 			character_id_input.text = character_id
 			show_character_summary(entry)
@@ -444,25 +441,25 @@ func _stat_snapshot_matches_character(character: Dictionary) -> bool:
 
 func _refresh_action_panel(character: Dictionary) -> void:
 	if _current_records.is_empty():
-		action_status_label.text = "当前还没有角色，先创建一个新的角色。"
+		action_status_label.text = "当前还没有角色，先创建一名角色。"
 		activate_button.text = "先创建角色"
 		activate_button.disabled = true
 		return
 
 	if character.is_empty():
-		action_status_label.text = "先从下方角色列表中切换一个当前角色，再决定是否启用。"
-		activate_button.text = "启用角色"
+		action_status_label.text = "先从下方角色列表里定下一名角色，再决定是否启用。"
+		activate_button.text = "启用这名角色"
 		activate_button.disabled = true
 		return
 
 	if int(character.get("is_active", 0)) == 1:
-		action_status_label.text = "当前角色已经启用，可以直接继续背包、穿戴或主线。"
+		action_status_label.text = "这名角色已经能直接上阵，可以继续去背包、穿戴或主线。"
 		activate_button.text = "已经启用"
 		activate_button.disabled = true
 		return
 
 	action_status_label.text = "当前角色还没启用，先启用后再去主线推进最顺。"
-	activate_button.text = "启用角色"
+	activate_button.text = "启用这名角色"
 	activate_button.disabled = false
 
 
@@ -474,22 +471,22 @@ func _refresh_entry_buttons(has_character: bool) -> void:
 
 func _refresh_recommendation(character: Dictionary) -> void:
 	if _current_records.is_empty():
-		recommendation_label.text = "先创建角色。创建完成后，这一页就会切成正式主入口。"
-		_set_recommendation_action("创建角色", "create_character")
+		recommendation_label.text = "先创建角色。创建完成后，这一页就会变成主入口。"
+		_set_recommendation_action("创建新角色", "create_character")
 		return
 
 	if character.is_empty():
-		recommendation_label.text = "先从角色列表里选一个当前角色。"
-		_set_recommendation_action("刷新角色", "load_characters")
+		recommendation_label.text = "先从角色列表里选一名当前主角。"
+		_set_recommendation_action("刷新角色列表", "load_characters")
 		return
 
 	if int(character.get("is_active", 0)) == 0:
 		recommendation_label.text = "先启用这名角色，再去主线推进会更自然。"
-		_set_recommendation_action("启用角色", "activate_current_character")
+		_set_recommendation_action("启用这名角色", "activate_current_character")
 		return
 
 	recommendation_label.text = "先去主线推进；如果想先整理收益，也可以顺手前往背包或穿戴。"
-	_set_recommendation_action("前往主线", "navigate_stage")
+	_set_recommendation_action("去主线", "navigate_stage")
 
 
 func _set_recommendation_action(button_text: String, action: String, payload: Dictionary = {}) -> void:

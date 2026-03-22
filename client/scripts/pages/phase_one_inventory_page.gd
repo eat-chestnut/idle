@@ -41,7 +41,7 @@ var _handoff_text := ""
 func _init() -> void:
 	setup_page("背包", [])
 
-	var header_card := add_card("当前背包", "")
+	var header_card := add_card("这一包收获", "")
 	header_character_label = Label.new()
 	header_character_label.add_theme_font_size_override("font_size", 24)
 	header_card.add_child(header_character_label)
@@ -59,7 +59,7 @@ func _init() -> void:
 	header_tag_row.add_theme_constant_override("separation", 8)
 	header_card.add_child(header_tag_row)
 
-	var focus_card := add_card("本轮关注", "")
+	var focus_card := add_card("本轮先整理什么", "")
 	focus_title_label = Label.new()
 	focus_title_label.add_theme_font_size_override("font_size", 22)
 	focus_card.add_child(focus_title_label)
@@ -74,7 +74,7 @@ func _init() -> void:
 	focus_box.add_theme_constant_override("separation", 10)
 	focus_card.add_child(focus_box)
 
-	var section_card := add_card("物品分区", "装备、材料、其他至少先拆开，方便决定接下来整理哪里。")
+	var section_card := add_card("按类型整理", "装备、材料、其他至少先拆开，方便决定接下来整理哪里。")
 	section_summary_label = Label.new()
 	section_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	section_card.add_child(section_summary_label)
@@ -94,7 +94,7 @@ func _init() -> void:
 	)
 
 	var load_buttons := add_button_row(section_card)
-	load_button = add_action_button(load_buttons, "刷新背包", "load_inventory")
+	load_button = add_action_button(load_buttons, "整理背包", "load_inventory")
 
 	var list_card := add_card("当前物品", "")
 	list_hint_label = Label.new()
@@ -105,7 +105,7 @@ func _init() -> void:
 	inventory_item_list = add_labeled_item_list("当前分区物品", 260, list_card)
 	inventory_item_list.item_selected.connect(_on_inventory_item_selected)
 
-	var action_card := add_card("当前建议动作", "看完本轮收获后，可以顺着穿戴、角色、主线继续推进。")
+	var action_card := add_card("整理后的下一步", "看完本轮收获后，可以顺着穿戴、角色、主线继续推进。")
 	action_status_label = Label.new()
 	action_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	action_card.add_child(action_status_label)
@@ -118,12 +118,12 @@ func _init() -> void:
 	var action_buttons := add_button_row(action_card)
 	equipment_entry_button = add_action_button(action_buttons, "去穿戴", "navigate_equipment")
 	style_primary_button(equipment_entry_button)
-	character_entry_button = add_action_button(action_buttons, "回角色看成长", "navigate_character")
-	stage_entry_button = add_action_button(action_buttons, "返回主线继续推进", "navigate_stage")
+	character_entry_button = add_action_button(action_buttons, "看角色", "navigate_character")
+	stage_entry_button = add_action_button(action_buttons, "回主线", "navigate_stage")
 
 	render_inventory_context({}, {})
 	render_inventory({})
-	show_handoff_summary("背包会承接最近一次结果页的收益；先看新装备和关键材料，再决定去穿戴、回角色还是继续主线。")
+	show_handoff_summary("背包会接住最近一次收获；先看新装备和关键材料，再决定去穿戴、看角色还是回主线。")
 	_move_secondary_sections_to_bottom()
 
 
@@ -305,10 +305,10 @@ func _refresh_action_area() -> void:
 	else:
 		action_status_label.text = "背包还没有内容时，可以先回主线推进，或回角色页确认当前状态。"
 
-	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "整理完这轮收益后，通常会先去穿戴看新装备，再决定是否回角色或主线。"
+	handoff_label.text = _handoff_text if not _handoff_text.is_empty() else "整理完这轮收益后，通常会先去穿戴看新装备，再决定看角色还是回主线。"
 	equipment_entry_button.text = "去穿戴新装备" if recent_equipment_count > 0 else "去穿戴"
-	character_entry_button.text = "回角色看成长"
-	stage_entry_button.text = "返回主线继续推进"
+	character_entry_button.text = "看角色"
+	stage_entry_button.text = "回主线"
 
 
 func _select_section(section: String) -> void:
