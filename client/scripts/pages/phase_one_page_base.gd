@@ -16,31 +16,31 @@ const STATUS_COLORS := {
 	"unauthorized": Color(0.97, 0.66, 0.36),
 }
 const STATUS_LABELS := {
-	"empty": "等待补齐",
+	"empty": "待出发",
 	"loading": "同步中",
-	"preparing": "准备中",
-	"settling": "结算中",
-	"success": "已更新",
-	"error": "需处理",
-	"unauthorized": "需重新登录",
+	"preparing": "整备中",
+	"settling": "整理中",
+	"success": "已就位",
+	"error": "需重试",
+	"unauthorized": "需登录",
 }
 const STATUS_TITLES := {
-	"empty": "当前还没有可展示内容",
-	"loading": "正在同步当前页面",
-	"preparing": "正在整理本次出战信息",
-	"settling": "正在汇总本次战斗结果",
-	"success": "页面已经更新到最新进度",
-	"error": "这一环暂时没有完成",
+	"empty": "还没走到这一步",
+	"loading": "正在更新当前页",
+	"preparing": "正在整理这一场",
+	"settling": "正在汇总这一场",
+	"success": "当前页已经就位",
+	"error": "这一步暂时没完成",
 	"unauthorized": "登录状态需要重新确认",
 }
 const STATUS_HINTS := {
-	"empty": "先按本页主操作补齐上下文，页面会自动进入下一步。",
-	"loading": "稍等片刻，请求完成后页面会自动刷新。",
-	"preparing": "出战信息准备完成后会自动进入战斗承接。",
-	"settling": "结果汇总完成后会自动回写到主线与结果页。",
+	"empty": "",
+	"loading": "",
+	"preparing": "",
+	"settling": "",
 	"success": "",
-	"error": "确认当前角色、主线选择或网络状态后再试一次。",
-	"unauthorized": "回到“环境”页检查 backend 地址和 Bearer Token。",
+	"error": "保持当前选择不变，调整后再试一次。",
+	"unauthorized": "回到“环境”页重新确认 backend 地址和 Bearer Token。",
 }
 
 const CARD_BACKGROUND := Color(0.09, 0.12, 0.18, 0.96)
@@ -52,6 +52,7 @@ const PRIMARY_BUTTON_TINT := Color(0.97, 0.74, 0.40, 1.0)
 var _shell: VBoxContainer
 var _body: VBoxContainer
 var _state_badge_row: HBoxContainer
+var _state_title_label: Label
 var _state_label: Label
 var _state_hint_label: Label
 var _summary_label: Label
@@ -82,7 +83,7 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	_shell = VBoxContainer.new()
 	_shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_shell.add_theme_constant_override("separation", 14)
+	_shell.add_theme_constant_override("separation", 12)
 	page_margin.add_child(_shell)
 
 	if not hints.is_empty():
@@ -90,14 +91,36 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 		for hint in hints:
 			add_note(hint, intro_card)
 
-	var status_card := add_card(
-		"当前状态",
-		"所有页面统一收 `loading / success / empty / error / unauthorized`，战斗链额外收 `preparing / settling`。"
-	)
+	var status_panel := PanelContainer.new()
+	status_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_panel.add_theme_stylebox_override("panel", _create_card_style())
+	_shell.add_child(status_panel)
+
+	var status_margin := MarginContainer.new()
+	status_margin.add_theme_constant_override("margin_left", 14)
+	status_margin.add_theme_constant_override("margin_top", 12)
+	status_margin.add_theme_constant_override("margin_right", 14)
+	status_margin.add_theme_constant_override("margin_bottom", 12)
+	status_panel.add_child(status_margin)
+
+	var status_card := VBoxContainer.new()
+	status_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_card.add_theme_constant_override("separation", 6)
+	status_margin.add_child(status_card)
+
+	var status_head := HBoxContainer.new()
+	status_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_head.add_theme_constant_override("separation", 8)
+	status_card.add_child(status_head)
 
 	_state_badge_row = HBoxContainer.new()
 	_state_badge_row.add_theme_constant_override("separation", 8)
-	status_card.add_child(_state_badge_row)
+	status_head.add_child(_state_badge_row)
+
+	_state_title_label = Label.new()
+	_state_title_label.add_theme_font_size_override("font_size", 16)
+	_state_title_label.modulate = BODY_TEXT
+	status_head.add_child(_state_title_label)
 
 	_state_label = Label.new()
 	_state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -121,10 +144,10 @@ func setup_page(tab_title: String, hints: Array[String]) -> void:
 	_body.add_theme_constant_override("separation", 14)
 	_shell.add_child(_body)
 
-	var output_card := add_card("技术详情", "调试数据仍保留，但默认下沉到次级区域。")
+	var output_card := add_card("调试信息", "技术字段保留在这里，不占首屏。")
 	_output_toggle = Button.new()
 	_output_toggle.toggle_mode = true
-	_output_toggle.text = "展开技术详情"
+	_output_toggle.text = "查看调试信息"
 	_output_toggle.pressed.connect(_on_output_toggle_pressed)
 	output_card.add_child(_output_toggle)
 
@@ -381,14 +404,16 @@ func create_pill(text: String, tint: Color) -> PanelContainer:
 func set_page_state(status: String, message: String, next_step: String = "") -> void:
 	clear_container(_state_badge_row)
 	_state_badge_row.add_child(create_pill(_status_label(status), STATUS_COLORS.get(status, BODY_TEXT)))
-	_state_label.text = "%s\n%s" % [_status_title(status), message]
+	_state_title_label.text = _status_title(status)
+	_state_label.text = message
+	_state_label.visible = not message.strip_edges().is_empty()
 
 	var resolved_next_step := next_step.strip_edges()
-	if resolved_next_step.is_empty():
+	if resolved_next_step.is_empty() and (status == "error" or status == "unauthorized"):
 		resolved_next_step = _status_hint(status)
 
 	_state_hint_label.visible = not resolved_next_step.is_empty()
-	_state_hint_label.text = "下一步建议：%s" % resolved_next_step
+	_state_hint_label.text = "接下来：%s" % resolved_next_step
 
 
 func set_summary_text(text: String) -> void:
@@ -402,7 +427,7 @@ func set_output_text(text: String) -> void:
 	if text.strip_edges().is_empty():
 		_output_box.visible = false
 		_output_toggle.button_pressed = false
-		_output_toggle.text = "展开技术详情"
+		_output_toggle.text = "查看调试信息"
 
 
 func set_output_json(payload: Variant) -> void:
@@ -460,7 +485,7 @@ func _create_card_style() -> StyleBoxFlat:
 
 func _on_output_toggle_pressed() -> void:
 	_output_box.visible = _output_toggle.button_pressed
-	_output_toggle.text = "收起技术详情" if _output_toggle.button_pressed else "展开技术详情"
+	_output_toggle.text = "收起调试信息" if _output_toggle.button_pressed else "查看调试信息"
 
 
 func _as_dictionary(value: Variant) -> Dictionary:

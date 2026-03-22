@@ -20,8 +20,7 @@ const PREPARE_PAGE := "prepare"
 const BATTLE_PAGE := "battle"
 const SETTLE_PAGE := "settle"
 const CLIENT_SUBTITLE := (
-	"真实角色、真实主线、真实战斗承接："
-	+ "从角色创建到正式结算的 phase-one 玩家路径"
+	"认出当前角色，选定这一关，然后打完这一场。"
 )
 const DEFAULT_CONFIG_NOTE := (
 	"默认值来自当前正式文档与最小联调 seed，只作为联调兜底；"
@@ -117,21 +116,21 @@ func _build_ui() -> void:
 	frame_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	frame_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	frame_margin.add_theme_constant_override("margin_left", 18)
-	frame_margin.add_theme_constant_override("margin_top", 18)
+	frame_margin.add_theme_constant_override("margin_top", 16)
 	frame_margin.add_theme_constant_override("margin_right", 18)
-	frame_margin.add_theme_constant_override("margin_bottom", 18)
+	frame_margin.add_theme_constant_override("margin_bottom", 16)
 	frame.add_child(frame_margin)
 
 	var shell := VBoxContainer.new()
 	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	shell.add_theme_constant_override("separation", 14)
+	shell.add_theme_constant_override("separation", 12)
 	frame_margin.add_child(shell)
 
 	var title := Label.new()
 	title.text = "《山海巡厄录》竖版主流程原型"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_font_size_override("font_size", 22)
 	shell.add_child(title)
 
 	var subtitle := Label.new()
@@ -157,14 +156,16 @@ func _build_ui() -> void:
 	shell.add_child(flow_panel)
 
 	var flow_margin := MarginContainer.new()
-	flow_margin.add_theme_constant_override("margin_left", 14)
-	flow_margin.add_theme_constant_override("margin_top", 12)
-	flow_margin.add_theme_constant_override("margin_right", 14)
-	flow_margin.add_theme_constant_override("margin_bottom", 12)
+	flow_margin.add_theme_constant_override("margin_left", 12)
+	flow_margin.add_theme_constant_override("margin_top", 10)
+	flow_margin.add_theme_constant_override("margin_right", 12)
+	flow_margin.add_theme_constant_override("margin_bottom", 10)
 	flow_panel.add_child(flow_margin)
 
 	flow_summary_label = Label.new()
 	flow_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	flow_summary_label.add_theme_font_size_override("font_size", 15)
+	flow_summary_label.modulate = Color(0.88, 0.92, 0.98, 1.0)
 	flow_margin.add_child(flow_summary_label)
 
 	tab_container = TabContainer.new()
@@ -349,7 +350,7 @@ func _build_recent_character_records() -> Array:
 	)
 	recent = _prepend_character_record(
 		recent,
-		_runtime_character_stub(prepare_page.get_character_id_text(), "当前 Battle 角色")
+		_runtime_character_stub(prepare_page.get_character_id_text(), "当前出战角色")
 	)
 	return recent
 
@@ -527,43 +528,48 @@ func _refresh_flow_summary() -> void:
 	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
 	var battle_context_id = settle_page.get_battle_context_text()
 	var route_summary := _build_flow_route_summary(route_context)
-	var lines := ["当前主流程：角色成长 -> 主线推进 -> 出战 -> 战斗 -> 结果"]
-
-	if detail_character == battle_character:
-		lines.append("当前角色：%s" % detail_character)
-	else:
-		lines.append("当前角色：详情 %s | 出战 %s" % [detail_character, battle_character])
-
-	lines.append("主线目标：%s" % route_summary)
-
-	if not battle_context_id.is_empty():
-		lines.append("出战信息已经就位，可以继续推进这一场战斗。")
-	elif prepare_page.get_character_id_text().strip_edges().is_empty():
-		lines.append("先确认出战角色，再去锁定本次目标。")
-	elif stage_page.get_selected_chapter_id().is_empty():
-		lines.append("进入主线页后，会自动展开当前可推进章节。")
-	elif stage_page.get_stage_id_text().is_empty():
-		lines.append("这一章已经展开，挑一关后就会出现难度。")
-	elif stage_page.get_selected_stage_difficulty().is_empty():
-		lines.append("难度锁定后，主线页会把当前目标直接带去出战。")
-	elif current_settle_result.is_empty():
-		lines.append("目标已经锁定，去“出战”页就能开始这一场战斗。")
-	else:
-		lines.append("这轮结果已经回流，可以回主线继续推进或去背包整理收获。")
+	var journey_line := "当前旅程：先确认主角，再走进山海路。"
+	var next_step_line := "下一步：先确认环境，然后前往角色页锁定这次要玩的角色。"
+	var reminder_line := ""
 
 	if str(config_values.get("base_url", "")).strip_edges().is_empty():
-		lines.append("先补上 backend 地址，再继续当前主流程。")
+		next_step_line = "下一步：先填 backend 地址，再继续。"
 	elif str(config_values.get("bearer_token", "")).strip_edges().is_empty():
-		lines.append("先补上 Bearer Token，再继续当前主流程。")
-	elif not has_loaded_character_list and current_character_detail.is_empty():
-		lines.append("角色列表还没同步，先去角色页确认当前角色。")
+		next_step_line = "下一步：先填 Bearer Token，再继续。"
+	else:
+		var character_line: String = detail_character
+		if detail_character != battle_character and battle_character != "待确认":
+			character_line = "当前查看 %s，本次出战 %s" % [detail_character, battle_character]
+		elif detail_character == "待确认" and battle_character != "待确认":
+			character_line = battle_character
+
+		journey_line = "当前旅程：%s，目标 %s。" % [character_line, route_summary]
+
+		if detail_character == "待确认" and battle_character == "待确认":
+			next_step_line = "下一步：先前往角色页挑一个角色；如果还没有，就创建一个。"
+		elif stage_page.get_selected_chapter_id().is_empty():
+			next_step_line = "下一步：去主线页挑一章。"
+		elif stage_page.get_stage_id_text().is_empty():
+			next_step_line = "下一步：这一章已经展开，先挑一关。"
+		elif stage_page.get_selected_stage_difficulty().is_empty():
+			next_step_line = "下一步：关卡已经锁定，再选一档难度。"
+		elif not battle_context_id.is_empty():
+			next_step_line = "下一步：这场已经就位，去战斗页推进，或等结算页收回结果。"
+		elif current_settle_result.is_empty():
+			next_step_line = "下一步：目标已经锁定，去出战页决定要不要开打。"
+		else:
+			next_step_line = "下一步：这轮收获已经回来了，可以先看背包整理，再继续主线。"
+
+		if not has_loaded_character_list and current_character_detail.is_empty():
+			reminder_line = "角色列表还没同步，先前往角色页确认当前角色。"
 
 	var current_character = _as_dictionary(current_character_detail.get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
-		lines.append(
-			"提示：当前详情角色还未启用；可在角色页或出战页先激活后再进入战斗。"
-		)
+		reminder_line = "这名角色还没启用，先在角色页点“启用角色”会更顺。"
 
+	var lines := [journey_line, next_step_line]
+	if not reminder_line.is_empty():
+		lines.append(reminder_line)
 	flow_summary_label.text = "\n".join(lines)
 
 
@@ -575,22 +581,22 @@ func _describe_character(character_id: String) -> String:
 	for record in _as_array(current_character_list.get("characters", [])):
 		var listed_entry := _as_dictionary(record)
 		if _normalize_id_string(listed_entry.get("character_id", "")) == normalized_id:
-			return "%s #%s" % [str(listed_entry.get("character_name", "角色")), normalized_id]
+			return str(listed_entry.get("character_name", "角色"))
 
 	var detail_character = _as_dictionary(current_character_detail.get("character", {}))
 	if _normalize_id_string(detail_character.get("character_id", "")) == normalized_id:
-		return "%s #%s" % [str(detail_character.get("character_name", "角色")), normalized_id]
+		return str(detail_character.get("character_name", "角色"))
 
 	var prepare_character = _as_dictionary(current_prepare_result.get("character", {}))
 	if _normalize_id_string(prepare_character.get("character_id", "")) == normalized_id:
-		return "%s #%s" % [str(prepare_character.get("character_name", "角色")), normalized_id]
+		return str(prepare_character.get("character_name", "角色"))
 
 	for record in _as_array(saved_config.get("recent_characters", [])):
 		var entry := _as_dictionary(record)
 		if _normalize_id_string(entry.get("character_id", "")) == normalized_id:
-			return "%s #%s" % [str(entry.get("character_name", "角色")), normalized_id]
+			return str(entry.get("character_name", "角色"))
 
-	return "#%s" % normalized_id
+	return "角色 %s" % normalized_id
 
 
 func _build_flow_route_summary(route_context: Dictionary) -> String:
@@ -602,12 +608,12 @@ func _build_flow_route_summary(route_context: Dictionary) -> String:
 	var difficulty_name := str(route_context.get("difficulty_name", "待选难度"))
 
 	if chapter_id.is_empty():
-		return "准备查看当前可推进章节"
+		return "先去主线挑一章"
 	if stage_id.is_empty():
-		return "%s，正在挑选关卡" % chapter_name
+		return "%s，准备挑一关" % chapter_name
 	if stage_difficulty_id.is_empty():
-		return "%s -> %s，正在挑选难度" % [chapter_name, stage_name]
-	return "%s -> %s -> %s" % [chapter_name, stage_name, difficulty_name]
+		return "%s / %s，准备选难度" % [chapter_name, stage_name]
+	return "%s / %s / %s" % [chapter_name, stage_name, difficulty_name]
 
 
 func _find_character_record(character_id: String) -> Dictionary:
@@ -844,7 +850,7 @@ func _open_inventory_from_settle() -> void:
 		equipment_results.size(),
 	])
 	inventory_page.show_handoff_summary(
-		"已带着本轮结果来到背包；先看新装备和关键材料，再决定去穿戴、回角色还是继续主线，会更顺。"
+		"已带着本轮结果来到背包；先看新装备和关键材料，再决定前往穿戴、查看角色还是继续主线，会更顺。"
 	)
 
 
@@ -892,9 +898,9 @@ func _open_character_page(from_settle: bool = false) -> void:
 
 	var character_record: Dictionary = _find_character_record(current_character_id)
 	if character_record.is_empty():
-		character_page.set_page_state("success", "已回到角色页，当前主流程上下文都已保留。")
+		character_page.set_page_state("success", "已回到角色页，当前主流程都已接回。")
 		character_page.show_growth_handoff(
-			"当前角色上下文已保留；接下来可以去背包、穿戴，或直接继续主线。"
+			"当前角色信息已经接回；接下来可以前往背包、穿戴，或直接继续主线。"
 		)
 		return
 
@@ -902,12 +908,12 @@ func _open_character_page(from_settle: bool = false) -> void:
 	if from_settle:
 		character_page.set_page_state("success", "已回到角色页，可以继续查看本轮战后成长。")
 		character_page.show_growth_handoff(
-			"这轮结果已经回流到角色页；你可以继续去穿戴试装，或直接回主线再打一场。"
+			"这轮结果已经回流到角色页；你可以继续前往穿戴试装，或直接回主线再战一场。"
 		)
 	else:
 		character_page.set_page_state("success", "已回到角色页，当前角色和成长入口都已就位。")
 		character_page.show_growth_handoff(
-			"角色页会承接你当前的成长上下文；接下来去背包、穿戴或主线都可以。"
+			"角色页会承接你当前的成长进度；接下来前往背包、穿戴或主线都可以。"
 		)
 
 
@@ -933,14 +939,14 @@ func _handle_failure(page, result: Dictionary, fallback: String) -> void:
 			page.set_page_state("unauthorized", message, "回到“环境”页检查 Bearer Token 和 backend 地址。")
 			_focus_on_auth()
 		"config":
-			page.set_page_state("error", message, "先补齐本页需要的角色、关卡或环境信息，再重试。")
+			page.set_page_state("error", message, "先确认当前角色、目标或环境，再试一次。")
 		"network":
 			page.set_page_state("error", message, "确认 backend 已启动且网络可达后，再试一次。")
 		_:
 			var code = int(result.get("code", -1))
 			if code > 0:
 				message = "%s（code=%d）" % [message, code]
-			page.set_page_state("error", message, "保持当前上下文不变，修正后再重试。")
+			page.set_page_state("error", message, "保持当前选择不变，调整后再试一次。")
 
 	if result.has("raw"):
 		page.set_output_json(result.get("raw"))
@@ -1077,7 +1083,7 @@ func _on_fill_default_config_pressed() -> void:
 	})
 	character_page.apply_config({
 		"class_id": "class_jingang",
-		"character_name": "联调角色",
+		"character_name": "山海行者",
 		"character_id": "1001",
 	})
 	equipment_page.set_character_id("1001")
@@ -1181,11 +1187,11 @@ func _on_load_characters_pressed() -> void:
 		character_page.show_character_list_empty()
 		character_page.set_page_state("empty", "当前用户还没有角色，请先创建角色。")
 	elif not active_character.is_empty():
-		character_page.set_page_state("success", "角色列表已加载，当前启用角色已就位，可以继续去背包、穿戴或主线。")
+		character_page.set_page_state("success", "角色列表已加载，当前启用角色已就位，可以继续前往背包、穿戴或主线。")
 	else:
 		character_page.set_page_state(
 			"success",
-			"角色列表已加载，先挑一个当前角色，再决定是否激活。"
+			"角色列表已加载，先挑一个当前角色，再决定是否启用。"
 		)
 
 	_persist_runtime_config()
@@ -1230,7 +1236,7 @@ func _on_create_character_pressed() -> void:
 	else:
 		character_page.set_page_state(
 			"success",
-			"角色创建成功，但还没设为当前启用角色；如需立刻进入主线，请先激活。"
+			"角色创建成功，但还没设为当前启用角色；如需立刻进入主线，请先启用。"
 		)
 
 	character_page.set_output_json(data)
@@ -1270,7 +1276,7 @@ func _on_load_character_pressed() -> void:
 	else:
 		character_page.set_page_state(
 			"success",
-			"角色详情已加载；若要进入主线和出战，请先激活当前角色。"
+			"角色详情已加载；若要进入主线和出战，请先启用当前角色。"
 		)
 
 	character_page.set_output_json(data)
@@ -1302,7 +1308,7 @@ func _on_activate_battle_character_pressed() -> void:
 	await _activate_character(
 		prepare_page,
 		character_id_value,
-		"当前出战角色已激活，可以直接开始战斗。"
+		"当前出战角色已启用，可以直接开始战斗。"
 	)
 
 
@@ -1361,7 +1367,7 @@ func _on_sync_current_character_pressed() -> void:
 	else:
 		character_page.set_page_state(
 			"success",
-			"当前角色已同步到详情与穿戴；如需进入主线和出战，请先激活。"
+			"当前角色已同步到详情与穿戴；如需进入主线和出战，请先启用。"
 		)
 
 	_persist_runtime_config()
@@ -1692,7 +1698,7 @@ func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> boo
 		else:
 			stage_page.set_page_state(
 				"success",
-				"当前奖励状态已同步：%s。完整状态明细已写入技术详情。" % [
+				"当前奖励状态已同步：%s。详细状态已放到调试区。" % [
 					reward_status_text,
 				]
 			)
@@ -1785,7 +1791,7 @@ func _on_prepare_pressed() -> void:
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	prepare_page.set_page_state("success", "出战信息已经锁定，马上进入战斗。")
 	battle_page.set_page_state("success", "战场已经准备好，可以开始接敌和清场。")
-	settle_page.set_page_state("success", "这一场结束后，这里会自动展开本轮结果。")
+	settle_page.set_page_state("success", "这一场结束后，这里会自动展开本场收获。")
 
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -1796,7 +1802,7 @@ func _on_prepare_pressed() -> void:
 
 func _on_fill_prepared_monsters_pressed() -> void:
 	if current_prepared_monster_ids.is_empty():
-		settle_page.set_page_state("empty", "当前还没有可复用的 Prepare 敌方列表。")
+		settle_page.set_page_state("empty", "当前还没有可复用的敌方列表。")
 		return
 
 	settle_page.set_killed_monsters(current_prepared_monster_ids)
@@ -1877,7 +1883,7 @@ func _submit_settle_request(
 			battle_page.set_page_state("error", invalid_stage_message)
 		return
 	if battle_context_id_value.is_empty():
-		var invalid_context_message := "当前没有可用的战斗上下文，请先重新进入战斗。"
+		var invalid_context_message := "当前没有可用的战斗承接，请先重新进入这一场。"
 		settle_page.set_page_state("error", invalid_context_message)
 		if from_battle_page:
 			battle_page.allow_retry_settle()

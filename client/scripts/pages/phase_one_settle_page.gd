@@ -40,7 +40,7 @@ var _route_context: Dictionary = {}
 func _init() -> void:
 	setup_page("结算", [])
 
-	var header_card := add_card("战斗结果", "")
+	var header_card := add_card("本场收获", "")
 	result_title_label = Label.new()
 	result_title_label.add_theme_font_size_override("font_size", 26)
 	header_card.add_child(result_title_label)
@@ -59,7 +59,7 @@ func _init() -> void:
 	result_tag_row.add_theme_constant_override("separation", 8)
 	header_card.add_child(result_tag_row)
 
-	var spotlight_card := add_card("本轮收获", "")
+	var spotlight_card := add_card("最值得先看", "")
 	spotlight_title_label = Label.new()
 	spotlight_title_label.add_theme_font_size_override("font_size", 22)
 	spotlight_card.add_child(spotlight_title_label)
@@ -80,68 +80,68 @@ func _init() -> void:
 	drop_box.add_theme_constant_override("separation", 10)
 	drop_card.add_child(drop_box)
 
-	var reward_card := add_card("奖励状态", "首通奖励会单独展示，不和掉落混在一起。")
+	var reward_card := add_card("首通奖励", "首通奖励会单独展示，不和掉落混在一起。")
 	reward_box = VBoxContainer.new()
 	reward_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	reward_box.add_theme_constant_override("separation", 10)
 	reward_card.add_child(reward_box)
 
-	var inventory_card := add_card("已进入背包", "这部分会单独回显哪些收获真正进了包。")
+	var inventory_card := add_card("已经入包", "这部分会单独回显哪些收获真正进了包。")
 	inventory_box = VBoxContainer.new()
 	inventory_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	inventory_box.add_theme_constant_override("separation", 10)
 	inventory_card.add_child(inventory_box)
 
-	var growth_card := add_card("接下来去哪里", "结果看完后，可以顺着背包、穿戴、角色和主线继续推进。")
+	var growth_card := add_card("打完后继续去哪", "结果看完后，可以顺着背包、穿戴、角色和主线继续推进。")
 	growth_hint_label = Label.new()
 	growth_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	growth_hint_label.modulate = CARD_TEXT_MUTED
 	growth_card.add_child(growth_hint_label)
 
 	var primary_actions := add_button_row(growth_card)
-	retry_button = add_action_button(primary_actions, "再打一场", "retry_battle")
-	primary_inventory_button = add_action_button(primary_actions, "先看背包", "navigate_inventory", {"source": "settle"})
+	retry_button = add_action_button(primary_actions, "再战一场", "retry_battle")
+	primary_inventory_button = add_action_button(primary_actions, "查看背包", "navigate_inventory", {"source": "settle"})
 	style_primary_button(primary_inventory_button)
-	stage_button = add_action_button(primary_actions, "回主线", "navigate_stage", {"source": "settle"})
+	stage_button = add_action_button(primary_actions, "继续主线", "navigate_stage", {"source": "settle"})
 
 	var followup_actions := add_button_row(growth_card)
-	equipment_followup_button = add_action_button(followup_actions, "去穿戴", "navigate_equipment", {"source": "settle"})
-	character_followup_button = add_action_button(followup_actions, "去角色", "navigate_character", {"source": "settle"})
+	equipment_followup_button = add_action_button(followup_actions, "前往穿戴", "navigate_equipment", {"source": "settle"})
+	character_followup_button = add_action_button(followup_actions, "查看角色", "navigate_character", {"source": "settle"})
 
-	var debug_card := add_card("联调覆盖", "技术字段和手动提交流程都下沉到这里。")
-	recent_character_selector = add_labeled_option_button("出战角色（优先真实角色列表）", debug_card)
+	var debug_card := add_card("调试区", "技术字段和手动提交流程都留在这里，不占首屏。")
+	recent_character_selector = add_labeled_option_button("当前出战角色", debug_card)
 	recent_character_selector.item_selected.connect(_on_recent_character_selected)
 
-	recent_stage_difficulty_selector = add_labeled_option_button("当前已选难度 / 最近难度", debug_card)
+	recent_stage_difficulty_selector = add_labeled_option_button("最近目标难度", debug_card)
 	recent_stage_difficulty_selector.item_selected.connect(_on_recent_stage_difficulty_selected)
 
-	battle_context_selector = add_labeled_option_button("本轮 Prepare 生成的 battle_context", debug_card)
+	battle_context_selector = add_labeled_option_button("最近战斗上下文", debug_card)
 	battle_context_selector.item_selected.connect(_on_battle_context_selected)
-	replace_options(battle_context_selector, [], "暂无 Prepare 上下文")
+	replace_options(battle_context_selector, [], "暂无最近战斗")
 
-	override_toggle = add_check_box("显示 Battle Settle 联调覆盖输入", false, debug_card)
+	override_toggle = add_check_box("显示调试输入", false, debug_card)
 	override_toggle.toggled.connect(_on_override_toggled)
 	override_box = VBoxContainer.new()
 	override_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	override_box.visible = false
 	debug_card.add_child(override_box)
 
-	character_id_input = add_labeled_input("character_id（联调覆盖）", "", override_box)
+	character_id_input = add_labeled_input("character_id（调试）", "", override_box)
 	character_id_input.text_changed.connect(_on_character_id_changed)
 
 	stage_difficulty_input = add_labeled_input(
-		"stage_difficulty_id（联调覆盖）",
+		"stage_difficulty_id（调试）",
 		"stage_nanshan_001_normal",
 		override_box
 	)
 	stage_difficulty_input.text_changed.connect(_on_stage_difficulty_changed)
 
-	battle_context_input = add_labeled_input("battle_context_id（联调覆盖）", "", override_box)
+	battle_context_input = add_labeled_input("battle_context_id（调试）", "", override_box)
 	battle_context_input.text_changed.connect(_on_battle_context_changed)
 
 	killed_monsters_input = add_labeled_input("killed_monsters（逗号分隔）", "", override_box)
 	var override_buttons := add_button_row(override_box)
-	add_action_button(override_buttons, "使用 Prepare 怪物列表", "fill_prepared_monsters")
+	add_action_button(override_buttons, "使用本场敌人列表", "fill_prepared_monsters")
 	add_action_button(override_buttons, "手动提交结算", "settle")
 
 	is_cleared_checkbox = add_check_box("本次通关成功", true, override_box)
@@ -175,7 +175,7 @@ func set_recent_characters(records: Array, current_character_id: String) -> void
 		if entry.has("is_active") and int(entry.get("is_active", 0)) == 1:
 			label += " [可战斗]"
 		elif entry.has("is_active"):
-			label += " [未激活]"
+			label += " [未启用]"
 
 		options.append({
 			"label": label,
@@ -219,7 +219,7 @@ func set_recent_battle_contexts(battle_context_ids: Array, current_battle_contex
 	replace_options(
 		battle_context_selector,
 		options,
-		"暂无 Prepare 上下文",
+		"暂无最近战斗",
 		current_battle_context_id
 	)
 	if not current_battle_context_id.is_empty():
@@ -270,16 +270,16 @@ func show_settlement_summary(payload: Dictionary) -> void:
 	clear_container(result_tag_row)
 
 	if payload.is_empty():
-		result_title_label.text = "等待本轮结果"
+		result_title_label.text = "等待这一场收获"
 		result_meta_label.text = _build_route_summary({})
-		result_state_label.text = "这一场结束后，这里会先告诉你打的是哪里、拿到了什么，以及接下来更适合去哪里。"
-		spotlight_title_label.text = "本轮收获会先显示在这里"
+		result_state_label.text = "这一场打完后，这里会先告诉你去了哪、拿到了什么，以及接下来更适合去哪里。"
+		spotlight_title_label.text = "最值得先看的收获会显示在这里"
 		spotlight_detail_label.text = "如果有新装备、主要掉落或奖励变化，这里会先把最值得马上看的内容顶出来。"
 		spotlight_box.add_child(_build_empty_label("现在还没有新的结果回流。"))
-		growth_hint_label.text = "结算完成后，可以先去背包看收益，再决定去穿戴、回角色，还是继续主线。"
-		primary_inventory_button.text = "先看背包"
-		equipment_followup_button.text = "去穿戴"
-		character_followup_button.text = "去角色"
+		growth_hint_label.text = "结算完成后，可以先看背包，再决定前往穿戴、查看角色，还是继续主线。"
+		primary_inventory_button.text = "查看背包"
+		equipment_followup_button.text = "前往穿戴"
+		character_followup_button.text = "查看角色"
 		equipment_followup_button.disabled = false
 		drop_box.add_child(_build_empty_label("这一场打完后，这里会展示本次掉落。"))
 		reward_box.add_child(_build_empty_label("这一场打完后，这里会展示当前奖励状态变化。"))
@@ -303,7 +303,7 @@ func show_settlement_summary(payload: Dictionary) -> void:
 	var equipment_name_map := _build_created_equipment_map(created_equipment_instances)
 	var inventory_entry_count := stack_results.size() + equipment_instance_results.size()
 
-	result_title_label.text = "战斗%s" % ("胜利" if int(payload.get("is_cleared", 0)) == 1 else "完成")
+	result_title_label.text = "这场%s" % ("打赢了" if int(payload.get("is_cleared", 0)) == 1 else "已经收束")
 	result_meta_label.text = _build_route_summary(stage_difficulty_data)
 	result_state_label.text = _build_result_summary_text(
 		int(payload.get("is_cleared", 0)) == 1,
@@ -321,9 +321,9 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		stack_results,
 		created_equipment_instances
 	)
-	primary_inventory_button.text = "先看背包" if inventory_entry_count > 0 else "去背包"
-	equipment_followup_button.text = "去穿戴"
-	character_followup_button.text = "去角色"
+	primary_inventory_button.text = "查看背包" if inventory_entry_count > 0 else "前往背包"
+	equipment_followup_button.text = "前往穿戴"
+	character_followup_button.text = "查看角色"
 	equipment_followup_button.disabled = false
 
 	for drop in drop_results:
@@ -385,7 +385,7 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		var equipment_instance_id := normalize_id_string(equipment_entry.get("equipment_instance_id", ""))
 		inventory_box.add_child(_build_result_card(
 			str(equipment_name_map.get(equipment_instance_id, "新装备")),
-			"装备已入包 | 可以直接去穿戴查看 | 耐久 %s/%s" % [
+			"装备已入包 | 可以直接前往穿戴查看 | 耐久 %s/%s" % [
 				str(equipment_entry.get("durability", 0)),
 				str(equipment_entry.get("max_durability", 0)),
 			],
@@ -409,21 +409,21 @@ func show_handoff_summary(character_id: String, stage_difficulty_id: String, bat
 	clear_container(reward_box)
 	clear_container(inventory_box)
 	clear_container(result_tag_row)
-	result_title_label.text = "等待本轮结果"
+	result_title_label.text = "收获正在回来的路上"
 	result_meta_label.text = _build_route_summary({})
-	result_state_label.text = "战斗已经开始收束，结果返回后，这里会自动拆开展示掉落、奖励和入包结果。"
-	spotlight_title_label.text = "本轮亮点还在路上"
+	result_state_label.text = "这一场已经开始收束，结果返回后，这里会自动拆开展示掉落、奖励和入包结果。"
+	spotlight_title_label.text = "这一场的亮点还在路上"
 	spotlight_detail_label.text = "一旦结果回来，这里会先告诉你有没有新装备、主要掉落或奖励变化。"
 	spotlight_box.add_child(_build_empty_label("现在只差这一场的正式结果返回。"))
 	drop_box.add_child(_build_empty_label("结果返回后，这里会展示本次掉落。"))
 	reward_box.add_child(_build_empty_label("结果返回后，这里会展示当前奖励状态变化。"))
 	inventory_box.add_child(_build_empty_label("结果返回后，这里会展示哪些收获已经进包。"))
-	growth_hint_label.text = "等结果回来后，这里会告诉你更适合先去背包、去穿戴，还是回主线继续推进。"
-	primary_inventory_button.text = "先看背包"
-	equipment_followup_button.text = "去穿戴"
-	character_followup_button.text = "去角色"
+	growth_hint_label.text = "等结果回来后，这里会告诉你更适合先看背包、前往穿戴，还是回主线继续推进。"
+	primary_inventory_button.text = "查看背包"
+	equipment_followup_button.text = "前往穿戴"
+	character_followup_button.text = "查看角色"
 	equipment_followup_button.disabled = false
-	set_summary_text("这场已经结束，当前正在整理最终结果。")
+	set_summary_text("这场已经结束，收获正在整理。")
 	set_output_json({
 		"ready_to_settle": {
 			"character_id": character_id,
@@ -474,7 +474,7 @@ func _build_empty_label(text: String) -> Label:
 
 func _format_reward_result_state(reward_status: Dictionary, reward_result_count: int) -> String:
 	if reward_status.is_empty():
-		return "奖励状态会跟着本轮结果一起同步。"
+		return "奖励状态会跟着这场收获一起同步。"
 	if int(reward_status.get("has_reward", 0)) == 0:
 		return "当前没有新增奖励，这属于正常情况；掉落和入包仍然照常结算。"
 	if int(reward_status.get("has_granted", 0)) == 1:
@@ -494,7 +494,7 @@ func _render_spotlight_section(
 ) -> void:
 	if not created_equipment_instances.is_empty():
 		spotlight_title_label.text = "本轮最值得先看的，是新装备"
-		spotlight_detail_label.text = "新装备已经正式入包，可以直接从这里去穿戴试装。"
+		spotlight_detail_label.text = "新装备已经正式入包，可以直接从这里前往穿戴试装。"
 		var equipment_index := 0
 		for equipment in created_equipment_instances:
 			if equipment_index >= 3:
@@ -502,7 +502,7 @@ func _render_spotlight_section(
 			var equipment_entry: Dictionary = equipment if typeof(equipment) == TYPE_DICTIONARY else {}
 			spotlight_box.add_child(_build_result_card(
 				str(equipment_entry.get("item_name", "新装备")),
-				"这件新装备已经准备好去穿戴，可以先去背包或穿戴页确认收益。",
+				"这件新装备已经准备好去试穿，可以先看背包或前往穿戴页确认收益。",
 				INVENTORY_TINT
 			))
 			equipment_index += 1
@@ -552,9 +552,9 @@ func _render_spotlight_section(
 
 	spotlight_title_label.text = "这轮没有新增收获"
 	if int(reward_status.get("has_reward", 0)) == 1 and int(reward_status.get("has_granted", 0)) == 1:
-		spotlight_detail_label.text = "这不是异常，说明首通奖励已经领过；你可以直接再打一场，或回主线换目标。"
+		spotlight_detail_label.text = "这不是异常，说明首通奖励已经领过；你可以直接再战一场，或回主线换目标。"
 	else:
-		spotlight_detail_label.text = "这不是异常，当前更适合回主线换目标，或直接再打一场。"
+		spotlight_detail_label.text = "这不是异常，当前更适合回主线换目标，或直接再战一场。"
 	spotlight_box.add_child(_build_empty_label("本次没有需要特别关注的新装备或新增收益。"))
 
 
@@ -602,14 +602,14 @@ func _build_growth_hint(
 	created_equipment_instances: Array
 ) -> String:
 	if not created_equipment_instances.is_empty():
-		return "本次拿到了 %d 件新装备，建议先去背包确认收益，再直接去穿戴试装；当前角色和新装备上下文都会保留。" % created_equipment_instances.size()
+		return "本次拿到了 %d 件新装备，建议先看背包确认收益，再直接前往穿戴试装；当前角色和新装备信息都会继续保留。" % created_equipment_instances.size()
 	if not stack_results.is_empty():
-		return "收益已经正式入包，先去背包看材料/货币变化会更顺，再决定继续推进还是回角色看成长。"
+		return "收益已经正式入包，先看背包里材料和货币的变化会更顺，再决定继续推进还是回角色看成长。"
 	if reward_results.is_empty() and int(reward_status.get("has_reward", 0)) == 1 and int(reward_status.get("has_granted", 0)) == 1:
-		return "奖励没有新增不是错误，说明这份首通奖励已经领过；这次可以直接再打一场，或回主线继续推进。"
+		return "奖励没有新增不是错误，说明这份首通奖励已经领过；这次可以直接再战一场，或回主线继续推进。"
 	if int(reward_status.get("has_reward", 0)) == 0 and drop_results.is_empty():
-		return "这个难度没有首通奖励，本次也没有额外收益；可以直接再打一场，或回主线换目标。"
-	return "结果已经汇总完成，建议先去背包看收益，再决定继续推进还是回角色查看成长。"
+		return "这个难度没有首通奖励，本次也没有额外收益；可以直接再战一场，或回主线换目标。"
+	return "结果已经汇总完成，建议先看背包，再决定继续推进还是回角色查看成长。"
 
 
 func _build_route_summary(stage_difficulty_data: Dictionary) -> String:
@@ -638,7 +638,7 @@ func _build_result_summary_text(
 func _build_drop_meta(entry: Dictionary) -> String:
 	var rarity_text := str(entry.get("rarity", "")).strip_edges()
 	if rarity_text.is_empty():
-		return "怪物掉落，已经计入本轮结果。"
+		return "怪物掉落，已经计入这场收获。"
 	return "怪物掉落 | 稀有度 %s" % rarity_text
 
 

@@ -44,7 +44,7 @@ var _reward_status_payload: Dictionary = {}
 func _init() -> void:
 	setup_page("主线", [])
 
-	var header_card := add_card("主线推进", "先看当前章节，再选关卡和难度。")
+	var header_card := add_card("主线去向", "先认出这一章，再决定下一关打哪里。")
 	header_page_label = Label.new()
 	header_page_label.text = "当前章节"
 	header_page_label.modulate = CARD_TEXT_MUTED
@@ -62,7 +62,7 @@ func _init() -> void:
 	header_tag_row.add_theme_constant_override("separation", 8)
 	header_card.add_child(header_tag_row)
 
-	var chapter_card := add_card("章节信息", "当前章节说明和进度会在这里更新。")
+	var chapter_card := add_card("章节信息", "当前章节的说明和推进节奏会在这里更新。")
 	chapter_desc_label = Label.new()
 	chapter_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	chapter_card.add_child(chapter_desc_label)
@@ -77,7 +77,7 @@ func _init() -> void:
 	chapter_cards_box.add_theme_constant_override("separation", 10)
 	chapter_card.add_child(chapter_cards_box)
 
-	var stage_card := add_card("可挑战关卡", "当前章节下的关卡会直接铺开在这里。")
+	var stage_card := add_card("可挑战关卡", "这一章里能打的关卡会直接铺开在这里。")
 	stage_section_label = Label.new()
 	stage_section_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	stage_section_label.modulate = CARD_TEXT_MUTED
@@ -88,7 +88,7 @@ func _init() -> void:
 	stage_cards_box.add_theme_constant_override("separation", 10)
 	stage_card.add_child(stage_cards_box)
 
-	var difficulty_card := add_card("请选择难度", "选中关卡后，这里会直接出现可选难度。")
+	var difficulty_card := add_card("选择难度", "锁定关卡后，这里会直接出现可选难度。")
 	difficulty_section_label = Label.new()
 	difficulty_section_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	difficulty_section_label.modulate = CARD_TEXT_MUTED
@@ -99,7 +99,7 @@ func _init() -> void:
 	difficulty_cards_box.add_theme_constant_override("separation", 10)
 	difficulty_card.add_child(difficulty_cards_box)
 
-	var action_card := add_card("当前目标", "锁定章节、关卡和难度后，这里会直接给出出战入口。")
+	var action_card := add_card("出发前确认", "锁定章节、关卡和难度后，这里会直接给出出战入口。")
 	target_summary_label = Label.new()
 	target_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	target_summary_label.modulate = CARD_TEXT_MUTED
@@ -110,10 +110,10 @@ func _init() -> void:
 	action_card.add_child(next_action_label)
 
 	var action_buttons := add_button_row(action_card)
-	next_action_button = add_action_button(action_buttons, "进入出战", "navigate_prepare")
+	next_action_button = add_action_button(action_buttons, "前往出战", "navigate_prepare")
 	style_primary_button(next_action_button)
 
-	var reward_card := add_card("当前奖励状态", "首通奖励状态会跟着当前难度一起刷新。")
+	var reward_card := add_card("首通奖励", "首通奖励状态会跟着当前难度一起刷新。")
 	reward_status_label = Label.new()
 	reward_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	reward_card.add_child(reward_status_label)
@@ -127,14 +127,14 @@ func _init() -> void:
 	reward_tag_row.add_theme_constant_override("separation", 8)
 	reward_card.add_child(reward_tag_row)
 
-	var tech_card := add_card("联调覆盖", "手动读取与技术字段都下沉到次级区域。")
+	var tech_card := add_card("调试区", "手动刷新和技术字段都留在这里，不占首屏。")
 	var tech_buttons := add_button_row(tech_card)
-	add_action_button(tech_buttons, "读取章节", "load_chapters")
-	add_action_button(tech_buttons, "重读当前章节", "load_stages")
+	add_action_button(tech_buttons, "刷新章节", "load_chapters")
+	add_action_button(tech_buttons, "刷新本章", "load_stages")
 	add_action_button(tech_buttons, "刷新难度", "load_difficulties")
-	add_action_button(tech_buttons, "刷新奖励状态", "refresh_reward_status")
+	add_action_button(tech_buttons, "刷新奖励", "refresh_reward_status")
 
-	stage_override_toggle = add_check_box("显示 stage_id 联调覆盖输入", false, tech_card)
+	stage_override_toggle = add_check_box("显示关卡编号输入", false, tech_card)
 	stage_override_toggle.toggled.connect(_on_stage_override_toggled)
 
 	stage_override_box = VBoxContainer.new()
@@ -142,7 +142,7 @@ func _init() -> void:
 	stage_override_box.visible = false
 	tech_card.add_child(stage_override_box)
 
-	stage_id_input = add_labeled_input("当前 stage_id（联调覆盖）", "", stage_override_box)
+	stage_id_input = add_labeled_input("stage_id（调试）", "", stage_override_box)
 	stage_id_input.text_changed.connect(_on_stage_id_changed)
 
 	set_stage_summary(0, 0, 0, {})
@@ -385,7 +385,7 @@ func _build_chapter_card(entry: Dictionary) -> PanelContainer:
 	box.add_child(tags)
 
 	var button := Button.new()
-	button.text = "当前章节" if is_selected else "切换到本章"
+	button.text = "当前章节" if is_selected else "前往本章"
 	button.disabled = is_selected
 	button.pressed.connect(func() -> void:
 		_selected_chapter_id = chapter_id
@@ -427,7 +427,7 @@ func _build_stage_card(entry: Dictionary) -> PanelContainer:
 	box.add_child(tags)
 
 	var button := Button.new()
-	button.text = "当前关卡" if is_selected else "选择这一关"
+	button.text = "当前关卡" if is_selected else "挑战这一关"
 	button.disabled = is_selected
 	button.pressed.connect(func() -> void:
 		set_stage_id(stage_id)
@@ -476,7 +476,7 @@ func _build_difficulty_card(entry: Dictionary) -> PanelContainer:
 	box.add_child(reward_label)
 
 	var button := Button.new()
-	button.text = "当前难度" if is_selected else "选择该难度"
+	button.text = "当前难度" if is_selected else "选这档难度"
 	button.disabled = is_selected
 	button.pressed.connect(func() -> void:
 		_selected_stage_difficulty_id = stage_difficulty_id
@@ -595,12 +595,12 @@ func _refresh_next_action() -> void:
 
 func _build_header_recommendation(chapter: Dictionary, stage: Dictionary, difficulty: Dictionary) -> String:
 	if chapter.is_empty():
-		return "当前推荐：主线页会自动锁定一个可推进章节。"
+		return "下一步：主线页会自动锁定一个可推进章节。"
 	if stage.is_empty():
-		return "当前推荐：先从 %s 里选一关。" % str(chapter.get("chapter_name", "当前章节"))
+		return "下一步：先从 %s 里选一关。" % str(chapter.get("chapter_name", "当前章节"))
 	if difficulty.is_empty():
-		return "当前推荐：%s 已锁定，下一步请选择难度。" % str(stage.get("stage_name", "当前关卡"))
-	return "当前推荐：%s，推荐战力 %s，下一步进入出战。" % [
+		return "下一步：%s 已锁定，再选一档难度。" % str(stage.get("stage_name", "当前关卡"))
+	return "下一步：%s，推荐战力 %s，可以前往出战。" % [
 		str(difficulty.get("difficulty_name", "当前难度")),
 		str(difficulty.get("recommended_power", "-")),
 	]

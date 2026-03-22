@@ -60,8 +60,8 @@ var _screen_shake_timer := 0.0
 var _screen_shake_strength := 0.0
 var _message_cooldown := 0.0
 var _battle_phase := "idle"
-var _battle_state_text := "等待战斗"
-var _player_status_text := "等待 Prepare"
+var _battle_state_text := "等待开打"
+var _player_status_text := "等待开打"
 var _drop_preview_count := 0
 var _presentation_dirty := false
 var _settle_requested := false
@@ -75,7 +75,7 @@ func _ready() -> void:
 func _init() -> void:
 	setup_page("战斗", [])
 
-	var header_card := add_card("战场", "")
+	var header_card := add_card("战场进行中", "")
 	route_title_label = Label.new()
 	route_title_label.add_theme_font_size_override("font_size", 22)
 	header_card.add_child(route_title_label)
@@ -104,10 +104,10 @@ func _init() -> void:
 	header_card.add_child(target_status_label)
 
 	var header_buttons := add_button_row(header_card)
-	add_action_button(header_buttons, "回出战确认", "navigate_prepare")
+	add_action_button(header_buttons, "回到出战", "navigate_prepare")
 	pause_button = add_button(header_buttons, "暂停", _toggle_pause)
 
-	var arena_card := add_card("竖版战场", "")
+	var arena_card := add_card("当前战场", "")
 	battle_view = Control.new()
 	battle_view.custom_minimum_size = Vector2(0, 590)
 	battle_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -119,7 +119,7 @@ func _init() -> void:
 	battle_world.position = Vector2.ZERO
 	battle_view.add_child(battle_world)
 
-	var action_card := add_card("操作", "")
+	var action_card := add_card("我的动作", "")
 
 	player_feedback_label = Label.new()
 	player_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -148,7 +148,7 @@ func _init() -> void:
 	add_button(attack_row, "左移", func() -> void:
 		_move_player(Vector2(-30.0, 0.0), "左移试探")
 	)
-	skill_button = add_button(attack_row, "攻击", _use_skill)
+	skill_button = add_button(attack_row, "出手", _use_skill)
 	style_primary_button(skill_button)
 	add_button(attack_row, "右移", func() -> void:
 		_move_player(Vector2(30.0, 0.0), "右移拉扯")
@@ -161,7 +161,7 @@ func _init() -> void:
 	add_button(movement_row, "后撤", func() -> void:
 		_move_player(Vector2(0.0, 36.0), "后撤调整")
 	)
-	add_button(movement_row, "收束/结束", func() -> void:
+	add_button(movement_row, "收束这一场", func() -> void:
 		_request_settle(false)
 	)
 
@@ -199,7 +199,7 @@ func load_battle(payload: Dictionary, route_context: Dictionary, reward_status: 
 	_build_monster_states()
 	_sync_header()
 	_sync_world()
-	set_page_state("success", "敌人已经出现，先接敌、压位，再让正式结算自然承接。")
+	set_page_state("success", "敌人已经出现，这一场可以直接接敌。")
 	set_output_json(payload)
 
 
@@ -216,24 +216,24 @@ func reset_battle_space() -> void:
 	_drop_preview_count = 0
 	_presentation_dirty = false
 	_battle_phase = "idle"
-	_battle_state_text = "等待战斗"
-	_player_status_text = "等待 Prepare"
+	_battle_state_text = "等待开打"
+	_player_status_text = "等待开打"
 	_player_hit_timer = 0.0
 	_player_attack_burst_timer = 0.0
 	_screen_shake_timer = 0.0
 	_screen_shake_strength = 0.0
 	_message_cooldown = 0.0
-	route_title_label.text = "等待战斗上下文"
-	route_meta_label.text = "先回出战页锁定角色和目标，再进入战场。"
+	route_title_label.text = "等待进入战场"
+	route_meta_label.text = "先回出战页锁定角色和目标，再进入这一场。"
 	battle_hint_label.text = "玩家会在中下区域迎敌，怪物会从中上区域继续压近。"
-	battle_state_label.text = "战场状态：等待战斗开始。"
+	battle_state_label.text = "战场状态：等待开打。"
 	progress_label.text = "战场进度：还没有敌方数据。"
 	target_status_label.text = "当前目标：等待敌方入场。"
 	drop_status_label.text = "掉落显现：敌人倒下后会短暂出现战利品影子。"
-	movement_status_label.text = "可用动作：前压、左右微调、后撤、攻击、收束。"
-	player_feedback_label.text = "前线反馈：等待战斗开始。"
+	movement_status_label.text = "可用动作：前压、左右微调、后撤、出手、收束。"
+	player_feedback_label.text = "前线反馈：这一场还没开始。"
 	player_status_label.text = "状态：先在出战页确认角色与难度。"
-	player_position_label.text = "当前位置：等待 Battle 页承接。"
+	player_position_label.text = "当前位置：进入战场后会在这里回报站位。"
 	clear_container(battle_world)
 	set_output_json({})
 	_update_interaction_state()
@@ -560,7 +560,7 @@ func _refresh_world_positions() -> void:
 
 func _move_player(delta: Vector2, label_text: String) -> void:
 	if _prepare_payload.is_empty():
-		set_page_state("empty", "请先完成出战确认，再进入战斗。")
+		set_page_state("empty", "先从出战页进入这一场战斗。")
 		return
 
 	if _interaction_locked():
@@ -596,7 +596,7 @@ func _move_player(delta: Vector2, label_text: String) -> void:
 
 func _use_skill() -> void:
 	if _prepare_payload.is_empty():
-		set_page_state("empty", "请先完成出战确认，再进入战斗。")
+		set_page_state("empty", "先从出战页进入这一场战斗。")
 		return
 
 	if _interaction_locked():
@@ -690,7 +690,7 @@ func _request_settle(is_cleared: bool) -> void:
 		_settle_requested = false
 		_battle_phase = "interactive"
 		_battle_state_text = "尚未形成有效击杀"
-		set_page_state("error", "至少击败一个敌人后，才能提交当前战斗的正式结算。")
+		set_page_state("error", "至少击败一个敌人后，才能收束这一场。")
 		movement_status_label.text = "先继续前压或攻击，打出这一场的第一波击杀。"
 		_update_interaction_state()
 		return
@@ -737,7 +737,7 @@ func _refresh_progress_text() -> void:
 
 func _refresh_drop_status() -> void:
 	if _prepare_payload.is_empty():
-		drop_status_label.text = "掉落显现：等待战斗开始。"
+		drop_status_label.text = "掉落显现：开打后才会出现。"
 		return
 
 	if _drop_preview_count <= 0:
@@ -759,7 +759,7 @@ func _refresh_status_panels() -> void:
 
 func _describe_battle_state() -> String:
 	if _prepare_payload.is_empty():
-		return "等待 Prepare"
+		return "等待开打"
 	if _battle_phase == "paused":
 		return "战场已暂停"
 	if _battle_phase == "settling" or _settle_requested:
@@ -767,7 +767,7 @@ func _describe_battle_state() -> String:
 	if _battle_phase == "finish_pause":
 		return "敌方清空，战场收束中"
 	if _alive_monster_count() == 0:
-		return "敌方已清空"
+		return "这一场已经清空"
 	if _find_attack_target_index() >= 0:
 		return "已接敌，可继续出手"
 
@@ -776,7 +776,7 @@ func _describe_battle_state() -> String:
 
 func _describe_player_feedback() -> String:
 	if _prepare_payload.is_empty():
-		return "等待战斗开始。"
+		return "这场还没开始。"
 	if _battle_phase == "paused":
 		return "战场已暂停，当前站位保持不变。"
 	if _battle_phase == "settling" or _settle_requested:
@@ -788,7 +788,7 @@ func _describe_player_feedback() -> String:
 	if _player_attack_burst_timer > 0.0:
 		return "命中演出进行中。"
 	if _alive_monster_count() == 0:
-		return "敌方已清空，等待战场收束。"
+		return "敌方已经清空，等待战场收束。"
 	if _find_attack_target_index() >= 0:
 		return "已进入出手机会。"
 	return "以站位推进和轻量演出反馈为主。"
@@ -796,7 +796,7 @@ func _describe_player_feedback() -> String:
 
 func _describe_player_status() -> String:
 	if _prepare_payload.is_empty():
-		return "等待战斗开始"
+		return "等待开打"
 	if _battle_phase == "paused":
 		return "战场已暂停，随时可以继续"
 	if _battle_phase == "settling" or _settle_requested:
@@ -812,7 +812,7 @@ func _describe_player_status() -> String:
 
 func _describe_player_position() -> String:
 	if _prepare_payload.is_empty():
-		return "等待 Prepare"
+		return "等你进入战场。"
 
 	var progress_ratio := clampf(1.0 - (_player_position.y / maxf(_world_height, 1.0)), 0.0, 1.0)
 	var lane_side := "中线"
@@ -834,7 +834,7 @@ func _describe_target_state() -> String:
 
 	var target := _find_next_target()
 	if target.is_empty():
-		return "敌方已清空，可以进入正式结算。"
+		return "敌方已清空，可以离开战场。"
 
 	var world_position: Vector2 = target.get("world_position", Vector2.ZERO)
 	var dx := absf(world_position.x - _player_position.x)
@@ -1096,7 +1096,7 @@ func _start_finish_sequence() -> void:
 	_battle_phase = "finish_pause"
 	_battle_state_text = "战斗完成"
 	_player_status_text = "清场结束，等待收束"
-	set_page_state("success", "敌方已清空，掉落预热已经出现，稍后会自然切到正式结算。")
+	set_page_state("success", "敌方已清空，这一场正在自然收束。")
 	movement_status_label.text = "最后一个敌人倒下，战场短暂停顿后会自然收束。"
 	_update_interaction_state()
 
