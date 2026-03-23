@@ -2043,8 +2043,13 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 				"inventory_equipment_instance_id": _runtime_inventory_focus_equipment_instance_id(),
 			})
 		"equipment_focus_changed":
+			var equipment_character_id: String = equipment_page.get_character_id_text()
+			if equipment_character_id.is_empty():
+				equipment_character_id = _runtime_equipment_character_selection()
+			if equipment_character_id.is_empty():
+				equipment_character_id = _runtime_character_selection()
 			_update_runtime_focus(
-				{"equipment_character_id": equipment_page.get_character_id_text()},
+				{"equipment_character_id": equipment_character_id},
 				{
 					"equipment_target_slot_key": str(payload.get("equipment_target_slot_key", "")).strip_edges(),
 					"equipment_focus_instance_id": _normalize_id_string(
