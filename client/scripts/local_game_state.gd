@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LocalGameState
 
+const LocalSaveDataScript = preload("res://client/scripts/local_save_data.gd")
+
 const DEFAULT_STATE := {
 	"config": {
 		"base_url": "",
@@ -23,6 +25,7 @@ const DEFAULT_STATE := {
 	"character_equipment_feedback": {},
 	"prepared_monster_ids": [],
 	"recent_battle_context_ids": [],
+	"local_save_meta": {},
 	"selections": {
 		"character_id": "",
 		"battle_character_id": "",
@@ -69,6 +72,16 @@ func replace_state(snapshot: Dictionary) -> void:
 		if not DEFAULT_STATE.has(key):
 			continue
 		_state[key] = _normalize_state_value(key, snapshot.get(key))
+
+
+func apply_local_save(save_payload: Dictionary) -> void:
+	var runtime_snapshot := LocalSaveDataScript.extract_runtime_snapshot(save_payload)
+	replace_state(runtime_snapshot)
+	set_local_save_meta(LocalSaveDataScript.extract_save_meta(save_payload))
+
+
+func set_local_save_meta(meta: Dictionary) -> void:
+	_state["local_save_meta"] = _dictionary_or_empty(meta).duplicate(true)
 
 
 func get_dictionary_state(key: String) -> Dictionary:
@@ -121,6 +134,14 @@ func is_startup_ready() -> bool:
 	return bool(get_dictionary_state("startup_snapshot").get("ready", false))
 
 
+func export_local_save(base_save: Dictionary = {}, save_preferences: Dictionary = {}) -> Dictionary:
+	return LocalSaveDataScript.build_from_runtime_snapshot(
+		_build_persistent_runtime_snapshot(),
+		save_preferences,
+		base_save
+	)
+
+
 func export_saved_config(base: Dictionary) -> Dictionary:
 	var merged := base.duplicate(true)
 	var config := get_dictionary_state("config")
@@ -138,9 +159,28 @@ func export_saved_config(base: Dictionary) -> Dictionary:
 	return merged
 
 
+func _build_persistent_runtime_snapshot() -> Dictionary:
+	return {
+		"character_list": get_dictionary_state("character_list"),
+		"character_detail": get_dictionary_state("character_detail"),
+		"inventory": get_dictionary_state("inventory"),
+		"slots": get_dictionary_state("slots"),
+		"chapters": get_dictionary_state("chapters"),
+		"stages": get_dictionary_state("stages"),
+		"difficulties": get_dictionary_state("difficulties"),
+		"reward_status": get_dictionary_state("reward_status"),
+		"prepare_result": get_dictionary_state("prepare_result"),
+		"settle_result": get_dictionary_state("settle_result"),
+		"character_equipment_feedback": get_dictionary_state("character_equipment_feedback"),
+		"prepared_monster_ids": get_packed_string_array_state("prepared_monster_ids"),
+		"recent_battle_context_ids": get_array_state("recent_battle_context_ids"),
+		"selections": get_dictionary_state("selections"),
+	}
+
+
 func _normalize_state_value(key: String, value: Variant) -> Variant:
 	match key:
-		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "character_equipment_feedback", "selections":
+		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "character_equipment_feedback", "local_save_meta", "selections":
 			return _dictionary_or_empty(value).duplicate(true)
 		"recent_battle_context_ids":
 			return _array_or_empty(value).duplicate(true)

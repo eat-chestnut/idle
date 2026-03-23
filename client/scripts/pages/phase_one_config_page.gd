@@ -11,6 +11,7 @@ func _init() -> void:
 		[
 			"这一页的主身份是启动检查入口，不是联调首页。",
 			"启动时只做一次后台检查，把版本与存档服务快照记到本地运行时。",
+			"本地正式存档会在这里接上继续游戏和新开局，但不会把页面变回联调入口。",
 			"地址与令牌只服务弱联网检查和旧接口兼容，不代表运行期页面真相来源。",
 			"当前开发默认建议：127.0.0.1:8000 + test-token-2001。",
 		]
@@ -25,6 +26,10 @@ func _init() -> void:
 	add_action_button(buttons, "填入开发样例", "fill_default_config")
 	add_action_button(buttons, "保存弱联网配置", "save_config")
 	add_action_button(buttons, "重做启动检查", "run_startup_check")
+
+	var save_buttons := add_button_row()
+	add_action_button(save_buttons, "继续游戏", "continue_local_game")
+	add_action_button(save_buttons, "新开一局", "start_new_local_game")
 
 
 func set_config_values(values: Dictionary) -> void:

@@ -38,9 +38,25 @@
 进入游戏后，当前主循环的设计原则是：
 
 - 页面优先读本地 `runtime state`
+- `runtime state` 会优先从本地正式存档恢复
 - 角色、主线、背包、穿戴、Battle、Settle、成长承接逐步本地化
 - 旧接口可以暂时保留，但只作为迁移阶段的数据补齐手段
 - 不能继续把“页面切换就请求一次接口”当成正式运行模型
+
+### 本地正式存档
+
+当前客户端把本地持久化拆成两层：
+
+- `user://phase_one_client.cfg`
+  - 只放启动检查地址、旧接口兼容令牌、启动快照与少量弱联网配置
+- `user://phase_one_local_save.json`
+  - 作为正式单机存档对象，承接角色、主线、背包、穿戴、战斗上下文与最近结算结果
+
+当前关系是：
+
+- 页面运行期继续优先读本地 `runtime state`
+- `runtime state` 启动时会优先从 `user://phase_one_local_save.json` 恢复
+- 后续存档上传 / 下载必须围绕正式本地存档对象，而不是直接上传页面状态碎片
 
 ### 当前弱联网边界
 
@@ -73,6 +89,8 @@
 - 主场景：`client/scenes/PhaseOneClient.tscn`
 - 主协调器：`client/scripts/phase_one_client.gd`
 - 本地运行时：`client/scripts/local_game_state.gd`
+- 本地正式存档结构：`client/scripts/local_save_data.gd`
+- 本地正式存档服务：`client/scripts/local_save_service.gd`
 - 弱联网访问封装：`client/scripts/backend_api.gd`
 - 本地配置：`client/scripts/client_config_store.gd`
 

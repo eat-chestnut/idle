@@ -3,6 +3,8 @@ extends Control
 const BackendApiScript = preload("res://client/scripts/backend_api.gd")
 const ClientConfigStoreScript = preload("res://client/scripts/client_config_store.gd")
 const LocalGameStateScript = preload("res://client/scripts/local_game_state.gd")
+const LocalSaveDataScript = preload("res://client/scripts/local_save_data.gd")
+const LocalSaveServiceScript = preload("res://client/scripts/local_save_service.gd")
 const ConfigPageScript = preload("res://client/scripts/pages/phase_one_config_page.gd")
 const CharacterPageScript = preload("res://client/scripts/pages/phase_one_character_page.gd")
 const InventoryPageScript = preload("res://client/scripts/pages/phase_one_inventory_page.gd")
@@ -45,6 +47,8 @@ const DEFAULT_LOCAL_RESOURCE_VERSION := "not_declared"
 var api
 var runtime_state
 var saved_config: Dictionary = {}
+var current_local_save: Dictionary = {}
+var current_local_save_action := ""
 var tab_container: TabContainer
 var flow_summary_label: Label
 var page_indices: Dictionary = {}
@@ -88,9 +92,9 @@ func _ready() -> void:
 	_build_ui()
 	_apply_saved_config()
 	_set_initial_states()
+	_restore_or_initialize_local_save_on_boot()
 	_refresh_recent_selectors()
 	_restore_cached_startup_snapshot()
-	_sync_local_runtime_from_legacy_cache()
 	_refresh_product_pages()
 	_refresh_flow_summary()
 	if DisplayServer.get_name() != "headless":
@@ -238,9 +242,9 @@ func _apply_saved_config() -> void:
 
 
 func _set_initial_states() -> void:
-	config_page.set_page_state("empty", "这一页会先完成启动检查，把版本和存档服务快照写进本地运行时。")
-	config_page.set_summary_text("当前正式边界：启动只联网一次；地址与令牌只是弱联网和旧接口兼容配置。")
-	config_page.set_output_text("尚未生成启动检查快照。")
+	config_page.set_page_state("empty", "这一页会先完成启动检查，并接住本地存档的继续 / 新开局入口。")
+	config_page.set_summary_text("当前正式边界：启动检查负责世界快照，本地存档负责继续游戏；两者都会写进本地运行时。")
+	config_page.set_output_text("尚未生成启动检查或本地存档摘要。")
 
 	character_page.set_page_state("empty", "先去角色页认出这次的主角；如果还没有，就先创建一个。")
 	character_page.set_output_text("等待角色列表、角色创建或详情读取。")
@@ -294,6 +298,7 @@ func _persist_runtime_config() -> void:
 	if runtime_state != null:
 		saved_config = runtime_state.export_saved_config(saved_config)
 	ClientConfigStoreScript.save_config(saved_config)
+	_persist_local_save()
 
 
 func _resolve_local_app_version() -> String:
@@ -368,10 +373,145 @@ func _sync_local_runtime_from_legacy_cache() -> void:
 	})
 
 
+func _sync_legacy_cache_from_runtime_state() -> void:
+	current_character_list = _runtime_character_list()
+	current_character_detail = _runtime_character_detail()
+	current_inventory = _runtime_inventory()
+	current_slots = _runtime_slots()
+	current_chapters = _runtime_chapters()
+	current_stages = _runtime_stages()
+	current_difficulties = _runtime_difficulties()
+	current_reward_status = _runtime_reward_status()
+	current_prepare_result = _runtime_prepare_result()
+	current_settle_result = _runtime_settle_result()
+	current_character_equipment_feedback = _runtime_equipment_feedback()
+	current_prepared_monster_ids = _runtime_prepared_monster_ids()
+	recent_battle_context_ids = _runtime_recent_battle_context_ids()
+	has_loaded_character_list = not _as_array(current_character_list.get("characters", [])).is_empty()
+	has_loaded_stages = not _as_array(current_stages.get("stages", [])).is_empty()
+	has_loaded_difficulties = not _as_array(current_difficulties.get("difficulties", [])).is_empty()
+
+
+func _build_local_save_preferences() -> Dictionary:
+	return {
+		"character_id": _runtime_character_selection(),
+		"battle_character_id": _runtime_battle_character_selection(),
+		"equipment_character_id": _runtime_equipment_character_selection(),
+		"chapter_id": _runtime_selected_chapter_id(),
+		"stage_id": _runtime_selected_stage_id(),
+		"stage_difficulty_id": _runtime_selected_stage_difficulty_id(),
+		"battle_context_id": _runtime_battle_context_selection(),
+		"recent_characters": _as_array(saved_config.get("recent_characters", [])),
+		"recent_chapter_ids": _as_array(saved_config.get("recent_chapter_ids", [])),
+		"recent_stage_ids": _as_array(saved_config.get("recent_stage_ids", [])),
+		"recent_stage_difficulty_ids": _as_array(saved_config.get("recent_stage_difficulty_ids", [])),
+	}
+
+
+func _apply_local_save_preferences(save_payload: Dictionary) -> void:
+	var preferences := LocalSaveDataScript.extract_save_preferences(save_payload)
+	saved_config["character_id"] = str(preferences.get("character_id", "")).strip_edges()
+	saved_config["battle_character_id"] = str(
+		preferences.get("battle_character_id", saved_config.get("character_id", ""))
+	).strip_edges()
+	saved_config["chapter_id"] = str(preferences.get("chapter_id", "")).strip_edges()
+	saved_config["stage_id"] = str(preferences.get("stage_id", "")).strip_edges()
+	saved_config["stage_difficulty_id"] = str(preferences.get("stage_difficulty_id", "")).strip_edges()
+	saved_config["recent_characters"] = _as_array(preferences.get("recent_characters", []))
+	saved_config["recent_chapter_ids"] = _as_array(preferences.get("recent_chapter_ids", []))
+	saved_config["recent_stage_ids"] = _as_array(preferences.get("recent_stage_ids", []))
+	saved_config["recent_stage_difficulty_ids"] = _as_array(preferences.get("recent_stage_difficulty_ids", []))
+
+
+func _apply_runtime_selections_to_pages() -> void:
+	_is_applying_config = true
+	var selections: Dictionary = runtime_state.get_dictionary_state("selections") if runtime_state != null else {}
+	var detail_character_id := _normalize_id_string(selections.get("character_id", ""))
+	var battle_character_id := _normalize_id_string(selections.get("battle_character_id", ""))
+	var equipment_character_id := _normalize_id_string(selections.get("equipment_character_id", ""))
+	var chapter_id := str(selections.get("chapter_id", "")).strip_edges()
+	var stage_id := str(selections.get("stage_id", "")).strip_edges()
+	var stage_difficulty_id := str(selections.get("stage_difficulty_id", "")).strip_edges()
+	var battle_context_id := str(selections.get("battle_context_id", "")).strip_edges()
+
+	character_page.set_character_id(detail_character_id)
+	equipment_page.set_character_id(
+		equipment_character_id if not equipment_character_id.is_empty() else detail_character_id
+	)
+	prepare_page.set_character_id(
+		battle_character_id if not battle_character_id.is_empty() else detail_character_id
+	)
+	settle_page.set_character_id(
+		battle_character_id if not battle_character_id.is_empty() else detail_character_id
+	)
+	stage_page.set_selected_chapter_id(chapter_id)
+	stage_page.set_stage_id(stage_id)
+	stage_page.set_selected_stage_difficulty(stage_difficulty_id)
+	prepare_page.set_stage_difficulty_id(stage_difficulty_id)
+	settle_page.set_stage_difficulty_id(stage_difficulty_id)
+	settle_page.set_battle_context_id(battle_context_id)
+	settle_page.set_killed_monsters(_runtime_prepared_monster_ids())
+	_is_applying_config = false
+
+
+func _restore_or_initialize_local_save_on_boot() -> void:
+	var result := LocalSaveServiceScript.load_or_create_default()
+	if not result.get("ok", false):
+		var failure_message := "本地正式存档暂时没能建立：%s" % str(result.get("message", "未知原因"))
+		current_local_save = {}
+		current_local_save_action = "error"
+		if runtime_state != null:
+			runtime_state.set_local_save_meta({
+				"has_save": false,
+				"message": failure_message,
+			})
+		config_page.set_page_state("error", failure_message)
+		return
+
+	_apply_local_save_result(result)
+
+
+func _apply_local_save_result(result: Dictionary) -> void:
+	current_local_save = _as_dictionary(result.get("data", {}))
+	current_local_save_action = str(result.get("action", "loaded")).strip_edges()
+	if runtime_state != null:
+		runtime_state.apply_local_save(current_local_save)
+	_apply_local_save_preferences(current_local_save)
+	_sync_legacy_cache_from_runtime_state()
+	_apply_runtime_selections_to_pages()
+	_persist_runtime_config()
+	_apply_local_save_page_states(current_local_save_action)
+
+
+func _persist_local_save() -> void:
+	if runtime_state == null:
+		return
+
+	var action_to_persist := current_local_save_action if not current_local_save_action.is_empty() else "saved"
+	var result := LocalSaveServiceScript.overwrite_save(
+		runtime_state.export_local_save(current_local_save, _build_local_save_preferences()),
+		action_to_persist
+	)
+	if not result.get("ok", false):
+		push_warning("Failed to save local save: %s" % str(result.get("message", "unknown")))
+		return
+
+	current_local_save = _as_dictionary(result.get("data", {}))
+	if current_local_save_action.is_empty():
+		current_local_save_action = str(result.get("action", "saved")).strip_edges()
+	runtime_state.set_local_save_meta(LocalSaveDataScript.extract_save_meta(current_local_save))
+
+
 func _runtime_startup_snapshot() -> Dictionary:
 	if runtime_state == null:
 		return _as_dictionary(saved_config.get("startup_snapshot", {}))
 	return runtime_state.get_dictionary_state("startup_snapshot")
+
+
+func _runtime_local_save_meta() -> Dictionary:
+	if runtime_state == null:
+		return {}
+	return runtime_state.get_dictionary_state("local_save_meta")
 
 
 func _runtime_selection(selection_key: String, fallback: String = "") -> String:
@@ -487,13 +627,8 @@ func _runtime_prepared_monster_ids() -> PackedStringArray:
 
 
 func _restore_cached_startup_snapshot() -> void:
-	var cached_snapshot := _runtime_startup_snapshot()
-	if cached_snapshot.is_empty():
-		return
-
-	config_page.set_page_state("success", "已载入上次启动检查快照；正常进入游戏前会再检查一次并回写本地运行时。")
-	config_page.set_summary_text(_build_startup_snapshot_summary(cached_snapshot))
-	config_page.set_output_json(cached_snapshot)
+	var state_kind := "error" if current_local_save_action == "error" else "success"
+	_refresh_startup_entry_state(state_kind, _build_local_save_action_message(current_local_save_action, true))
 
 
 func _run_startup_check_on_boot() -> void:
@@ -504,9 +639,7 @@ func _run_startup_check_on_boot() -> void:
 	_refresh_runtime_config_snapshot()
 
 	if str(saved_config.get("base_url", "")).strip_edges().is_empty():
-		config_page.set_page_state("empty", "启动检查还没开始，先补启动检查地址。")
-		config_page.set_summary_text("当前正式边界：启动只联网一次；地址与令牌只是弱联网和旧接口兼容配置。")
-		config_page.set_output_text("尚未生成启动检查快照。")
+		_refresh_startup_entry_state("empty", "启动检查还没开始，先补启动检查地址。")
 		_refresh_flow_summary()
 		return
 
@@ -539,9 +672,10 @@ func _execute_startup_check(from_boot: bool) -> void:
 		saved_config["startup_snapshot"] = failure_snapshot
 		_sync_local_runtime_from_legacy_cache()
 		_persist_runtime_config()
-		config_page.set_page_state("error", "启动检查失败：%s" % str(result.get("message", "当前世界暂时没接通。")))
-		config_page.set_summary_text(_build_startup_snapshot_summary(failure_snapshot))
-		config_page.set_output_json(failure_snapshot)
+		_refresh_startup_entry_state(
+			"error",
+			"启动检查失败：%s" % str(result.get("message", "当前世界暂时没接通。"))
+		)
 		_refresh_flow_summary()
 		return
 
@@ -554,13 +688,11 @@ func _execute_startup_check(from_boot: bool) -> void:
 	var failures := int(diagnosis.get("failures", 0))
 	var warnings := int(diagnosis.get("warnings", 0))
 	var state_kind := "success" if bool(startup_snapshot.get("ready", false)) else "error"
-	config_page.set_page_state(
+	_refresh_startup_entry_state(
 		state_kind,
 		"启动检查完成：failures=%d，warnings=%d。"
 		% [failures, warnings]
 	)
-	config_page.set_summary_text(_build_startup_snapshot_summary(startup_snapshot))
-	config_page.set_output_json(startup_snapshot)
 	_refresh_flow_summary()
 
 
@@ -625,6 +757,107 @@ func _build_startup_snapshot_summary(snapshot: Dictionary) -> String:
 		int(diagnosis.get("failures", 0)),
 		int(diagnosis.get("warnings", 0)),
 	]
+
+
+func _build_local_save_action_message(action: String, from_boot: bool = false) -> String:
+	match action:
+		"created":
+			return (
+				"当前还没有本地正式存档，已先为你开一局默认单机进度。"
+				if not from_boot
+				else "已建立默认本地存档；正常进入游戏前会再做一次启动检查。"
+			)
+		"recreated":
+			return (
+				"检测到旧本地存档已失效，已重建为默认单机进度。"
+				if not from_boot
+				else "旧本地存档已失效，当前已重建默认进度；正常进入游戏前会再做一次启动检查。"
+			)
+		"saved":
+			return "本地正式存档已覆盖保存。"
+		"error":
+			return "本地正式存档暂时不可用。"
+		_:
+			return (
+				"已从本地正式存档恢复当前进度。"
+				if not from_boot
+				else "已接回本地正式存档；正常进入游戏前会再做一次启动检查。"
+			)
+
+
+func _build_local_save_summary() -> String:
+	var save_meta := _runtime_local_save_meta()
+	if save_meta.is_empty() or not bool(save_meta.get("has_save", false)):
+		return "本地存档：尚未建立。"
+
+	var character_count := int(save_meta.get("character_count", 0))
+	var route_summary := _build_flow_route_summary(_build_route_context(_runtime_selected_stage_difficulty_id()))
+	var updated_at := str(save_meta.get("updated_at", "")).strip_edges()
+	if character_count <= 0:
+		return "本地存档：默认新开局已就位，当前目标 %s。最近保存：%s。" % [
+			route_summary,
+			updated_at if not updated_at.is_empty() else "刚刚",
+		]
+
+	return "本地存档：已恢复 %d 名角色，当前主角 %s，目标 %s。最近保存：%s。" % [
+		character_count,
+		_describe_character(_runtime_character_selection()),
+		route_summary,
+		updated_at if not updated_at.is_empty() else "刚刚",
+	]
+
+
+func _build_startup_entry_output() -> Dictionary:
+	return {
+		"local_save": {
+			"path": LocalSaveServiceScript.SAVE_PATH,
+			"action": current_local_save_action,
+			"meta": _runtime_local_save_meta(),
+			"preferences": LocalSaveDataScript.extract_save_preferences(current_local_save) if not current_local_save.is_empty() else {},
+		},
+		"startup_snapshot": _runtime_startup_snapshot(),
+	}
+
+
+func _refresh_startup_entry_state(page_status: String = "", message: String = "") -> void:
+	if not page_status.is_empty() and not message.is_empty():
+		config_page.set_page_state(page_status, message)
+
+	var lines := [_build_local_save_summary()]
+	var startup_snapshot := _runtime_startup_snapshot()
+	if startup_snapshot.is_empty():
+		lines.append("启动快照：尚未生成。")
+	else:
+		lines.append(_build_startup_snapshot_summary(startup_snapshot))
+	config_page.set_summary_text("\n".join(lines))
+	config_page.set_output_json(_build_startup_entry_output())
+
+
+func _apply_local_save_page_states(action: String) -> void:
+	_refresh_startup_entry_state("success", _build_local_save_action_message(action, true))
+
+	if not _runtime_character_detail().is_empty() or not _as_array(_runtime_character_list().get("characters", [])).is_empty():
+		character_page.set_page_state("success", "当前角色进度已从本地正式存档接回。")
+	elif action != "loaded":
+		character_page.set_page_state("empty", "当前是新开局；先创建一个角色，再开始这轮山海路。")
+
+	if not _runtime_chapters().is_empty():
+		stage_page.set_page_state("success", "当前章节、关卡和难度已从本地正式存档接回。")
+
+	var inventory_payload := _runtime_inventory()
+	var inventory_count := _as_array(inventory_payload.get("stack_items", [])).size() + _as_array(inventory_payload.get("equipment_items", [])).size()
+	if inventory_count > 0:
+		inventory_page.set_page_state("success", "背包快照已从本地正式存档接回。")
+
+	if not _runtime_slots().is_empty():
+		equipment_page.set_page_state("success", "当前穿戴快照已从本地正式存档接回。")
+
+	if not _runtime_prepare_result().is_empty():
+		prepare_page.set_page_state("success", "这一场的出战信息已从本地正式存档接回。")
+		battle_page.set_page_state("success", "当前战斗上下文已从本地正式存档接回。")
+
+	if not _runtime_settle_result().is_empty():
+		settle_page.set_page_state("success", "最近一次结算结果已从本地正式存档接回。")
 
 
 func _describe_version_snapshot(snapshot: Dictionary) -> String:
@@ -918,15 +1151,20 @@ func _refresh_flow_summary() -> void:
 	_sync_local_runtime_from_legacy_cache()
 	var config_values: Dictionary = config_page.get_config_values()
 	var startup_snapshot := _runtime_startup_snapshot()
+	var local_save_meta := _runtime_local_save_meta()
 	var detail_character = _describe_character(_runtime_character_selection())
 	var battle_character = _describe_character(_runtime_battle_character_selection())
 	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
 	var battle_context_id = _runtime_battle_context_selection()
 	var route_summary := _build_flow_route_summary(route_context)
+	var save_line := "本地存档：等待建立。"
 	var hero_line := "当前主角：待确认。"
 	var target_line := "这轮目标：先完成启动检查，再踏上这一轮山海路。"
 	var next_step_line := "现在最顺：启动时只联网一次，先把版本与存档服务快照写到本地。"
 	var reminder_line := ""
+
+	if not local_save_meta.is_empty() and bool(local_save_meta.get("has_save", false)):
+		save_line = _build_local_save_summary()
 
 	if str(config_values.get("base_url", "")).strip_edges().is_empty():
 		target_line = "这轮目标：先把弱联网入口接上。"
@@ -986,7 +1224,7 @@ func _refresh_flow_summary() -> void:
 	):
 		reminder_line = "提醒：当前启动检查还未声明存档上传 / 下载状态，本轮先按弱联网占位处理。"
 
-	var lines := [hero_line, target_line, next_step_line]
+	var lines := [save_line, hero_line, target_line, next_step_line]
 	if not reminder_line.is_empty():
 		lines.append(reminder_line)
 	flow_summary_label.text = "\n".join(lines)
@@ -1329,8 +1567,24 @@ func _refresh_product_pages() -> void:
 		_runtime_inventory(),
 		settle_result
 	)
+	stage_page.render_chapters(_runtime_chapters(), _build_preferred_chapter_ids())
+	stage_page.render_stages(_runtime_stages(), _build_preferred_stage_ids())
+	stage_page.render_reward_context(
+		_runtime_chapters(),
+		_runtime_stages(),
+		_runtime_difficulties(),
+		_runtime_reward_status()
+	)
+	stage_page.set_stage_summary(
+		_as_array(_runtime_chapters().get("chapters", [])).size(),
+		_as_array(_runtime_stages().get("stages", [])).size(),
+		_as_array(_runtime_difficulties().get("difficulties", [])).size(),
+		_runtime_reward_status()
+	)
 	prepare_page.render_prepare_context(battle_character, route_context, _runtime_reward_status())
 	prepare_page.show_prepare_summary(_runtime_prepare_result())
+	if not _runtime_prepare_result().is_empty():
+		battle_page.load_battle(_runtime_prepare_result(), route_context, _runtime_reward_status())
 	settle_page.render_settle_context(battle_character, route_context)
 
 
@@ -1681,6 +1935,10 @@ func _on_page_action_requested(action: String, payload: Dictionary) -> void:
 	match action:
 		"fill_default_config":
 			_on_fill_default_config_pressed()
+		"continue_local_game":
+			_on_continue_local_game_pressed()
+		"start_new_local_game":
+			_on_start_new_local_game_pressed()
 		"save_config":
 			_on_save_config_pressed()
 		"run_startup_check":
@@ -1786,7 +2044,34 @@ func _on_fill_default_config_pressed() -> void:
 	_refresh_product_pages()
 	_refresh_flow_summary()
 	config_page.set_page_state("success", "已填入开发默认值，记得点击“保存配置”。")
-	config_page.set_output_text(DEFAULT_CONFIG_NOTE)
+	_refresh_startup_entry_state("success", "已填入开发默认值，记得点击“保存配置”。")
+
+
+func _on_continue_local_game_pressed() -> void:
+	var result := LocalSaveServiceScript.load_or_create_default()
+	if not result.get("ok", false):
+		config_page.set_page_state("error", "继续游戏失败：%s" % str(result.get("message", "本地存档暂不可用。")))
+		return
+
+	_apply_local_save_result(result)
+	_refresh_recent_selectors()
+	_refresh_product_pages()
+	_refresh_flow_summary()
+	_refresh_startup_entry_state("success", _build_local_save_action_message(current_local_save_action, false))
+
+
+func _on_start_new_local_game_pressed() -> void:
+	var result := LocalSaveServiceScript.create_new_save()
+	if not result.get("ok", false):
+		config_page.set_page_state("error", "新开局失败：%s" % str(result.get("message", "本地存档暂不可写。")))
+		return
+
+	result["action"] = "created"
+	_apply_local_save_result(result)
+	_refresh_recent_selectors()
+	_refresh_product_pages()
+	_refresh_flow_summary()
+	_refresh_startup_entry_state("success", "已新开一局，并用默认单机进度覆盖当前本地存档。")
 
 
 func _on_save_config_pressed() -> void:
@@ -1794,8 +2079,11 @@ func _on_save_config_pressed() -> void:
 	_refresh_recent_selectors()
 	_refresh_product_pages()
 	_refresh_flow_summary()
-	config_page.set_page_state("success", "配置已保存到 user://phase_one_client.cfg。")
-	config_page.set_output_json(saved_config)
+	_refresh_startup_entry_state(
+		"success",
+		"弱联网配置已保存到 user://phase_one_client.cfg；正式本地存档位于 %s。"
+		% LocalSaveServiceScript.SAVE_PATH
+	)
 
 
 func _on_load_characters_pressed() -> void:
@@ -2040,6 +2328,7 @@ func _on_load_inventory_pressed() -> void:
 	else:
 		inventory_page.set_page_state("success", "背包已经到位，本轮新增和新装备会优先排在前面。")
 
+	_persist_runtime_config()
 	_refresh_product_pages()
 	_refresh_flow_summary()
 
@@ -2082,6 +2371,10 @@ func _on_load_slots_pressed() -> void:
 		equipment_page.set_page_state("empty", "当前角色没有可显示的槽位。")
 	else:
 		equipment_page.set_page_state("success", "穿戴槽已刷新，可以继续穿上或卸下装备。")
+
+	_persist_runtime_config()
+	_refresh_product_pages()
+	_refresh_flow_summary()
 
 
 func _on_equip_pressed() -> void:
@@ -2133,6 +2426,7 @@ func _on_equip_pressed() -> void:
 		if slots_refresh_result.get("ok", false)
 		else "穿戴完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
 	)
+	_persist_runtime_config()
 	_refresh_product_pages()
 	_refresh_flow_summary()
 
@@ -2188,6 +2482,7 @@ func _on_unequip_pressed() -> void:
 		if slots_refresh_result.get("ok", false)
 		else "卸下完成；当前槽位已按返回结果更新，完整快照可再刷新一次。"
 	)
+	_persist_runtime_config()
 	_refresh_product_pages()
 	_refresh_flow_summary()
 
@@ -2388,6 +2683,10 @@ func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> boo
 				]
 			)
 
+	_persist_runtime_config()
+	_refresh_recent_selectors()
+	_refresh_product_pages()
+	_refresh_flow_summary()
 	return true
 
 
@@ -2628,6 +2927,7 @@ func _submit_settle_request(
 		_runtime_reward_status()
 	)
 	stage_page.set_page_state("success", "结算完成，主线页的首通奖励状态也已经同步。")
+	_persist_runtime_config()
 	_refresh_recent_selectors()
 	_refresh_product_pages()
 	_refresh_flow_summary()
