@@ -11,17 +11,8 @@ const DEFAULTS := {
 	"local_resource_version": "not_declared",
 	"class_id": "class_jingang",
 	"character_name": "联调角色",
-	"character_id": "1001",
-	"battle_character_id": "1001",
-	"chapter_id": "",
-	"stage_id": "stage_nanshan_001",
-	"stage_difficulty_id": "stage_nanshan_001_normal",
 	"runtime_config": {},
 	"startup_snapshot": {},
-	"recent_characters": [],
-	"recent_chapter_ids": [],
-	"recent_stage_ids": ["stage_nanshan_001"],
-	"recent_stage_difficulty_ids": ["stage_nanshan_001_normal"],
 }
 
 
@@ -41,11 +32,6 @@ static func load_config() -> Dictionary:
 		"local_resource_version",
 		"class_id",
 		"character_name",
-		"character_id",
-		"battle_character_id",
-		"chapter_id",
-		"stage_id",
-		"stage_difficulty_id",
 	]:
 		resolved[key] = String(config.get_value(CONFIG_SECTION, key, DEFAULTS[key]))
 
@@ -54,23 +40,6 @@ static func load_config() -> Dictionary:
 	)
 	resolved["startup_snapshot"] = _normalize_dictionary(
 		config.get_value(CONFIG_SECTION, "startup_snapshot", DEFAULTS["startup_snapshot"])
-	)
-
-	resolved["recent_characters"] = _normalize_recent_characters(
-		config.get_value(CONFIG_SECTION, "recent_characters", DEFAULTS["recent_characters"])
-	)
-	resolved["recent_chapter_ids"] = _normalize_string_list(
-		config.get_value(CONFIG_SECTION, "recent_chapter_ids", DEFAULTS["recent_chapter_ids"])
-	)
-	resolved["recent_stage_ids"] = _normalize_string_list(
-		config.get_value(CONFIG_SECTION, "recent_stage_ids", DEFAULTS["recent_stage_ids"])
-	)
-	resolved["recent_stage_difficulty_ids"] = _normalize_string_list(
-		config.get_value(
-			CONFIG_SECTION,
-			"recent_stage_difficulty_ids",
-			DEFAULTS["recent_stage_difficulty_ids"]
-		)
 	)
 
 	return resolved
@@ -87,11 +56,6 @@ static func save_config(values: Dictionary) -> int:
 		"local_resource_version",
 		"class_id",
 		"character_name",
-		"character_id",
-		"battle_character_id",
-		"chapter_id",
-		"stage_id",
-		"stage_difficulty_id",
 	]:
 		config.set_value(CONFIG_SECTION, key, String(values.get(key, DEFAULTS[key])))
 
@@ -104,29 +68,6 @@ static func save_config(values: Dictionary) -> int:
 		CONFIG_SECTION,
 		"startup_snapshot",
 		_normalize_dictionary(values.get("startup_snapshot", DEFAULTS["startup_snapshot"]))
-	)
-
-	config.set_value(
-		CONFIG_SECTION,
-		"recent_characters",
-		_normalize_recent_characters(values.get("recent_characters", DEFAULTS["recent_characters"]))
-	)
-	config.set_value(
-		CONFIG_SECTION,
-		"recent_chapter_ids",
-		_normalize_string_list(values.get("recent_chapter_ids", DEFAULTS["recent_chapter_ids"]))
-	)
-	config.set_value(
-		CONFIG_SECTION,
-		"recent_stage_ids",
-		_normalize_string_list(values.get("recent_stage_ids", DEFAULTS["recent_stage_ids"]))
-	)
-	config.set_value(
-		CONFIG_SECTION,
-		"recent_stage_difficulty_ids",
-		_normalize_string_list(
-			values.get("recent_stage_difficulty_ids", DEFAULTS["recent_stage_difficulty_ids"])
-		)
 	)
 
 	return config.save(CONFIG_PATH)

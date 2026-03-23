@@ -7,8 +7,30 @@ const SAVE_PATH := "user://phase_one_local_save.json"
 
 
 static func has_valid_save() -> bool:
-	var result := load_save()
-	return bool(result.get("ok", false))
+	return bool(inspect_save().get("valid", false))
+
+
+static func inspect_save() -> Dictionary:
+	var loaded := load_save()
+	if loaded.get("ok", false):
+		return {
+			"ok": true,
+			"valid": true,
+			"exists": true,
+			"status": "ready",
+			"data": loaded.get("data", {}),
+			"path": loaded.get("path", SAVE_PATH),
+		}
+
+	return {
+		"ok": false,
+		"valid": false,
+		"exists": str(loaded.get("kind", "")).strip_edges() != "missing",
+		"status": str(loaded.get("kind", "missing")).strip_edges(),
+		"message": str(loaded.get("message", "本地正式存档暂不可用。")),
+		"path": loaded.get("path", SAVE_PATH),
+		"error": loaded,
+	}
 
 
 static func load_or_create_default() -> Dictionary:

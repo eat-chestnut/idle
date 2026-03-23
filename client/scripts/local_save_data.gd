@@ -12,6 +12,7 @@ const DEFAULT_STAGE_DIFFICULTY_ID := "stage_nanshan_001_normal"
 const DEFAULT_DIFFICULTY_KEY := "normal"
 const DEFAULT_DIFFICULTY_NAME := "普通"
 const DEFAULT_RECOMMENDED_POWER := 100
+const DEFAULT_ACTIVE_PAGE_KEY := "character"
 
 
 static func build_new_save() -> Dictionary:
@@ -52,11 +53,18 @@ static func normalize_save(raw_value: Variant) -> Dictionary:
 		normalized["save_slot"] = DEFAULT_SAVE_SLOT
 
 	var persistent := _dictionary_or_empty(raw.get("persistent", {}))
+	var legacy_inventory_state := _dictionary_or_empty(persistent.get("inventory_state", {}))
+	var legacy_equipment_state := _dictionary_or_empty(persistent.get("equipment_state", {}))
 	normalized["persistent"] = {
 		"character_state": _normalize_character_state(_dictionary_or_empty(persistent.get("character_state", {}))),
 		"route_state": _normalize_route_state(_dictionary_or_empty(persistent.get("route_state", {}))),
-		"inventory_state": _normalize_inventory_state(_dictionary_or_empty(persistent.get("inventory_state", {}))),
-		"equipment_state": _normalize_equipment_state(_dictionary_or_empty(persistent.get("equipment_state", {}))),
+		"inventory_state": _normalize_inventory_state(legacy_inventory_state),
+		"equipment_state": _normalize_equipment_state(legacy_equipment_state),
+		"ui_state": _normalize_ui_state(
+			_dictionary_or_empty(persistent.get("ui_state", {})),
+			legacy_inventory_state,
+			legacy_equipment_state
+		),
 		"growth_state": _normalize_growth_state(_dictionary_or_empty(persistent.get("growth_state", {}))),
 	}
 
@@ -82,6 +90,7 @@ static func build_from_runtime_snapshot(
 	var route_state := _dictionary_or_empty(persistent.get("route_state", {}))
 	var inventory_state := _dictionary_or_empty(persistent.get("inventory_state", {}))
 	var equipment_state := _dictionary_or_empty(persistent.get("equipment_state", {}))
+	var ui_state := _dictionary_or_empty(persistent.get("ui_state", {}))
 	var growth_state := _dictionary_or_empty(persistent.get("growth_state", {}))
 	var selections := _dictionary_or_empty(runtime_snapshot.get("selections", {}))
 	var ui_focus := _dictionary_or_empty(runtime_snapshot.get("ui_focus", {}))
@@ -127,15 +136,6 @@ static func build_from_runtime_snapshot(
 	inventory_state["inventory"] = _normalize_inventory_payload(
 		_dictionary_or_empty(runtime_snapshot.get("inventory", {}))
 	)
-	inventory_state["focus_section"] = str(
-		ui_focus.get("inventory_section", inventory_state.get("focus_section", "all"))
-	).strip_edges()
-	inventory_state["focus_equipment_instance_id"] = _normalize_id_string(
-		ui_focus.get(
-			"inventory_equipment_instance_id",
-			inventory_state.get("focus_equipment_instance_id", "")
-		)
-	)
 
 	equipment_state["slots"] = _dictionary_or_empty(runtime_snapshot.get("slots", {})).duplicate(true)
 	equipment_state["character_equipment_feedback"] = _dictionary_or_empty(
@@ -147,13 +147,26 @@ static func build_from_runtime_snapshot(
 			selections.get("equipment_character_id", equipment_state.get("equipment_character_id", ""))
 		)
 	)
-	equipment_state["focus_slot_key"] = str(
-		ui_focus.get("equipment_target_slot_key", equipment_state.get("focus_slot_key", ""))
+
+	ui_state["active_page_key"] = str(
+		ui_focus.get("active_page_key", ui_state.get("active_page_key", DEFAULT_ACTIVE_PAGE_KEY))
 	).strip_edges()
-	equipment_state["focus_equipment_instance_id"] = _normalize_id_string(
+	ui_state["inventory_section"] = str(
+		ui_focus.get("inventory_section", ui_state.get("inventory_section", "all"))
+	).strip_edges()
+	ui_state["inventory_equipment_instance_id"] = _normalize_id_string(
+		ui_focus.get(
+			"inventory_equipment_instance_id",
+			ui_state.get("inventory_equipment_instance_id", "")
+		)
+	)
+	ui_state["equipment_target_slot_key"] = str(
+		ui_focus.get("equipment_target_slot_key", ui_state.get("equipment_target_slot_key", ""))
+	).strip_edges()
+	ui_state["equipment_focus_instance_id"] = _normalize_id_string(
 		ui_focus.get(
 			"equipment_focus_instance_id",
-			equipment_state.get("focus_equipment_instance_id", "")
+			ui_state.get("equipment_focus_instance_id", "")
 		)
 	)
 
@@ -178,6 +191,7 @@ static func build_from_runtime_snapshot(
 		"route_state": route_state,
 		"inventory_state": inventory_state,
 		"equipment_state": equipment_state,
+		"ui_state": ui_state,
 		"growth_state": growth_state,
 	}
 	return normalize_save(normalized)
@@ -190,6 +204,7 @@ static func extract_runtime_snapshot(save_payload: Dictionary) -> Dictionary:
 	var route_state := _dictionary_or_empty(persistent.get("route_state", {}))
 	var inventory_state := _dictionary_or_empty(persistent.get("inventory_state", {}))
 	var equipment_state := _dictionary_or_empty(persistent.get("equipment_state", {}))
+	var ui_state := _dictionary_or_empty(persistent.get("ui_state", {}))
 	var growth_state := _dictionary_or_empty(persistent.get("growth_state", {}))
 
 	return {
@@ -207,13 +222,14 @@ static func extract_runtime_snapshot(save_payload: Dictionary) -> Dictionary:
 			equipment_state.get("character_equipment_feedback", {})
 		).duplicate(true),
 		"ui_focus": {
-			"inventory_section": str(inventory_state.get("focus_section", "all")).strip_edges(),
+			"active_page_key": str(ui_state.get("active_page_key", DEFAULT_ACTIVE_PAGE_KEY)).strip_edges(),
+			"inventory_section": str(ui_state.get("inventory_section", "all")).strip_edges(),
 			"inventory_equipment_instance_id": _normalize_id_string(
-				inventory_state.get("focus_equipment_instance_id", "")
+				ui_state.get("inventory_equipment_instance_id", "")
 			),
-			"equipment_target_slot_key": str(equipment_state.get("focus_slot_key", "")).strip_edges(),
+			"equipment_target_slot_key": str(ui_state.get("equipment_target_slot_key", "")).strip_edges(),
 			"equipment_focus_instance_id": _normalize_id_string(
-				equipment_state.get("focus_equipment_instance_id", "")
+				ui_state.get("equipment_focus_instance_id", "")
 			),
 		},
 		"prepared_monster_ids": _normalize_string_list(growth_state.get("prepared_monster_ids", [])),
@@ -258,6 +274,7 @@ static func extract_save_meta(save_payload: Dictionary) -> Dictionary:
 	var persistent := _dictionary_or_empty(normalized.get("persistent", {}))
 	var character_state := _dictionary_or_empty(persistent.get("character_state", {}))
 	var route_state := _dictionary_or_empty(persistent.get("route_state", {}))
+	var ui_state := _dictionary_or_empty(persistent.get("ui_state", {}))
 	var growth_state := _dictionary_or_empty(persistent.get("growth_state", {}))
 	return {
 		"has_save": true,
@@ -272,8 +289,13 @@ static func extract_save_meta(save_payload: Dictionary) -> Dictionary:
 		"chapter_id": str(route_state.get("chapter_id", DEFAULT_CHAPTER_ID)).strip_edges(),
 		"stage_id": str(route_state.get("stage_id", DEFAULT_STAGE_ID)).strip_edges(),
 		"stage_difficulty_id": str(route_state.get("stage_difficulty_id", DEFAULT_STAGE_DIFFICULTY_ID)).strip_edges(),
+		"active_page_key": str(ui_state.get("active_page_key", DEFAULT_ACTIVE_PAGE_KEY)).strip_edges(),
 		"has_prepare_result": not _dictionary_or_empty(growth_state.get("prepare_result", {})).is_empty(),
 		"has_settle_result": not _dictionary_or_empty(growth_state.get("settle_result", {})).is_empty(),
+		"has_pending_battle_context": (
+			not str(growth_state.get("battle_context_id", "")).strip_edges().is_empty()
+			and _dictionary_or_empty(growth_state.get("settle_result", {})).is_empty()
+		),
 		"recent_battle_context_count": _array_or_empty(growth_state.get("recent_battle_context_ids", [])).size(),
 	}
 
@@ -301,15 +323,18 @@ static func _default_persistent_payload() -> Dictionary:
 		},
 		"inventory_state": {
 			"inventory": _default_inventory_payload(),
-			"focus_section": "all",
-			"focus_equipment_instance_id": "",
 		},
 		"equipment_state": {
 			"slots": {},
 			"character_equipment_feedback": {},
 			"equipment_character_id": "",
-			"focus_slot_key": "",
-			"focus_equipment_instance_id": "",
+		},
+		"ui_state": {
+			"active_page_key": DEFAULT_ACTIVE_PAGE_KEY,
+			"inventory_section": "all",
+			"inventory_equipment_instance_id": "",
+			"equipment_target_slot_key": "",
+			"equipment_focus_instance_id": "",
 		},
 		"growth_state": {
 			"prepare_result": {},
@@ -436,10 +461,6 @@ static func _normalize_inventory_state(raw: Dictionary) -> Dictionary:
 	var defaults := _dictionary_or_empty(_default_persistent_payload().get("inventory_state", {}))
 	return {
 		"inventory": _normalize_inventory_payload(_dictionary_or_empty(raw.get("inventory", defaults.get("inventory", {})))),
-		"focus_section": str(raw.get("focus_section", defaults.get("focus_section", "all"))).strip_edges(),
-		"focus_equipment_instance_id": _normalize_id_string(
-			raw.get("focus_equipment_instance_id", defaults.get("focus_equipment_instance_id", ""))
-		),
 	}
 
 
@@ -453,9 +474,57 @@ static func _normalize_equipment_state(raw: Dictionary) -> Dictionary:
 		"equipment_character_id": _normalize_id_string(
 			raw.get("equipment_character_id", defaults.get("equipment_character_id", ""))
 		),
-		"focus_slot_key": str(raw.get("focus_slot_key", defaults.get("focus_slot_key", ""))).strip_edges(),
-		"focus_equipment_instance_id": _normalize_id_string(
-			raw.get("focus_equipment_instance_id", defaults.get("focus_equipment_instance_id", ""))
+	}
+
+
+static func _normalize_ui_state(
+	raw: Dictionary,
+	legacy_inventory_state: Dictionary = {},
+	legacy_equipment_state: Dictionary = {}
+) -> Dictionary:
+	var defaults := _dictionary_or_empty(_default_persistent_payload().get("ui_state", {}))
+	var active_page_key := str(
+		raw.get("active_page_key", defaults.get("active_page_key", DEFAULT_ACTIVE_PAGE_KEY))
+	).strip_edges()
+	if active_page_key.is_empty():
+		active_page_key = DEFAULT_ACTIVE_PAGE_KEY
+	var inventory_section := str(
+		raw.get(
+			"inventory_section",
+			legacy_inventory_state.get("focus_section", defaults.get("inventory_section", "all"))
+		)
+	).strip_edges()
+	if inventory_section.is_empty():
+		inventory_section = "all"
+	return {
+		"active_page_key": active_page_key,
+		"inventory_section": inventory_section,
+		"inventory_equipment_instance_id": _normalize_id_string(
+			raw.get(
+				"inventory_equipment_instance_id",
+				legacy_inventory_state.get(
+					"focus_equipment_instance_id",
+					defaults.get("inventory_equipment_instance_id", "")
+				)
+			)
+		),
+		"equipment_target_slot_key": str(
+			raw.get(
+				"equipment_target_slot_key",
+				legacy_equipment_state.get(
+					"focus_slot_key",
+					defaults.get("equipment_target_slot_key", "")
+				)
+			)
+		).strip_edges(),
+		"equipment_focus_instance_id": _normalize_id_string(
+			raw.get(
+				"equipment_focus_instance_id",
+				legacy_equipment_state.get(
+					"focus_equipment_instance_id",
+					defaults.get("equipment_focus_instance_id", "")
+				)
+			)
 		),
 	}
 

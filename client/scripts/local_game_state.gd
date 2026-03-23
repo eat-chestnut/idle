@@ -24,6 +24,7 @@ const DEFAULT_STATE := {
 	"settle_result": {},
 	"character_equipment_feedback": {},
 	"ui_focus": {
+		"active_page_key": "config",
 		"inventory_section": "all",
 		"inventory_equipment_instance_id": "",
 		"equipment_target_slot_key": "",
@@ -62,16 +63,6 @@ func apply_saved_config(saved_config: Dictionary) -> void:
 
 	_state["startup_snapshot"] = _dictionary_or_empty(saved_config.get("startup_snapshot", {}))
 
-	_state["selections"] = {
-		"character_id": str(saved_config.get("character_id", "")).strip_edges(),
-		"battle_character_id": str(saved_config.get("battle_character_id", "")).strip_edges(),
-		"equipment_character_id": str(saved_config.get("character_id", "")).strip_edges(),
-		"chapter_id": str(saved_config.get("chapter_id", "")).strip_edges(),
-		"stage_id": str(saved_config.get("stage_id", "")).strip_edges(),
-		"stage_difficulty_id": str(saved_config.get("stage_difficulty_id", "")).strip_edges(),
-		"battle_context_id": "",
-	}
-
 
 func replace_state(snapshot: Dictionary) -> void:
 	for key in snapshot.keys():
@@ -102,6 +93,17 @@ func set_selections(selection_patch: Dictionary) -> void:
 
 func update_ui_focus(focus_patch: Dictionary) -> void:
 	update_dictionary_state("ui_focus", focus_patch)
+
+
+func set_active_page_key(page_key: String) -> void:
+	update_ui_focus({"active_page_key": page_key.strip_edges()})
+
+
+func get_active_page_key(fallback: String = "config") -> String:
+	var active_page_key := str(get_dictionary_state("ui_focus").get("active_page_key", fallback)).strip_edges()
+	if active_page_key.is_empty():
+		return fallback.strip_edges()
+	return active_page_key
 
 
 func apply_local_save(save_payload: Dictionary) -> void:
@@ -179,13 +181,6 @@ func export_saved_config(base: Dictionary) -> Dictionary:
 		merged[key] = config[key]
 	merged["runtime_config"] = config
 	merged["startup_snapshot"] = get_dictionary_state("startup_snapshot")
-
-	var selections := get_dictionary_state("selections")
-	merged["character_id"] = str(selections.get("character_id", merged.get("character_id", ""))).strip_edges()
-	merged["battle_character_id"] = str(selections.get("battle_character_id", merged.get("battle_character_id", ""))).strip_edges()
-	merged["chapter_id"] = str(selections.get("chapter_id", merged.get("chapter_id", ""))).strip_edges()
-	merged["stage_id"] = str(selections.get("stage_id", merged.get("stage_id", ""))).strip_edges()
-	merged["stage_difficulty_id"] = str(selections.get("stage_difficulty_id", merged.get("stage_difficulty_id", ""))).strip_edges()
 	return merged
 
 
