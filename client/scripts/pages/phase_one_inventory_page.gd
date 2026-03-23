@@ -139,6 +139,19 @@ func get_selected_tab() -> String:
 	return "all"
 
 
+func get_selected_section() -> String:
+	return _selected_section
+
+
+func set_selected_section(section: String) -> void:
+	var normalized_section := section.strip_edges()
+	if not ["all", "equipment", "material", "other"].has(normalized_section):
+		normalized_section = "all"
+	_selected_section = normalized_section
+	_refresh_section_area()
+	_refresh_inventory_list()
+
+
 func render_inventory_context(character: Dictionary, settle_result: Dictionary) -> void:
 	_current_character = character.duplicate(true)
 	_current_settle_result = settle_result.duplicate(true)
@@ -320,9 +333,8 @@ func _refresh_action_area() -> void:
 
 
 func _select_section(section: String) -> void:
-	_selected_section = section
-	_refresh_section_area()
-	_refresh_inventory_list()
+	set_selected_section(section)
+	_emit_context("inventory_focus_changed", {"inventory_section": _selected_section})
 
 
 func _apply_section_button(button: Button, base_text: String, section: String, count: int) -> void:

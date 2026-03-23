@@ -84,6 +84,7 @@ static func build_from_runtime_snapshot(
 	var equipment_state := _dictionary_or_empty(persistent.get("equipment_state", {}))
 	var growth_state := _dictionary_or_empty(persistent.get("growth_state", {}))
 	var selections := _dictionary_or_empty(runtime_snapshot.get("selections", {}))
+	var ui_focus := _dictionary_or_empty(runtime_snapshot.get("ui_focus", {}))
 
 	character_state["character_list"] = _dictionary_or_empty(runtime_snapshot.get("character_list", {})).duplicate(true)
 	character_state["character_detail"] = _dictionary_or_empty(runtime_snapshot.get("character_detail", {})).duplicate(true)
@@ -126,6 +127,15 @@ static func build_from_runtime_snapshot(
 	inventory_state["inventory"] = _normalize_inventory_payload(
 		_dictionary_or_empty(runtime_snapshot.get("inventory", {}))
 	)
+	inventory_state["focus_section"] = str(
+		ui_focus.get("inventory_section", inventory_state.get("focus_section", "all"))
+	).strip_edges()
+	inventory_state["focus_equipment_instance_id"] = _normalize_id_string(
+		ui_focus.get(
+			"inventory_equipment_instance_id",
+			inventory_state.get("focus_equipment_instance_id", "")
+		)
+	)
 
 	equipment_state["slots"] = _dictionary_or_empty(runtime_snapshot.get("slots", {})).duplicate(true)
 	equipment_state["character_equipment_feedback"] = _dictionary_or_empty(
@@ -135,6 +145,15 @@ static func build_from_runtime_snapshot(
 		save_preferences.get(
 			"equipment_character_id",
 			selections.get("equipment_character_id", equipment_state.get("equipment_character_id", ""))
+		)
+	)
+	equipment_state["focus_slot_key"] = str(
+		ui_focus.get("equipment_target_slot_key", equipment_state.get("focus_slot_key", ""))
+	).strip_edges()
+	equipment_state["focus_equipment_instance_id"] = _normalize_id_string(
+		ui_focus.get(
+			"equipment_focus_instance_id",
+			equipment_state.get("focus_equipment_instance_id", "")
 		)
 	)
 
@@ -187,6 +206,16 @@ static func extract_runtime_snapshot(save_payload: Dictionary) -> Dictionary:
 		"character_equipment_feedback": _dictionary_or_empty(
 			equipment_state.get("character_equipment_feedback", {})
 		).duplicate(true),
+		"ui_focus": {
+			"inventory_section": str(inventory_state.get("focus_section", "all")).strip_edges(),
+			"inventory_equipment_instance_id": _normalize_id_string(
+				inventory_state.get("focus_equipment_instance_id", "")
+			),
+			"equipment_target_slot_key": str(equipment_state.get("focus_slot_key", "")).strip_edges(),
+			"equipment_focus_instance_id": _normalize_id_string(
+				equipment_state.get("focus_equipment_instance_id", "")
+			),
+		},
 		"prepared_monster_ids": _normalize_string_list(growth_state.get("prepared_monster_ids", [])),
 		"recent_battle_context_ids": _normalize_string_list(growth_state.get("recent_battle_context_ids", [])),
 		"selections": {
@@ -272,11 +301,15 @@ static func _default_persistent_payload() -> Dictionary:
 		},
 		"inventory_state": {
 			"inventory": _default_inventory_payload(),
+			"focus_section": "all",
+			"focus_equipment_instance_id": "",
 		},
 		"equipment_state": {
 			"slots": {},
 			"character_equipment_feedback": {},
 			"equipment_character_id": "",
+			"focus_slot_key": "",
+			"focus_equipment_instance_id": "",
 		},
 		"growth_state": {
 			"prepare_result": {},
@@ -403,6 +436,10 @@ static func _normalize_inventory_state(raw: Dictionary) -> Dictionary:
 	var defaults := _dictionary_or_empty(_default_persistent_payload().get("inventory_state", {}))
 	return {
 		"inventory": _normalize_inventory_payload(_dictionary_or_empty(raw.get("inventory", defaults.get("inventory", {})))),
+		"focus_section": str(raw.get("focus_section", defaults.get("focus_section", "all"))).strip_edges(),
+		"focus_equipment_instance_id": _normalize_id_string(
+			raw.get("focus_equipment_instance_id", defaults.get("focus_equipment_instance_id", ""))
+		),
 	}
 
 
@@ -415,6 +452,10 @@ static func _normalize_equipment_state(raw: Dictionary) -> Dictionary:
 		).duplicate(true),
 		"equipment_character_id": _normalize_id_string(
 			raw.get("equipment_character_id", defaults.get("equipment_character_id", ""))
+		),
+		"focus_slot_key": str(raw.get("focus_slot_key", defaults.get("focus_slot_key", ""))).strip_edges(),
+		"focus_equipment_instance_id": _normalize_id_string(
+			raw.get("focus_equipment_instance_id", defaults.get("focus_equipment_instance_id", ""))
 		),
 	}
 

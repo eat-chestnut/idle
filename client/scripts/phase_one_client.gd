@@ -279,18 +279,24 @@ func _refresh_runtime_config_snapshot() -> void:
 	saved_config["local_resource_version"] = _resolve_local_resource_version()
 	saved_config["class_id"] = create_payload.get("class_id", "")
 	saved_config["character_name"] = create_payload.get("character_name", "")
-	saved_config["character_id"] = character_page.get_character_id_text()
-	saved_config["battle_character_id"] = prepare_page.get_character_id_text()
-	saved_config["chapter_id"] = stage_page.get_selected_chapter_id()
-	saved_config["stage_id"] = stage_page.get_stage_id_text()
-	saved_config["stage_difficulty_id"] = (
-		prepare_page.get_stage_difficulty_text()
-		if not prepare_page.get_stage_difficulty_text().is_empty()
-		else stage_page.get_selected_stage_difficulty()
-	)
+	saved_config["character_id"] = _runtime_character_selection()
+	saved_config["battle_character_id"] = _runtime_battle_character_selection()
+	saved_config["chapter_id"] = _runtime_selected_chapter_id()
+	saved_config["stage_id"] = _runtime_selected_stage_id()
+	saved_config["stage_difficulty_id"] = _runtime_selected_stage_difficulty_id()
 
 	api.update_credentials(saved_config.get("base_url", ""), saved_config.get("bearer_token", ""))
-	_sync_local_runtime_from_legacy_cache()
+	if runtime_state != null:
+		runtime_state.replace_state({
+			"config": {
+				"base_url": str(saved_config.get("base_url", "")).strip_edges(),
+				"bearer_token": str(saved_config.get("bearer_token", "")).strip_edges(),
+				"local_app_version": _resolve_local_app_version(),
+				"local_data_version": _resolve_local_data_version(),
+				"local_resource_version": _resolve_local_resource_version(),
+			},
+			"startup_snapshot": _as_dictionary(saved_config.get("startup_snapshot", {})),
+		})
 
 
 func _persist_runtime_config() -> void:
@@ -451,7 +457,18 @@ func _apply_runtime_selections_to_pages() -> void:
 	settle_page.set_stage_difficulty_id(stage_difficulty_id)
 	settle_page.set_battle_context_id(battle_context_id)
 	settle_page.set_killed_monsters(_runtime_prepared_monster_ids())
+	_apply_runtime_ui_focus_to_pages()
 	_is_applying_config = false
+
+
+func _apply_runtime_ui_focus_to_pages() -> void:
+	var inventory_section := _runtime_inventory_focus_section()
+	var equipment_slot_key := _runtime_equipment_focus_slot_key()
+	var equipment_instance_id := _runtime_equipment_focus_instance_id()
+
+	inventory_page.set_selected_section(inventory_section)
+	equipment_page.set_target_slot_key(equipment_slot_key)
+	equipment_page.set_selected_equipment_instance(equipment_instance_id)
 
 
 func _restore_or_initialize_local_save_on_boot() -> void:
@@ -520,6 +537,12 @@ func _runtime_selection(selection_key: String, fallback: String = "") -> String:
 	return runtime_state.get_selection_or(selection_key, fallback)
 
 
+func _runtime_ui_focus() -> Dictionary:
+	if runtime_state == null:
+		return {}
+	return runtime_state.get_dictionary_state("ui_focus")
+
+
 func _runtime_character_selection() -> String:
 	return _runtime_selection("character_id", character_page.get_character_id_text())
 
@@ -546,6 +569,35 @@ func _runtime_selected_stage_difficulty_id() -> String:
 
 func _runtime_battle_context_selection() -> String:
 	return _runtime_selection("battle_context_id", settle_page.get_battle_context_text())
+
+
+func _runtime_inventory_focus_section() -> String:
+	var focus := _runtime_ui_focus()
+	var section := str(focus.get("inventory_section", "all")).strip_edges()
+	if section.is_empty():
+		return "all"
+	return section
+
+
+func _runtime_inventory_focus_equipment_instance_id() -> String:
+	return _normalize_id_string(_runtime_ui_focus().get("inventory_equipment_instance_id", ""))
+
+
+func _runtime_equipment_focus_slot_key() -> String:
+	return str(_runtime_ui_focus().get("equipment_target_slot_key", "")).strip_edges()
+
+
+func _runtime_equipment_focus_instance_id() -> String:
+	return _normalize_id_string(_runtime_ui_focus().get("equipment_focus_instance_id", ""))
+
+
+func _update_runtime_focus(selection_patch: Dictionary = {}, ui_focus_patch: Dictionary = {}) -> void:
+	if runtime_state == null:
+		return
+	if not selection_patch.is_empty():
+		runtime_state.set_selections(selection_patch)
+	if not ui_focus_patch.is_empty():
+		runtime_state.update_ui_focus(ui_focus_patch)
 
 
 func _runtime_character_list() -> Dictionary:
@@ -1148,7 +1200,6 @@ func _apply_active_character(character: Dictionary) -> void:
 
 
 func _refresh_flow_summary() -> void:
-	_sync_local_runtime_from_legacy_cache()
 	var config_values: Dictionary = config_page.get_config_values()
 	var startup_snapshot := _runtime_startup_snapshot()
 	var local_save_meta := _runtime_local_save_meta()
@@ -1535,7 +1586,6 @@ func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
 
 
 func _refresh_product_pages() -> void:
-	_sync_local_runtime_from_legacy_cache()
 	var current_character := _find_character_record(_runtime_character_selection())
 	character_page.set_character_stat_snapshot(_build_character_stat_snapshot(current_character))
 	character_page.set_character_equipment_context(_build_character_equipment_context(current_character))
@@ -1561,6 +1611,7 @@ func _refresh_product_pages() -> void:
 		equipment_slots = slot_snapshot.duplicate(true)
 	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
 	inventory_page.render_inventory_context(inventory_character, settle_result)
+	inventory_page.render_inventory(_runtime_inventory())
 	equipment_page.render_equipment_context(
 		equipment_character,
 		equipment_slots,
@@ -1585,14 +1636,37 @@ func _refresh_product_pages() -> void:
 	prepare_page.show_prepare_summary(_runtime_prepare_result())
 	if not _runtime_prepare_result().is_empty():
 		battle_page.load_battle(_runtime_prepare_result(), route_context, _runtime_reward_status())
+	else:
+		battle_page.reset_battle_space()
 	settle_page.render_settle_context(battle_character, route_context)
+	if not settle_result.is_empty():
+		settle_page.show_settlement_summary(settle_result)
+	elif not _runtime_prepare_result().is_empty():
+		settle_page.show_settlement_summary({})
+		settle_page.show_handoff_summary(
+			_runtime_battle_character_selection(),
+			_runtime_selected_stage_difficulty_id(),
+			_runtime_battle_context_selection(),
+			_runtime_prepared_monster_ids().size()
+		)
+	else:
+		settle_page.show_settlement_summary({})
+	_is_applying_config = true
+	_apply_runtime_ui_focus_to_pages()
+	_is_applying_config = false
 
 
 func _set_current_tab(page_key: String) -> void:
+	_apply_runtime_selections_to_pages()
+	_refresh_product_pages()
+	_refresh_flow_summary()
 	tab_container.current_tab = int(page_indices.get(page_key, 0))
 
 
 func _on_tab_changed(index: int) -> void:
+	_apply_runtime_selections_to_pages()
+	_refresh_product_pages()
+	_refresh_flow_summary()
 	if index == int(page_indices.get(CHARACTER_PAGE, -1)):
 		await _auto_sync_character_page_if_needed()
 	if index == int(page_indices.get(STAGE_PAGE, -1)):
@@ -1707,8 +1781,24 @@ func _focus_on_auth() -> void:
 
 
 func _open_inventory_from_settle() -> void:
-	_set_current_tab(INVENTORY_PAGE)
 	var settle_result := _runtime_settle_result()
+	var inventory_focus_section := "all"
+	var inventory_focus_equipment_id := ""
+	if not settle_result.is_empty():
+		var created_equipment_instances := _as_array(settle_result.get("created_equipment_instances", []))
+		if not created_equipment_instances.is_empty():
+			inventory_focus_section = "equipment"
+			inventory_focus_equipment_id = _normalize_id_string(
+				_as_dictionary(created_equipment_instances[0]).get("equipment_instance_id", "")
+			)
+		elif not _as_array(_as_dictionary(settle_result.get("inventory_results", {})).get("stack_results", [])).is_empty():
+			inventory_focus_section = "material"
+	_update_runtime_focus({}, {
+		"inventory_section": inventory_focus_section,
+		"inventory_equipment_instance_id": inventory_focus_equipment_id,
+	})
+	_persist_local_save()
+	_set_current_tab(INVENTORY_PAGE)
 	if settle_result.is_empty():
 		inventory_page.set_page_state("empty", "这轮收益还没收稳，先把结算走完，再回来整理背包。")
 		inventory_page.show_handoff_summary("这轮收益还没收好；先完成结算，再回背包看新装备和关键材料。")
@@ -1730,14 +1820,29 @@ func _open_inventory_from_settle() -> void:
 
 
 func _open_equipment_from_settle() -> void:
-	_set_current_tab(EQUIPMENT_PAGE)
 	var current_character_id: String = _runtime_battle_character_selection()
 	if current_character_id.is_empty():
 		current_character_id = _runtime_character_selection()
+	var equipment_focus := {
+		"equipment_target_slot_key": "",
+		"equipment_focus_instance_id": "",
+	}
+	var equipment_selection := {}
 	if not current_character_id.is_empty():
-		equipment_page.set_character_id(current_character_id)
+		equipment_selection = {"equipment_character_id": current_character_id}
+		_update_runtime_focus(equipment_selection, equipment_focus)
 
 	var latest_equipment: Dictionary = _latest_created_equipment_instance()
+	if not latest_equipment.is_empty():
+		equipment_focus["equipment_target_slot_key"] = str(latest_equipment.get("equipment_slot", "")).strip_edges()
+		equipment_focus["equipment_focus_instance_id"] = _normalize_id_string(
+			latest_equipment.get("equipment_instance_id", "")
+		)
+		_update_runtime_focus(equipment_selection, equipment_focus)
+	_persist_local_save()
+	_set_current_tab(EQUIPMENT_PAGE)
+	if not current_character_id.is_empty():
+		equipment_page.set_character_id(current_character_id)
 	if latest_equipment.is_empty():
 		equipment_page.set_page_state("empty", "本轮没有新增装备可直接试穿。")
 		equipment_page.set_summary_text("当前角色上下文已保留，你仍可刷新穿戴槽查看现有装备。")
@@ -1899,6 +2004,10 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 					character_page.set_character_id(character_id)
 				if equipment_page.get_character_id_text() != character_id:
 					equipment_page.set_character_id(character_id)
+				_update_runtime_focus({
+					"character_id": character_id,
+					"equipment_character_id": equipment_page.get_character_id_text(),
+				})
 		"battle_character_changed":
 			var battle_character_id = _normalize_id_string(payload.get("character_id", ""))
 			if not battle_character_id.is_empty():
@@ -1906,10 +2015,13 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 					prepare_page.set_character_id(battle_character_id)
 				if settle_page.get_character_id_text() != battle_character_id:
 					settle_page.set_character_id(battle_character_id)
+				_update_runtime_focus({"battle_character_id": battle_character_id})
 		"stage_id_changed":
 			var stage_id = str(payload.get("stage_id", "")).strip_edges()
-			if not stage_id.is_empty() and stage_page.get_stage_id_text() != stage_id:
-				stage_page.set_stage_id(stage_id)
+			if not stage_id.is_empty():
+				if stage_page.get_stage_id_text() != stage_id:
+					stage_page.set_stage_id(stage_id)
+				_update_runtime_focus({"stage_id": stage_id})
 		"stage_difficulty_changed":
 			var stage_difficulty_id = str(payload.get("stage_difficulty_id", "")).strip_edges()
 			if not stage_difficulty_id.is_empty():
@@ -1918,10 +2030,28 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 					prepare_page.set_stage_difficulty_id(stage_difficulty_id)
 				if settle_page.get_stage_difficulty_text() != stage_difficulty_id:
 					settle_page.set_stage_difficulty_id(stage_difficulty_id)
+				_update_runtime_focus({"stage_difficulty_id": stage_difficulty_id})
 		"battle_context_changed":
 			var battle_context_id = str(payload.get("battle_context_id", "")).strip_edges()
-			if not battle_context_id.is_empty() and settle_page.get_battle_context_text() != battle_context_id:
-				settle_page.set_battle_context_id(battle_context_id)
+			if not battle_context_id.is_empty():
+				if settle_page.get_battle_context_text() != battle_context_id:
+					settle_page.set_battle_context_id(battle_context_id)
+				_update_runtime_focus({"battle_context_id": battle_context_id})
+		"inventory_focus_changed":
+			_update_runtime_focus({}, {
+				"inventory_section": str(payload.get("inventory_section", "all")).strip_edges(),
+				"inventory_equipment_instance_id": _runtime_inventory_focus_equipment_instance_id(),
+			})
+		"equipment_focus_changed":
+			_update_runtime_focus(
+				{"equipment_character_id": equipment_page.get_character_id_text()},
+				{
+					"equipment_target_slot_key": str(payload.get("equipment_target_slot_key", "")).strip_edges(),
+					"equipment_focus_instance_id": _normalize_id_string(
+						payload.get("equipment_focus_instance_id", "")
+					),
+				}
+			)
 		_:
 			pass
 
@@ -2038,6 +2168,23 @@ func _on_fill_default_config_pressed() -> void:
 		"stage_difficulty_id": "stage_nanshan_001_normal",
 	})
 	_is_applying_config = false
+	_update_runtime_focus(
+		{
+			"character_id": "1001",
+			"battle_character_id": "1001",
+			"equipment_character_id": "1001",
+			"chapter_id": "chapter_nanshan_001",
+			"stage_id": "stage_nanshan_001",
+			"stage_difficulty_id": "stage_nanshan_001_normal",
+			"battle_context_id": "",
+		},
+		{
+			"inventory_section": "all",
+			"inventory_equipment_instance_id": "",
+			"equipment_target_slot_key": "",
+			"equipment_focus_instance_id": "",
+		}
+	)
 
 	_refresh_runtime_config_snapshot()
 	_refresh_recent_selectors()
@@ -2338,6 +2485,22 @@ func _on_inventory_equipment_selected(metadata: Dictionary) -> void:
 	if equipment_instance_id.is_empty():
 		return
 
+	var equipment_character_id: String = equipment_page.get_character_id_text()
+	if equipment_character_id.is_empty():
+		equipment_character_id = _runtime_equipment_character_selection()
+	if equipment_character_id.is_empty():
+		equipment_character_id = _runtime_character_selection()
+
+	_update_runtime_focus(
+		{"equipment_character_id": equipment_character_id},
+		{
+			"inventory_section": "equipment",
+			"inventory_equipment_instance_id": equipment_instance_id,
+			"equipment_target_slot_key": str(metadata.get("equipment_slot", "")).strip_edges(),
+			"equipment_focus_instance_id": equipment_instance_id,
+		}
+	)
+	_persist_local_save()
 	equipment_page.set_selected_equipment_instance(
 		equipment_instance_id,
 		str(metadata.get("item_name", "")),
@@ -2513,6 +2676,11 @@ func _on_load_chapters_pressed() -> void:
 		stage_page.set_selected_stage_difficulty("")
 		prepare_page.set_stage_difficulty_id("")
 		settle_page.set_stage_difficulty_id("")
+		_update_runtime_focus({
+			"chapter_id": "",
+			"stage_id": "",
+			"stage_difficulty_id": "",
+		})
 		stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 		stage_page.set_page_state("empty", "山海路暂时还没有开放章节。")
 		stage_page.set_stage_summary(0, 0, 0, _runtime_reward_status())
@@ -2536,6 +2704,11 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 
 	_persist_runtime_config()
 	stage_page.set_selected_chapter_id(chapter_id_value)
+	_update_runtime_focus({
+		"chapter_id": chapter_id_value,
+		"stage_id": "",
+		"stage_difficulty_id": "",
+	})
 	_remember_chapter_id(chapter_id_value)
 	stage_page.set_page_state("loading", "正在展开当前章节的关卡。")
 	var result: Dictionary = await api.request_json("GET", "/api/chapters/%s/stages" % chapter_id_value)
@@ -2554,6 +2727,10 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	prepare_page.set_stage_difficulty_id("")
 	settle_page.set_stage_difficulty_id("")
 	stage_page.render_stages(_runtime_stages(), _build_preferred_stage_ids())
+	_update_runtime_focus({
+		"stage_id": stage_page.get_stage_id_text(),
+		"stage_difficulty_id": "",
+	})
 	stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 	stage_page.set_stage_summary(
 		_as_array(_runtime_chapters().get("chapters", [])).size(),
@@ -2596,6 +2773,10 @@ func _on_load_difficulties_pressed() -> void:
 	current_reward_status = {}
 	_sync_local_runtime_from_legacy_cache()
 	stage_page.render_difficulties(_runtime_difficulties(), _runtime_reward_status(), _build_preferred_stage_difficulty_ids())
+	_update_runtime_focus({
+		"stage_id": stage_id_value,
+		"stage_difficulty_id": stage_page.get_selected_stage_difficulty(),
+	})
 	stage_page.set_stage_summary(
 		_as_array(_runtime_chapters().get("chapters", [])).size(),
 		_as_array(_runtime_stages().get("stages", [])).size(),
@@ -2607,6 +2788,10 @@ func _on_load_difficulties_pressed() -> void:
 	if not selected_stage_difficulty_id.is_empty():
 		prepare_page.set_stage_difficulty_id(selected_stage_difficulty_id)
 		settle_page.set_stage_difficulty_id(selected_stage_difficulty_id)
+		_update_runtime_focus({
+			"stage_id": stage_id_value,
+			"stage_difficulty_id": selected_stage_difficulty_id,
+		})
 		_remember_stage_difficulty_id(selected_stage_difficulty_id)
 
 	if _as_array(data.get("difficulties", [])).is_empty():
@@ -2628,6 +2813,10 @@ func _on_stage_selected(metadata: Dictionary) -> void:
 		return
 
 	stage_page.set_stage_id(stage_id_value)
+	_update_runtime_focus({
+		"stage_id": stage_id_value,
+		"stage_difficulty_id": "",
+	})
 	_remember_stage_id(stage_id_value)
 	_refresh_recent_selectors()
 	_refresh_product_pages()
@@ -2698,6 +2887,7 @@ func _on_difficulty_selected(metadata: Dictionary) -> void:
 	stage_page.set_selected_stage_difficulty(stage_difficulty_id_value)
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	settle_page.set_stage_difficulty_id(stage_difficulty_id_value)
+	_update_runtime_focus({"stage_difficulty_id": stage_difficulty_id_value})
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	_persist_runtime_config()
 	_refresh_recent_selectors()
@@ -2728,6 +2918,18 @@ func _on_prepare_pressed() -> void:
 	settle_page.set_character_id(str(character_id_value))
 	stage_page.set_selected_stage_difficulty(stage_difficulty_id_value)
 	settle_page.set_stage_difficulty_id(stage_difficulty_id_value)
+	_update_runtime_focus(
+		{
+			"battle_character_id": str(character_id_value),
+			"stage_difficulty_id": stage_difficulty_id_value,
+		},
+		{
+			"inventory_section": "all",
+			"inventory_equipment_instance_id": "",
+			"equipment_target_slot_key": "",
+			"equipment_focus_instance_id": "",
+		}
+	)
 	_persist_runtime_config()
 	prepare_page.set_page_state("preparing", "正在整理这一场的出战信息。")
 	var result: Dictionary = await api.request_json(
@@ -2773,6 +2975,19 @@ func _on_prepare_pressed() -> void:
 		5
 	)
 	_sync_local_runtime_from_legacy_cache()
+	_update_runtime_focus(
+		{
+			"battle_character_id": str(character_id_value),
+			"stage_difficulty_id": stage_difficulty_id_value,
+			"battle_context_id": battle_context_id,
+		},
+		{
+			"inventory_section": "all",
+			"inventory_equipment_instance_id": "",
+			"equipment_target_slot_key": "",
+			"equipment_focus_instance_id": "",
+		}
+	)
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	prepare_page.set_page_state("success", "出战信息已经锁定，走进战场吧。")
@@ -2828,6 +3043,15 @@ func _on_retry_battle_pressed() -> void:
 	current_settle_result = {}
 	current_prepared_monster_ids = PackedStringArray()
 	_sync_local_runtime_from_legacy_cache()
+	_update_runtime_focus(
+		{"battle_context_id": ""},
+		{
+			"inventory_section": "all",
+			"inventory_equipment_instance_id": "",
+			"equipment_target_slot_key": "",
+			"equipment_focus_instance_id": "",
+		}
+	)
 	battle_page.reset_battle_space()
 	await _on_prepare_pressed()
 
@@ -2888,6 +3112,11 @@ func _submit_settle_request(
 	prepare_page.set_character_id(str(character_id_value))
 	prepare_page.set_stage_difficulty_id(stage_difficulty_id_value)
 	stage_page.set_selected_stage_difficulty(stage_difficulty_id_value)
+	_update_runtime_focus({
+		"battle_character_id": str(character_id_value),
+		"stage_difficulty_id": stage_difficulty_id_value,
+		"battle_context_id": battle_context_id_value,
+	})
 	_persist_runtime_config()
 	if from_battle_page:
 		battle_page.set_page_state("settling", "战斗结束，正在把这场战果收好。")
@@ -2915,6 +3144,31 @@ func _submit_settle_request(
 	current_settle_result = data
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
 	_sync_local_runtime_from_legacy_cache()
+	var created_equipment_instances := _as_array(data.get("created_equipment_instances", []))
+	var inventory_results := _as_dictionary(data.get("inventory_results", {}))
+	var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
+	var focus_equipment := _as_dictionary(created_equipment_instances[0]) if not created_equipment_instances.is_empty() else {}
+	_update_runtime_focus(
+		{
+			"battle_character_id": str(character_id_value),
+			"stage_difficulty_id": stage_difficulty_id_value,
+			"battle_context_id": battle_context_id_value,
+		},
+		{
+			"inventory_section": (
+				"equipment"
+				if not created_equipment_instances.is_empty()
+				else ("material" if inventory_entry_count > 0 else "all")
+			),
+			"inventory_equipment_instance_id": _normalize_id_string(
+				focus_equipment.get("equipment_instance_id", "")
+			),
+			"equipment_target_slot_key": str(focus_equipment.get("equipment_slot", "")).strip_edges(),
+			"equipment_focus_instance_id": _normalize_id_string(
+				focus_equipment.get("equipment_instance_id", "")
+			),
+		}
+	)
 	settle_page.show_settlement_summary(data)
 	if from_battle_page:
 		battle_page.set_page_state("success", "战斗已收束，结果页已经接住这轮战果。")

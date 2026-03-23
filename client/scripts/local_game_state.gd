@@ -23,6 +23,12 @@ const DEFAULT_STATE := {
 	"prepare_result": {},
 	"settle_result": {},
 	"character_equipment_feedback": {},
+	"ui_focus": {
+		"inventory_section": "all",
+		"inventory_equipment_instance_id": "",
+		"equipment_target_slot_key": "",
+		"equipment_focus_instance_id": "",
+	},
 	"prepared_monster_ids": [],
 	"recent_battle_context_ids": [],
 	"local_save_meta": {},
@@ -72,6 +78,30 @@ func replace_state(snapshot: Dictionary) -> void:
 		if not DEFAULT_STATE.has(key):
 			continue
 		_state[key] = _normalize_state_value(key, snapshot.get(key))
+
+
+func update_dictionary_state(key: String, patch: Dictionary) -> void:
+	if not DEFAULT_STATE.has(key):
+		return
+	if typeof(DEFAULT_STATE.get(key, null)) != TYPE_DICTIONARY:
+		return
+
+	var merged := get_dictionary_state(key)
+	for patch_key in patch.keys():
+		merged[patch_key] = patch[patch_key]
+	_state[key] = _normalize_state_value(key, merged)
+
+
+func set_selection(selection_key: String, value: Variant) -> void:
+	set_selections({selection_key: value})
+
+
+func set_selections(selection_patch: Dictionary) -> void:
+	update_dictionary_state("selections", selection_patch)
+
+
+func update_ui_focus(focus_patch: Dictionary) -> void:
+	update_dictionary_state("ui_focus", focus_patch)
 
 
 func apply_local_save(save_payload: Dictionary) -> void:
@@ -172,6 +202,7 @@ func _build_persistent_runtime_snapshot() -> Dictionary:
 		"prepare_result": get_dictionary_state("prepare_result"),
 		"settle_result": get_dictionary_state("settle_result"),
 		"character_equipment_feedback": get_dictionary_state("character_equipment_feedback"),
+		"ui_focus": get_dictionary_state("ui_focus"),
 		"prepared_monster_ids": get_packed_string_array_state("prepared_monster_ids"),
 		"recent_battle_context_ids": get_array_state("recent_battle_context_ids"),
 		"selections": get_dictionary_state("selections"),
@@ -180,7 +211,7 @@ func _build_persistent_runtime_snapshot() -> Dictionary:
 
 func _normalize_state_value(key: String, value: Variant) -> Variant:
 	match key:
-		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "character_equipment_feedback", "local_save_meta", "selections":
+		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "character_equipment_feedback", "ui_focus", "local_save_meta", "selections":
 			return _dictionary_or_empty(value).duplicate(true)
 		"recent_battle_context_ids":
 			return _array_or_empty(value).duplicate(true)

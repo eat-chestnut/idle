@@ -205,6 +205,7 @@ func set_selected_equipment_instance(
 		_selected_equipment_payload = {}
 		equipment_instance_input.text = ""
 		_refresh_equipment_page()
+		_emit_equipment_focus_context()
 		return
 
 	var payload := _find_equipment_payload(normalized_id)
@@ -226,6 +227,7 @@ func set_selected_equipment_instance(
 		_selected_slot_key = preferred_slot
 		select_option_by_value(target_slot_selector, preferred_slot)
 	_refresh_equipment_page()
+	_emit_equipment_focus_context()
 
 
 func render_equipment_context(
@@ -262,6 +264,13 @@ func get_target_slot_key() -> String:
 	if slot_key.is_empty():
 		return _selected_slot_key
 	return slot_key
+
+
+func set_target_slot_key(slot_key: String) -> void:
+	_selected_slot_key = slot_key.strip_edges()
+	select_option_by_value(target_slot_selector, _selected_slot_key)
+	_refresh_equipment_page()
+	_emit_equipment_focus_context()
 
 
 func get_equipment_instance_id_text() -> String:
@@ -643,6 +652,7 @@ func _build_slot_card(entry: Dictionary) -> PanelContainer:
 		_selected_slot_key = slot_key
 		select_option_by_value(target_slot_selector, slot_key)
 		_refresh_equipment_page()
+		_emit_equipment_focus_context()
 	)
 	action_row.add_child(button)
 
@@ -719,6 +729,7 @@ func _select_candidate(candidate: Dictionary, slot_key: String) -> void:
 	equipment_instance_input.text = normalize_id_string(candidate.get("equipment_instance_id", ""))
 	select_option_by_value(target_slot_selector, slot_key)
 	_refresh_equipment_page()
+	_emit_equipment_focus_context()
 
 
 func _sync_slot_selector(slot_entries: Array) -> void:
@@ -1036,6 +1047,18 @@ func _on_character_id_changed(_text: String) -> void:
 func _on_target_slot_selected(_index: int) -> void:
 	_selected_slot_key = get_target_slot_key()
 	_refresh_equipment_page()
+	_emit_equipment_focus_context()
+
+
+func _on_equipment_instance_changed(_text: String) -> void:
+	_emit_equipment_focus_context()
+
+
+func _emit_equipment_focus_context() -> void:
+	_emit_context("equipment_focus_changed", {
+		"equipment_target_slot_key": get_target_slot_key(),
+		"equipment_focus_instance_id": get_equipment_instance_id_text(),
+	})
 
 
 func _on_debug_toggle(pressed: bool) -> void:
