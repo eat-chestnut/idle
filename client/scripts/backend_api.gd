@@ -72,10 +72,10 @@ func _request_json(
 		return _build_failure("config", "客户端 HTTP 上下文未初始化。")
 
 	if _base_url.is_empty():
-		return _build_failure("config", "请先填写 backend 地址。")
+		return _build_failure("config", "请先填写启动检查地址。")
 
 	if require_auth and _bearer_token.is_empty():
-		return _build_failure("config", "请先填写 Bearer Token。")
+		return _build_failure("config", "旧接口兼容链需要开发令牌。")
 
 	var http_request := HTTPRequest.new()
 	_owner.add_child(http_request)

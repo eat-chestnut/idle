@@ -99,6 +99,28 @@ func get_selection(selection_key: String) -> String:
 	return str(selections.get(selection_key, "")).strip_edges()
 
 
+func get_selection_or(selection_key: String, fallback: String = "") -> String:
+	var selected := get_selection(selection_key)
+	if not selected.is_empty():
+		return selected
+	return fallback.strip_edges()
+
+
+func get_config_value(config_key: String, fallback: Variant = "") -> Variant:
+	var config := _dictionary_or_empty(_state.get("config", {}))
+	return config.get(config_key, fallback)
+
+
+func has_startup_snapshot() -> bool:
+	return not get_dictionary_state("startup_snapshot").is_empty()
+
+
+func is_startup_ready() -> bool:
+	if not has_startup_snapshot():
+		return false
+	return bool(get_dictionary_state("startup_snapshot").get("ready", false))
+
+
 func export_saved_config(base: Dictionary) -> Dictionary:
 	var merged := base.duplicate(true)
 	var config := get_dictionary_state("config")

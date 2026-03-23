@@ -36,7 +36,7 @@ const EQUIPMENT_SLOT_ORDER := [
 ]
 const CLIENT_SUBTITLE := "启动只看一眼世界，进局后就按本地节奏刷图成长。"
 const DEFAULT_CONFIG_NOTE := (
-	"默认值只用于开发环境和旧接口兼容；"
+	"这组值只用于启动检查和旧接口兼容；"
 	+ "当前正式方向是启动检查一次，进入游戏后逐步以本地 runtime state 为真相。"
 )
 const DEFAULT_LOCAL_DATA_VERSION := "embedded-dev"
@@ -238,8 +238,8 @@ func _apply_saved_config() -> void:
 
 
 func _set_initial_states() -> void:
-	config_page.set_page_state("empty", "启动时会先做一次检查，把版本和存档服务快照写进本地运行时。")
-	config_page.set_summary_text("当前正式边界：启动只联网一次；进入游戏后主循环逐步以本地 runtime state 为真相。")
+	config_page.set_page_state("empty", "这一页会先完成启动检查，把版本和存档服务快照写进本地运行时。")
+	config_page.set_summary_text("当前正式边界：启动只联网一次；地址与令牌只是弱联网和旧接口兼容配置。")
 	config_page.set_output_text("尚未生成启动检查快照。")
 
 	character_page.set_page_state("empty", "先去角色页认出这次的主角；如果还没有，就先创建一个。")
@@ -374,6 +374,40 @@ func _runtime_startup_snapshot() -> Dictionary:
 	return runtime_state.get_dictionary_state("startup_snapshot")
 
 
+func _runtime_selection(selection_key: String, fallback: String = "") -> String:
+	if runtime_state == null:
+		return fallback.strip_edges()
+	return runtime_state.get_selection_or(selection_key, fallback)
+
+
+func _runtime_character_selection() -> String:
+	return _runtime_selection("character_id", character_page.get_character_id_text())
+
+
+func _runtime_battle_character_selection() -> String:
+	return _runtime_selection("battle_character_id", prepare_page.get_character_id_text())
+
+
+func _runtime_equipment_character_selection() -> String:
+	return _runtime_selection("equipment_character_id", equipment_page.get_character_id_text())
+
+
+func _runtime_selected_chapter_id() -> String:
+	return _runtime_selection("chapter_id", stage_page.get_selected_chapter_id())
+
+
+func _runtime_selected_stage_id() -> String:
+	return _runtime_selection("stage_id", stage_page.get_stage_id_text())
+
+
+func _runtime_selected_stage_difficulty_id() -> String:
+	return _runtime_selection("stage_difficulty_id", _selected_stage_difficulty_id())
+
+
+func _runtime_battle_context_selection() -> String:
+	return _runtime_selection("battle_context_id", settle_page.get_battle_context_text())
+
+
 func _runtime_character_list() -> Dictionary:
 	if runtime_state == null:
 		return current_character_list.duplicate(true)
@@ -457,7 +491,7 @@ func _restore_cached_startup_snapshot() -> void:
 	if cached_snapshot.is_empty():
 		return
 
-	config_page.set_page_state("success", "已载入上次启动检查快照，本次启动会再检查一次并回写本地运行时。")
+	config_page.set_page_state("success", "已载入上次启动检查快照；正常进入游戏前会再检查一次并回写本地运行时。")
 	config_page.set_summary_text(_build_startup_snapshot_summary(cached_snapshot))
 	config_page.set_output_json(cached_snapshot)
 
@@ -470,8 +504,8 @@ func _run_startup_check_on_boot() -> void:
 	_refresh_runtime_config_snapshot()
 
 	if str(saved_config.get("base_url", "")).strip_edges().is_empty():
-		config_page.set_page_state("empty", "启动检查还没开始，先补弱联网 backend 地址。")
-		config_page.set_summary_text("当前正式边界：启动只联网一次；进入游戏后主循环逐步以本地 runtime state 为真相。")
+		config_page.set_page_state("empty", "启动检查还没开始，先补启动检查地址。")
+		config_page.set_summary_text("当前正式边界：启动只联网一次；地址与令牌只是弱联网和旧接口兼容配置。")
 		config_page.set_output_text("尚未生成启动检查快照。")
 		_refresh_flow_summary()
 		return
@@ -488,9 +522,9 @@ func _execute_startup_check(from_boot: bool) -> void:
 	_persist_runtime_config()
 	config_page.set_page_state(
 		"loading",
-		"启动中，正在执行一次后台检查。"
+		"启动中，正在生成一次启动快照。"
 		if from_boot
-		else "正在重新执行启动检查。"
+		else "正在重做启动检查并刷新本地快照。"
 	)
 
 	var local_versions := {
@@ -620,29 +654,34 @@ func _describe_service_snapshot(snapshot: Dictionary) -> String:
 func _refresh_recent_selectors() -> void:
 	var recent_characters = _build_available_character_records()
 	var recent_stage_difficulty_ids: Array = _build_available_stage_difficulty_ids()
+	var selected_character_id := _runtime_character_selection()
+	var selected_battle_character_id := _runtime_battle_character_selection()
+	var selected_equipment_character_id := _runtime_equipment_character_selection()
+	var selected_stage_difficulty_id := _runtime_selected_stage_difficulty_id()
+	var selected_battle_context_id := _runtime_battle_context_selection()
 
 	if has_loaded_character_list:
 		character_page.set_character_list(
-			_as_array(current_character_list.get("characters", [])),
-			character_page.get_character_id_text()
+			_as_array(_runtime_character_list().get("characters", [])),
+			selected_character_id
 		)
 	else:
-		character_page.set_recent_characters(recent_characters, character_page.get_character_id_text())
+		character_page.set_recent_characters(recent_characters, selected_character_id)
 
-	equipment_page.set_recent_characters(recent_characters, equipment_page.get_character_id_text())
-	prepare_page.set_recent_characters(recent_characters, prepare_page.get_character_id_text())
-	settle_page.set_recent_characters(recent_characters, settle_page.get_character_id_text())
+	equipment_page.set_recent_characters(recent_characters, selected_equipment_character_id)
+	prepare_page.set_recent_characters(recent_characters, selected_battle_character_id)
+	settle_page.set_recent_characters(recent_characters, selected_battle_character_id)
 
-	stage_page.set_selected_stage_difficulty(prepare_page.get_stage_difficulty_text())
+	stage_page.set_selected_stage_difficulty(selected_stage_difficulty_id)
 	prepare_page.set_recent_stage_difficulties(
 		recent_stage_difficulty_ids,
-		prepare_page.get_stage_difficulty_text()
+		selected_stage_difficulty_id
 	)
 	settle_page.set_recent_stage_difficulties(
 		recent_stage_difficulty_ids,
-		settle_page.get_stage_difficulty_text()
+		selected_stage_difficulty_id
 	)
-	settle_page.set_recent_battle_contexts(_runtime_recent_battle_context_ids(), settle_page.get_battle_context_text())
+	settle_page.set_recent_battle_contexts(_runtime_recent_battle_context_ids(), selected_battle_context_id)
 
 
 func _build_available_character_records() -> Array:
@@ -699,11 +738,11 @@ func _build_recent_character_records() -> Array:
 	)
 	recent = _prepend_character_record(
 		recent,
-		_runtime_character_stub(character_page.get_character_id_text(), "当前角色输入")
+		_runtime_character_stub(_runtime_character_selection(), "当前角色输入")
 	)
 	recent = _prepend_character_record(
 		recent,
-		_runtime_character_stub(prepare_page.get_character_id_text(), "当前出战角色")
+		_runtime_character_stub(_runtime_battle_character_selection(), "当前出战角色")
 	)
 	return recent
 
@@ -743,8 +782,8 @@ func _sync_primary_character_from_list(records: Array) -> void:
 	settle_page.set_character_id(active_character_id)
 	_remember_character(active_character)
 
-	var current_detail_character_id = character_page.get_character_id_text()
-	if current_character_detail.is_empty() or not _records_contain_character(records, current_detail_character_id):
+	var current_detail_character_id = _runtime_character_selection()
+	if _runtime_character_detail().is_empty() or not _records_contain_character(records, current_detail_character_id):
 		current_character_detail = {"character": active_character}
 		character_page.set_character_id(active_character_id)
 		equipment_page.set_character_id(active_character_id)
@@ -799,7 +838,8 @@ func _store_character_list(data: Dictionary) -> void:
 	current_character_list = {
 		"characters": _as_array(data.get("characters", [])),
 	}
-	_sync_recent_characters_from_records(_as_array(current_character_list.get("characters", [])))
+	_sync_local_runtime_from_legacy_cache()
+	_sync_recent_characters_from_records(_as_array(_runtime_character_list().get("characters", [])))
 
 
 func _upsert_character_in_current_list(character: Dictionary) -> void:
@@ -814,7 +854,7 @@ func _upsert_character_in_current_list(character: Dictionary) -> void:
 	var merged: Array = []
 	var found := false
 
-	for record in _as_array(current_character_list.get("characters", [])):
+	for record in _as_array(_runtime_character_list().get("characters", [])):
 		var entry := _as_dictionary(record)
 		if _normalize_id_string(entry.get("character_id", "")) == character_id:
 			merged.append(character)
@@ -836,7 +876,7 @@ func _apply_active_character(character: Dictionary) -> void:
 
 	var source_records: Array = []
 	if has_loaded_character_list:
-		source_records = _as_array(current_character_list.get("characters", []))
+		source_records = _as_array(_runtime_character_list().get("characters", []))
 	else:
 		source_records = _as_array(saved_config.get("recent_characters", []))
 
@@ -863,7 +903,7 @@ func _apply_active_character(character: Dictionary) -> void:
 
 	_sync_recent_characters_from_records(merged)
 
-	var detail_character := _as_dictionary(current_character_detail.get("character", {})).duplicate(true)
+	var detail_character := _as_dictionary(_runtime_character_detail().get("character", {})).duplicate(true)
 	if detail_character.is_empty():
 		return
 
@@ -878,10 +918,10 @@ func _refresh_flow_summary() -> void:
 	_sync_local_runtime_from_legacy_cache()
 	var config_values: Dictionary = config_page.get_config_values()
 	var startup_snapshot := _runtime_startup_snapshot()
-	var detail_character = _describe_character(character_page.get_character_id_text())
-	var battle_character = _describe_character(prepare_page.get_character_id_text())
-	var route_context := _build_route_context(stage_page.get_selected_stage_difficulty())
-	var battle_context_id = settle_page.get_battle_context_text()
+	var detail_character = _describe_character(_runtime_character_selection())
+	var battle_character = _describe_character(_runtime_battle_character_selection())
+	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
+	var battle_context_id = _runtime_battle_context_selection()
 	var route_summary := _build_flow_route_summary(route_context)
 	var hero_line := "当前主角：待确认。"
 	var target_line := "这轮目标：先完成启动检查，再踏上这一轮山海路。"
@@ -890,7 +930,7 @@ func _refresh_flow_summary() -> void:
 
 	if str(config_values.get("base_url", "")).strip_edges().is_empty():
 		target_line = "这轮目标：先把弱联网入口接上。"
-		next_step_line = "现在最顺：先填 backend 地址。"
+		next_step_line = "现在最顺：先填启动检查地址。"
 	elif startup_snapshot.is_empty():
 		target_line = "这轮目标：先完成启动检查。"
 		next_step_line = "现在最顺：执行一次启动检查，把版本和存档服务状态记到本地。"
@@ -909,11 +949,11 @@ func _refresh_flow_summary() -> void:
 
 		if detail_character == "待确认" and battle_character == "待确认":
 			next_step_line = "现在最顺：先去角色页挑一个主角；如果还没有，就创建一个。"
-		elif stage_page.get_selected_chapter_id().is_empty():
+		elif _runtime_selected_chapter_id().is_empty():
 			next_step_line = "现在最顺：去主线页挑一章。"
-		elif stage_page.get_stage_id_text().is_empty():
+		elif _runtime_selected_stage_id().is_empty():
 			next_step_line = "现在最顺：这一章已经展开，先挑一关。"
-		elif stage_page.get_selected_stage_difficulty().is_empty():
+		elif _runtime_selected_stage_difficulty_id().is_empty():
 			next_step_line = "现在最顺：关卡已经锁定，再选一档难度。"
 		elif not battle_context_id.is_empty():
 			next_step_line = "现在最顺：这一场已经开打，去战斗页推进，或等结果页把收获接住。"
@@ -1090,11 +1130,11 @@ func _build_character_growth_context(character: Dictionary) -> Dictionary:
 		"has_new_equipment": false,
 		"has_recent_inventory_gain": false,
 	}
-	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
+	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
 	var route_text := _build_growth_route_text(route_context)
 	var prepare_character := _as_dictionary(_runtime_prepare_result().get("character", {}))
 	var prepare_character_id := _normalize_id_string(prepare_character.get("character_id", ""))
-	var settle_character_id := _normalize_id_string(settle_page.get_character_id_text())
+	var settle_character_id := _normalize_id_string(_runtime_battle_character_selection())
 	var matches_recent_battle := (
 		character_id == prepare_character_id
 		or (not settle_character_id.is_empty() and character_id == settle_character_id)
@@ -1152,7 +1192,7 @@ func _build_equipment_feedback(
 	slot_key: String,
 	fallback_item_name: String = ""
 ) -> Dictionary:
-	var slot_entry := _find_slot_snapshot_entry(current_slots, slot_key)
+	var slot_entry := _find_slot_snapshot_entry(_runtime_slots(), slot_key)
 	var equipment := _as_dictionary(slot_entry.get("equipment", {}))
 	var item_name := fallback_item_name.strip_edges()
 	if item_name.is_empty():
@@ -1213,7 +1253,7 @@ func _slot_display_name(slot_key: String) -> String:
 
 
 func _find_selected_chapter_context() -> Dictionary:
-	var selected_chapter_id: String = stage_page.get_selected_chapter_id()
+	var selected_chapter_id: String = _runtime_selected_chapter_id()
 	for chapter in _as_array(_runtime_chapters().get("chapters", [])):
 		var entry := _as_dictionary(chapter)
 		if str(entry.get("chapter_id", "")) == selected_chapter_id:
@@ -1222,7 +1262,7 @@ func _find_selected_chapter_context() -> Dictionary:
 
 
 func _find_selected_stage_context() -> Dictionary:
-	var selected_stage_id: String = stage_page.get_stage_id_text()
+	var selected_stage_id: String = _runtime_selected_stage_id()
 	for stage in _as_array(_runtime_stages().get("stages", [])):
 		var entry := _as_dictionary(stage)
 		if str(entry.get("stage_id", "")) == selected_stage_id:
@@ -1241,14 +1281,15 @@ func _find_stage_difficulty_context(stage_difficulty_id: String) -> Dictionary:
 func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
 	var chapter := _find_selected_chapter_context()
 	var stage := _find_selected_stage_context()
-	var difficulty := _find_stage_difficulty_context(stage_difficulty_id if not stage_difficulty_id.is_empty() else prepare_page.get_stage_difficulty_text())
+	var resolved_stage_difficulty_id := stage_difficulty_id if not stage_difficulty_id.is_empty() else _runtime_selected_stage_difficulty_id()
+	var difficulty := _find_stage_difficulty_context(resolved_stage_difficulty_id)
 
 	return {
 		"chapter_id": str(chapter.get("chapter_id", "")),
 		"chapter_name": str(chapter.get("chapter_name", "章节待选择")),
-		"stage_id": str(stage.get("stage_id", stage_page.get_stage_id_text())),
+		"stage_id": str(stage.get("stage_id", _runtime_selected_stage_id())),
 		"stage_name": str(stage.get("stage_name", "关卡待选择")),
-		"stage_difficulty_id": str(difficulty.get("stage_difficulty_id", stage_difficulty_id)),
+		"stage_difficulty_id": str(difficulty.get("stage_difficulty_id", resolved_stage_difficulty_id)),
 		"difficulty_key": str(difficulty.get("difficulty_key", "")),
 		"difficulty_name": str(difficulty.get("difficulty_name", "难度待选择")),
 		"recommended_power": difficulty.get("recommended_power", "-"),
@@ -1257,28 +1298,30 @@ func _build_route_context(stage_difficulty_id: String = "") -> Dictionary:
 
 func _refresh_product_pages() -> void:
 	_sync_local_runtime_from_legacy_cache()
-	var current_character := _find_character_record(character_page.get_character_id_text())
+	var current_character := _find_character_record(_runtime_character_selection())
 	character_page.set_character_stat_snapshot(_build_character_stat_snapshot(current_character))
 	character_page.set_character_equipment_context(_build_character_equipment_context(current_character))
 	character_page.set_recent_growth_context(_build_character_growth_context(current_character))
 	character_page.show_character_summary(current_character)
 
-	var battle_character := _find_character_record(prepare_page.get_character_id_text())
+	var battle_character := _find_character_record(_runtime_battle_character_selection())
 	var inventory_character := current_character if not current_character.is_empty() else battle_character
 	var settle_result := _runtime_settle_result()
 	if not settle_result.is_empty() and not battle_character.is_empty():
 		inventory_character = battle_character
-	var equipment_character := _find_character_record(equipment_page.get_character_id_text())
+	var equipment_character := _find_character_record(_runtime_equipment_character_selection())
 	if equipment_character.is_empty():
 		equipment_character = inventory_character
 	var equipment_character_id := _normalize_id_string(
-		equipment_page.get_character_id_text() if not equipment_page.get_character_id_text().is_empty() else equipment_character.get("character_id", "")
+		_runtime_equipment_character_selection()
+		if not _runtime_equipment_character_selection().is_empty()
+		else equipment_character.get("character_id", "")
 	)
 	var equipment_slots := {}
 	var slot_snapshot := _runtime_slots()
 	if _normalize_id_string(slot_snapshot.get("character_id", "")) == equipment_character_id:
 		equipment_slots = slot_snapshot.duplicate(true)
-	var route_context := _build_route_context(prepare_page.get_stage_difficulty_text())
+	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
 	inventory_page.render_inventory_context(inventory_character, settle_result)
 	equipment_page.render_equipment_context(
 		equipment_character,
@@ -1343,12 +1386,12 @@ func _ensure_character_page_progression() -> void:
 
 
 func _resolve_character_page_record() -> Dictionary:
-	var listed_records := _as_array(current_character_list.get("characters", []))
+	var listed_records := _as_array(_runtime_character_list().get("characters", []))
 	var active_character := _find_active_character(listed_records)
 	if not active_character.is_empty():
 		return active_character
 
-	var current_character := _find_character_record(character_page.get_character_id_text())
+	var current_character := _find_character_record(_runtime_character_selection())
 	if not current_character.is_empty():
 		return current_character
 
@@ -1359,11 +1402,12 @@ func _resolve_character_page_record() -> Dictionary:
 
 
 func _reward_status_matches_selected_difficulty() -> bool:
-	var selected_stage_difficulty_id: String = stage_page.get_selected_stage_difficulty()
-	if selected_stage_difficulty_id.is_empty() or current_reward_status.is_empty():
+	var selected_stage_difficulty_id: String = _runtime_selected_stage_difficulty_id()
+	var reward_status := _runtime_reward_status()
+	if selected_stage_difficulty_id.is_empty() or reward_status.is_empty():
 		return false
 
-	return str(current_reward_status.get("source_id", "")).strip_edges() == selected_stage_difficulty_id
+	return str(reward_status.get("source_id", "")).strip_edges() == selected_stage_difficulty_id
 
 
 func _auto_sync_stage_page_if_needed() -> void:
@@ -1376,27 +1420,30 @@ func _auto_sync_stage_page_if_needed() -> void:
 
 
 func _ensure_stage_page_progression() -> void:
-	if _as_array(current_chapters.get("chapters", [])).is_empty():
+	var chapters_payload := _runtime_chapters()
+	var stages_payload := _runtime_stages()
+	var difficulties_payload := _runtime_difficulties()
+	if _as_array(chapters_payload.get("chapters", [])).is_empty():
 		await _on_load_chapters_pressed()
 		return
 
 	if (
-		stage_page.get_selected_chapter_id().is_empty()
-		or str(current_stages.get("chapter_id", "")).strip_edges() != stage_page.get_selected_chapter_id()
-		or (not has_loaded_stages and _as_array(current_stages.get("stages", [])).is_empty())
+		_runtime_selected_chapter_id().is_empty()
+		or str(stages_payload.get("chapter_id", "")).strip_edges() != _runtime_selected_chapter_id()
+		or (not has_loaded_stages and _as_array(stages_payload.get("stages", [])).is_empty())
 	):
-		await _on_load_stages_pressed(stage_page.get_selected_chapter_id())
+		await _on_load_stages_pressed(_runtime_selected_chapter_id())
 		return
 
 	if (
-		stage_page.get_stage_id_text().is_empty()
-		or str(current_difficulties.get("stage_id", "")).strip_edges() != stage_page.get_stage_id_text()
-		or (not has_loaded_difficulties and _as_array(current_difficulties.get("difficulties", [])).is_empty())
+		_runtime_selected_stage_id().is_empty()
+		or str(difficulties_payload.get("stage_id", "")).strip_edges() != _runtime_selected_stage_id()
+		or (not has_loaded_difficulties and _as_array(difficulties_payload.get("difficulties", [])).is_empty())
 	):
 		await _on_load_difficulties_pressed()
 		return
 
-	if not stage_page.get_selected_stage_difficulty().is_empty() and not _reward_status_matches_selected_difficulty():
+	if not _runtime_selected_stage_difficulty_id().is_empty() and not _reward_status_matches_selected_difficulty():
 		await _on_refresh_reward_status_pressed(false)
 
 
@@ -1430,9 +1477,9 @@ func _open_inventory_from_settle() -> void:
 
 func _open_equipment_from_settle() -> void:
 	_set_current_tab(EQUIPMENT_PAGE)
-	var current_character_id: String = settle_page.get_character_id_text()
+	var current_character_id: String = _runtime_battle_character_selection()
 	if current_character_id.is_empty():
-		current_character_id = prepare_page.get_character_id_text()
+		current_character_id = _runtime_character_selection()
 	if not current_character_id.is_empty():
 		equipment_page.set_character_id(current_character_id)
 
@@ -1456,17 +1503,17 @@ func _open_character_page(from_settle: bool = false) -> void:
 	_set_current_tab(CHARACTER_PAGE)
 	var current_character_id := ""
 	if from_settle:
-		current_character_id = settle_page.get_character_id_text()
+		current_character_id = _runtime_battle_character_selection()
 		if current_character_id.is_empty():
-			current_character_id = prepare_page.get_character_id_text()
+			current_character_id = _runtime_character_selection()
 	else:
-		current_character_id = character_page.get_character_id_text()
+		current_character_id = _runtime_character_selection()
 		if current_character_id.is_empty():
-			current_character_id = equipment_page.get_character_id_text()
+			current_character_id = _runtime_equipment_character_selection()
 		if current_character_id.is_empty():
-			current_character_id = prepare_page.get_character_id_text()
+			current_character_id = _runtime_battle_character_selection()
 		if current_character_id.is_empty():
-			current_character_id = settle_page.get_character_id_text()
+			current_character_id = _runtime_battle_character_selection()
 
 	if not current_character_id.is_empty():
 		character_page.set_character_id(current_character_id)
@@ -1500,8 +1547,9 @@ func _latest_created_equipment_instance() -> Dictionary:
 
 func _merge_slot_snapshot_payload(character_id: int, slot_snapshot: Array) -> Dictionary:
 	var merged_lookup := {}
-	if _parse_character_id(current_slots.get("character_id", "")) == character_id:
-		for slot in _as_array(current_slots.get("slots", [])):
+	var current_slot_snapshot := _runtime_slots()
+	if _parse_character_id(current_slot_snapshot.get("character_id", "")) == character_id:
+		for slot in _as_array(current_slot_snapshot.get("slots", [])):
 			var entry := _as_dictionary(slot)
 			var slot_key := str(entry.get("slot_key", "")).strip_edges()
 			if slot_key.is_empty():
@@ -1577,7 +1625,7 @@ func _handle_failure(page, result: Dictionary, fallback: String) -> void:
 		"config":
 			page.set_page_state("error", message, "保持当前选择，补齐这一步后再试一次。")
 		"network":
-			page.set_page_state("error", message, "确认 backend 已启动且网络可达后，再试一次。")
+			page.set_page_state("error", message, "确认启动检查地址或弱联网服务可达后，再试一次。")
 		_:
 			page.set_page_state("error", message, "保持当前选择，稍微调整后再试一次。")
 
@@ -1806,11 +1854,12 @@ func _on_create_character_pressed() -> void:
 		"character_id": created_character_id,
 		"slots": _as_array(data.get("equipment_slots", [])),
 	}
+	_sync_local_runtime_from_legacy_cache()
 
 	character_page.set_character_id(created_character_id)
 	equipment_page.set_character_id(created_character_id)
 	character_page.show_character_summary(character)
-	equipment_page.render_slots(current_slots)
+	equipment_page.render_slots(_runtime_slots())
 	_upsert_character_in_current_list(character)
 
 	if is_active:
@@ -1852,6 +1901,7 @@ func _on_load_character_pressed() -> void:
 	var is_active = int(character.get("is_active", 0)) == 1
 
 	current_character_detail = data
+	_sync_local_runtime_from_legacy_cache()
 	character_page.show_character_summary(character)
 	equipment_page.set_character_id(str(character_id_value))
 	_upsert_character_in_current_list(character)
@@ -1922,9 +1972,10 @@ func _activate_character(page, character_id_value: int, success_message: String)
 
 	if character_page.get_character_id_text() == character_id_text:
 		current_character_detail = data
+	_sync_local_runtime_from_legacy_cache()
 
-	if not current_character_detail.is_empty():
-		character_page.show_character_summary(_as_dictionary(current_character_detail.get("character", {})))
+	if not _runtime_character_detail().is_empty():
+		character_page.show_character_summary(_as_dictionary(_runtime_character_detail().get("character", {})))
 
 	page.set_output_json(data)
 	page.set_page_state("success", success_message)
@@ -1935,11 +1986,12 @@ func _activate_character(page, character_id_value: int, success_message: String)
 
 
 func _on_sync_current_character_pressed() -> void:
-	if current_character_detail.is_empty():
+	var character_detail := _runtime_character_detail()
+	if character_detail.is_empty():
 		character_page.set_page_state("empty", "这名角色的详情还没到位。")
 		return
 
-	var character: Dictionary = _as_dictionary(current_character_detail.get("character", {}))
+	var character: Dictionary = _as_dictionary(character_detail.get("character", {}))
 	var current_character_id = _normalize_id_string(character.get("character_id", ""))
 	if current_character_id.is_empty():
 		character_page.set_page_state("error", "当前角色还没锁定成功。")
@@ -1978,10 +2030,11 @@ func _on_load_inventory_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_inventory = data
-	inventory_page.render_inventory(data)
+	_sync_local_runtime_from_legacy_cache()
+	inventory_page.render_inventory(_runtime_inventory())
 
-	var stack_items: Array = _as_array(data.get("stack_items", []))
-	var equipment_items: Array = _as_array(data.get("equipment_items", []))
+	var stack_items: Array = _as_array(_runtime_inventory().get("stack_items", []))
+	var equipment_items: Array = _as_array(_runtime_inventory().get("equipment_items", []))
 	if stack_items.is_empty() and equipment_items.is_empty():
 		inventory_page.set_page_state("empty", "现在背包还是空的。")
 	else:
@@ -2022,9 +2075,10 @@ func _on_load_slots_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_slots = data
-	equipment_page.render_slots(data)
+	_sync_local_runtime_from_legacy_cache()
+	equipment_page.render_slots(_runtime_slots())
 
-	if _as_array(data.get("slots", [])).is_empty():
+	if _as_array(_runtime_slots().get("slots", [])).is_empty():
 		equipment_page.set_page_state("empty", "当前角色没有可显示的槽位。")
 	else:
 		equipment_page.set_page_state("success", "穿戴槽已刷新，可以继续穿上或卸下装备。")
@@ -2071,7 +2125,8 @@ func _on_equip_pressed() -> void:
 	else:
 		equipment_page.show_handoff_summary("穿戴已成功；当前槽位已按服务端变更更新，完整快照稍后再刷新一次也可以。")
 	current_character_equipment_feedback = _build_equipment_feedback(character_id_value, "equip", target_slot)
-	equipment_page.render_slots(current_slots)
+	_sync_local_runtime_from_legacy_cache()
+	equipment_page.render_slots(_runtime_slots())
 	equipment_page.set_page_state(
 		"success",
 		"穿戴完成，当前装备位和候选区都已刷新。"
@@ -2085,7 +2140,7 @@ func _on_equip_pressed() -> void:
 func _on_unequip_pressed() -> void:
 	var character_id_value = _parse_character_id(equipment_page.get_character_id_text())
 	var target_slot = equipment_page.get_target_slot_key()
-	var previous_slot_entry := _find_slot_snapshot_entry(current_slots, target_slot)
+	var previous_slot_entry := _find_slot_snapshot_entry(_runtime_slots(), target_slot)
 	var previous_equipment := _as_dictionary(previous_slot_entry.get("equipment", {}))
 
 	if character_id_value <= 0:
@@ -2125,7 +2180,8 @@ func _on_unequip_pressed() -> void:
 		target_slot,
 		str(previous_equipment.get("item_name", "原装备"))
 	)
-	equipment_page.render_slots(current_slots)
+	_sync_local_runtime_from_legacy_cache()
+	equipment_page.render_slots(_runtime_slots())
 	equipment_page.set_page_state(
 		"success",
 		"卸下完成，当前装备位和候选区都已刷新。"
@@ -2147,22 +2203,24 @@ func _on_load_chapters_pressed() -> void:
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_chapters = data
-	stage_page.render_chapters(data, _build_preferred_chapter_ids())
+	_sync_local_runtime_from_legacy_cache()
+	stage_page.render_chapters(_runtime_chapters(), _build_preferred_chapter_ids())
 
-	if _as_array(data.get("chapters", [])).is_empty():
+	if _as_array(_runtime_chapters().get("chapters", [])).is_empty():
 		has_loaded_stages = false
 		has_loaded_difficulties = false
 		current_stages = {}
 		current_difficulties = {}
 		current_reward_status = {}
+		_sync_local_runtime_from_legacy_cache()
 		stage_page.set_selected_chapter_id("")
-		stage_page.render_stages(current_stages)
+		stage_page.render_stages(_runtime_stages())
 		stage_page.set_selected_stage_difficulty("")
 		prepare_page.set_stage_difficulty_id("")
 		settle_page.set_stage_difficulty_id("")
-		stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
+		stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 		stage_page.set_page_state("empty", "山海路暂时还没有开放章节。")
-		stage_page.set_stage_summary(0, 0, 0, current_reward_status)
+		stage_page.set_stage_summary(0, 0, 0, _runtime_reward_status())
 		_persist_runtime_config()
 		_refresh_recent_selectors()
 		_refresh_product_pages()
@@ -2197,18 +2255,19 @@ func _on_load_stages_pressed(chapter_id_override: String = "") -> void:
 	has_loaded_difficulties = false
 	current_difficulties = {}
 	current_reward_status = {}
+	_sync_local_runtime_from_legacy_cache()
 	prepare_page.set_stage_difficulty_id("")
 	settle_page.set_stage_difficulty_id("")
-	stage_page.render_stages(data, _build_preferred_stage_ids())
-	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
+	stage_page.render_stages(_runtime_stages(), _build_preferred_stage_ids())
+	stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 	stage_page.set_stage_summary(
-		_as_array(current_chapters.get("chapters", [])).size(),
-		_as_array(data.get("stages", [])).size(),
+		_as_array(_runtime_chapters().get("chapters", [])).size(),
+		_as_array(_runtime_stages().get("stages", [])).size(),
 		0,
-		current_reward_status
+		_runtime_reward_status()
 	)
 
-	if _as_array(data.get("stages", [])).is_empty():
+	if _as_array(_runtime_stages().get("stages", [])).is_empty():
 		stage_page.set_page_state("empty", "这一章暂时还没有可推进的关卡。")
 	else:
 		stage_page.set_page_state("success", "这一章已经铺开，可以继续选关卡和难度。")
@@ -2240,12 +2299,13 @@ func _on_load_difficulties_pressed() -> void:
 	current_difficulties = data
 	has_loaded_difficulties = true
 	current_reward_status = {}
-	stage_page.render_difficulties(data, current_reward_status, _build_preferred_stage_difficulty_ids())
+	_sync_local_runtime_from_legacy_cache()
+	stage_page.render_difficulties(_runtime_difficulties(), _runtime_reward_status(), _build_preferred_stage_difficulty_ids())
 	stage_page.set_stage_summary(
-		_as_array(current_chapters.get("chapters", [])).size(),
-		_as_array(current_stages.get("stages", [])).size(),
-		_as_array(data.get("difficulties", [])).size(),
-		current_reward_status
+		_as_array(_runtime_chapters().get("chapters", [])).size(),
+		_as_array(_runtime_stages().get("stages", [])).size(),
+		_as_array(_runtime_difficulties().get("difficulties", [])).size(),
+		_runtime_reward_status()
 	)
 	_remember_stage_id(stage_id_value)
 	var selected_stage_difficulty_id: String = stage_page.get_selected_stage_difficulty()
@@ -2302,22 +2362,23 @@ func _on_refresh_reward_status_pressed(show_success_message: bool = true) -> boo
 		return false
 
 	current_reward_status = _as_dictionary(result.get("data", {}))
-	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
+	_sync_local_runtime_from_legacy_cache()
+	stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 	stage_page.set_stage_summary(
-		_as_array(current_chapters.get("chapters", [])).size(),
-		_as_array(current_stages.get("stages", [])).size(),
-		_as_array(current_difficulties.get("difficulties", [])).size(),
-		current_reward_status
+		_as_array(_runtime_chapters().get("chapters", [])).size(),
+		_as_array(_runtime_stages().get("stages", [])).size(),
+		_as_array(_runtime_difficulties().get("difficulties", [])).size(),
+		_runtime_reward_status()
 	)
 
 	var reward_status_text = "当前没有首通奖励"
-	if int(current_reward_status.get("has_reward", 0)) == 1 and int(current_reward_status.get("has_granted", 0)) == 1:
+	if int(_runtime_reward_status().get("has_reward", 0)) == 1 and int(_runtime_reward_status().get("has_granted", 0)) == 1:
 		reward_status_text = "首通奖励已领取"
-	elif int(current_reward_status.get("has_reward", 0)) == 1:
+	elif int(_runtime_reward_status().get("has_reward", 0)) == 1:
 		reward_status_text = "首通奖励待领取"
 
 	if show_success_message:
-		if str(current_reward_status.get("grant_status", "")).is_empty():
+		if str(_runtime_reward_status().get("grant_status", "")).is_empty():
 			stage_page.set_page_state("success", "这一档奖励状态已经同步：%s。" % reward_status_text)
 		else:
 			stage_page.set_page_state(
@@ -2387,6 +2448,7 @@ func _on_prepare_pressed() -> void:
 	current_prepare_result = data
 	current_settle_result = {}
 	current_prepared_monster_ids = _extract_monster_ids(data)
+	_sync_local_runtime_from_legacy_cache()
 	prepare_page.show_prepare_summary(data)
 	var battle_route_context := _build_route_context(stage_difficulty_id_value)
 	var prepared_stage_difficulty := _as_dictionary(data.get("stage_difficulty", {}))
@@ -2395,22 +2457,23 @@ func _on_prepare_pressed() -> void:
 		battle_route_context["difficulty_key"] = str(prepared_stage_difficulty.get("difficulty_key", battle_route_context.get("difficulty_key", "")))
 		battle_route_context["difficulty_name"] = str(prepared_stage_difficulty.get("difficulty_name", battle_route_context.get("difficulty_name", "难度待选择")))
 		battle_route_context["recommended_power"] = prepared_stage_difficulty.get("recommended_power", battle_route_context.get("recommended_power", "-"))
-	battle_page.load_battle(data, battle_route_context, current_reward_status)
+	battle_page.load_battle(data, battle_route_context, _runtime_reward_status())
 
 	var battle_context_id = str(data.get("battle_context_id", ""))
 	settle_page.set_battle_context_id(battle_context_id)
-	settle_page.set_killed_monsters(current_prepared_monster_ids)
+	settle_page.set_killed_monsters(_runtime_prepared_monster_ids())
 	settle_page.show_handoff_summary(
 		str(character_id_value),
 		stage_difficulty_id_value,
 		battle_context_id,
-		current_prepared_monster_ids.size()
+		_runtime_prepared_monster_ids().size()
 	)
 	recent_battle_context_ids = ClientConfigStoreScript.upsert_recent_string(
 		recent_battle_context_ids,
 		battle_context_id,
 		5
 	)
+	_sync_local_runtime_from_legacy_cache()
 	_remember_character(_as_dictionary(data.get("character", {})))
 	_remember_stage_difficulty_id(stage_difficulty_id_value)
 	prepare_page.set_page_state("success", "出战信息已经锁定，走进战场吧。")
@@ -2425,16 +2488,17 @@ func _on_prepare_pressed() -> void:
 
 
 func _on_fill_prepared_monsters_pressed() -> void:
-	if current_prepared_monster_ids.is_empty():
+	var prepared_monster_ids := _runtime_prepared_monster_ids()
+	if prepared_monster_ids.is_empty():
 		settle_page.set_page_state("empty", "当前还没有可复用的敌方列表。")
 		return
 
-	settle_page.set_killed_monsters(current_prepared_monster_ids)
+	settle_page.set_killed_monsters(prepared_monster_ids)
 	settle_page.show_handoff_summary(
-		settle_page.get_character_id_text(),
-		settle_page.get_stage_difficulty_text(),
-		settle_page.get_battle_context_text(),
-		current_prepared_monster_ids.size()
+		_runtime_battle_character_selection(),
+		_runtime_selected_stage_difficulty_id(),
+		_runtime_battle_context_selection(),
+		prepared_monster_ids.size()
 	)
 	settle_page.set_page_state("success", "这一场的结果页已经就位，战斗结束后会自动回到这里。")
 
@@ -2464,6 +2528,7 @@ func _on_retry_battle_pressed() -> void:
 	current_prepare_result = {}
 	current_settle_result = {}
 	current_prepared_monster_ids = PackedStringArray()
+	_sync_local_runtime_from_legacy_cache()
 	battle_page.reset_battle_space()
 	await _on_prepare_pressed()
 
@@ -2550,16 +2615,17 @@ func _submit_settle_request(
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_settle_result = data
 	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
+	_sync_local_runtime_from_legacy_cache()
 	settle_page.show_settlement_summary(data)
 	if from_battle_page:
 		battle_page.set_page_state("success", "战斗已收束，结果页已经接住这轮战果。")
 	settle_page.set_page_state("success", "这一场已经打完，掉落、奖励、入包和后续路线都整理好了。")
-	stage_page.render_reward_context(current_chapters, current_stages, current_difficulties, current_reward_status)
+	stage_page.render_reward_context(_runtime_chapters(), _runtime_stages(), _runtime_difficulties(), _runtime_reward_status())
 	stage_page.set_stage_summary(
-		_as_array(current_chapters.get("chapters", [])).size(),
-		_as_array(current_stages.get("stages", [])).size(),
-		_as_array(current_difficulties.get("difficulties", [])).size(),
-		current_reward_status
+		_as_array(_runtime_chapters().get("chapters", [])).size(),
+		_as_array(_runtime_stages().get("stages", [])).size(),
+		_as_array(_runtime_difficulties().get("difficulties", [])).size(),
+		_runtime_reward_status()
 	)
 	stage_page.set_page_state("success", "结算完成，主线页的首通奖励状态也已经同步。")
 	_refresh_recent_selectors()
@@ -2606,8 +2672,8 @@ func _remember_stage_difficulty_id(stage_difficulty_id: String) -> void:
 
 func _build_preferred_chapter_ids() -> Array:
 	var candidates: Array = [
-		stage_page.get_selected_chapter_id(),
-		str(current_stages.get("chapter_id", "")).strip_edges(),
+		_runtime_selected_chapter_id(),
+		str(_runtime_stages().get("chapter_id", "")).strip_edges(),
 		str(saved_config.get("chapter_id", "")).strip_edges(),
 	]
 
@@ -2619,8 +2685,8 @@ func _build_preferred_chapter_ids() -> Array:
 
 func _build_preferred_stage_ids() -> Array:
 	var candidates: Array = [
-		stage_page.get_stage_id_text(),
-		str(current_difficulties.get("stage_id", "")).strip_edges(),
+		_runtime_selected_stage_id(),
+		str(_runtime_difficulties().get("stage_id", "")).strip_edges(),
 		str(saved_config.get("stage_id", "")).strip_edges(),
 	]
 
@@ -2632,9 +2698,7 @@ func _build_preferred_stage_ids() -> Array:
 
 func _build_preferred_stage_difficulty_ids() -> Array:
 	var candidates: Array = [
-		stage_page.get_selected_stage_difficulty(),
-		prepare_page.get_stage_difficulty_text(),
-		settle_page.get_stage_difficulty_text(),
+		_runtime_selected_stage_difficulty_id(),
 		str(saved_config.get("stage_difficulty_id", "")).strip_edges(),
 	]
 
