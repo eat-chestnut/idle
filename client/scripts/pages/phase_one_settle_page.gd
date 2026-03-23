@@ -320,21 +320,23 @@ func show_settlement_summary(payload: Dictionary) -> void:
 	var equipment_instance_results: Array = inventory_result_data.get("equipment_instance_results", []) if typeof(inventory_result_data.get("equipment_instance_results", [])) == TYPE_ARRAY else []
 	var created_equipment_instances: Array = payload.get("created_equipment_instances", []) if typeof(payload.get("created_equipment_instances", [])) == TYPE_ARRAY else []
 	var first_clear_reward_status: Dictionary = payload.get("first_clear_reward_status", {}) if typeof(payload.get("first_clear_reward_status", {})) == TYPE_DICTIONARY else {}
+	var dungeon_summary: Dictionary = payload.get("dungeon_summary", {}) if typeof(payload.get("dungeon_summary", {})) == TYPE_DICTIONARY else {}
 	var reward_status_data: Dictionary = first_clear_reward_status
 	var item_name_map := _build_item_name_map(drop_results, reward_results)
 	var equipment_name_map := _build_created_equipment_map(created_equipment_instances)
 	var inventory_entry_count := stack_results.size() + equipment_instance_results.size()
 
-	result_title_label.text = "这场%s" % ("打赢了" if int(payload.get("is_cleared", 0)) == 1 else "已经收束")
+	result_title_label.text = _build_result_title(payload, dungeon_summary)
 	result_meta_label.text = _build_route_summary(stage_difficulty_data)
 	result_state_label.text = _build_result_summary_text(
 		int(payload.get("is_cleared", 0)) == 1,
 		drop_results.size(),
 		reward_results.size(),
 		inventory_entry_count,
-		reward_status_data
+		reward_status_data,
+		dungeon_summary
 	)
-	_render_result_tags(payload, drop_results, reward_results, stack_results, equipment_instance_results, reward_status_data)
+	_render_result_tags(payload, drop_results, reward_results, stack_results, equipment_instance_results, reward_status_data, dungeon_summary)
 	_render_spotlight_section(drop_results, reward_results, created_equipment_instances, reward_status_data)
 	_render_growth_route_section(
 		payload,
@@ -349,7 +351,8 @@ func show_settlement_summary(payload: Dictionary) -> void:
 		drop_results,
 		reward_results,
 		stack_results,
-		created_equipment_instances
+		created_equipment_instances,
+		dungeon_summary
 	)
 	if not created_equipment_instances.is_empty():
 		primary_inventory_button.text = "先整理本轮收益"
@@ -692,18 +695,30 @@ func _render_result_tags(
 	reward_results: Array,
 	stack_results: Array,
 	equipment_instance_results: Array,
-	reward_status: Dictionary
+	reward_status: Dictionary,
+	dungeon_summary: Dictionary
 ) -> void:
 	result_tag_row.add_child(create_pill(
 		"通关成功" if int(payload.get("is_cleared", 0)) == 1 else "中途收束",
 		DROP_TINT
 	))
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		result_tag_row.add_child(create_pill("全清记录", REWARD_TINT))
+	elif bool(dungeon_summary.get("boss_defeated", false)):
+		result_tag_row.add_child(create_pill("Boss 击破", DROP_TINT))
 	result_tag_row.add_child(create_pill("掉落 %d" % drop_results.size(), DROP_TINT))
 	result_tag_row.add_child(create_pill("奖励 %d" % reward_results.size(), REWARD_TINT))
 	result_tag_row.add_child(create_pill(
 		"入包 %d" % (stack_results.size() + equipment_instance_results.size()),
 		INVENTORY_TINT
 	))
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		result_tag_row.add_child(create_pill(
+			"完整 %.1f 秒" % float(dungeon_summary.get("full_clear_elapsed_seconds", 0.0)),
+			REWARD_TINT
+		))
+	elif bool(dungeon_summary.get("boss_defeated", false)):
+		result_tag_row.add_child(create_pill("未记完整通关时间", DROP_TINT))
 	result_tag_row.add_child(create_pill(
 		_first_clear_tag_text(reward_status),
 		REWARD_TINT if int(reward_status.get("has_reward", 0)) == 1 else DROP_TINT
@@ -727,8 +742,15 @@ func _build_growth_hint(
 	drop_results: Array,
 	reward_results: Array,
 	stack_results: Array,
-	created_equipment_instances: Array
+	created_equipment_instances: Array,
+	dungeon_summary: Dictionary
 ) -> String:
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		return "本次已经全清，并把完整通关时间 %.1f 秒写进了本地记录；这会作为后续挂机 / 离线收益基础，接下来更适合先整理收益，再决定继续刷还是回主线。" % float(
+			dungeon_summary.get("full_clear_elapsed_seconds", 0.0)
+		)
+	if bool(dungeon_summary.get("boss_defeated", false)):
+		return "本次已经完成 Boss 击破结算，Boss 掉落可以正常承接；但因为没有全清，所以不会记录完整通关时间。"
 	if not created_equipment_instances.is_empty():
 		return "本次拿到了 %d 件新装备，背包页会先承接这批收益，再把可试装的新装备明确导向穿戴页；当前角色和新装备信息都会继续保留。" % created_equipment_instances.size()
 	if not stack_results.is_empty():
@@ -752,8 +774,24 @@ func _build_result_summary_text(
 	drop_count: int,
 	reward_count: int,
 	inventory_count: int,
-	reward_status: Dictionary
+	reward_status: Dictionary,
+	dungeon_summary: Dictionary
 ) -> String:
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		return "这一场已经全清：掉落 %d 项，固定奖励 %d 份，真正进包 %d 条。完整通关时间 %.1f 秒已写入本地记录。%s" % [
+			drop_count,
+			reward_count,
+			inventory_count,
+			float(dungeon_summary.get("full_clear_elapsed_seconds", 0.0)),
+			_format_reward_result_state(reward_status, reward_count),
+		]
+	if bool(dungeon_summary.get("boss_defeated", false)):
+		return "这一场已经完成 Boss 击破结算：掉落 %d 项，固定奖励 %d 份，真正进包 %d 条。当前未记录完整通关时间；如需后续挂机 / 离线收益基准，需要继续清图后再结算。%s" % [
+			drop_count,
+			reward_count,
+			inventory_count,
+			_format_reward_result_state(reward_status, reward_count),
+		]
 	return "这一场已经%s：掉落 %d 项，固定奖励 %d 份，真正进包 %d 条。%s" % [
 		"打完" if is_cleared else "收束",
 		drop_count,
@@ -761,6 +799,14 @@ func _build_result_summary_text(
 		inventory_count,
 		_format_reward_result_state(reward_status, reward_count),
 	]
+
+
+func _build_result_title(payload: Dictionary, dungeon_summary: Dictionary) -> String:
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		return "这场已经全清"
+	if bool(dungeon_summary.get("boss_defeated", false)):
+		return "这场已击破 Boss"
+	return "这场%s" % ("打赢了" if int(payload.get("is_cleared", 0)) == 1 else "已经收束")
 
 
 func _build_drop_meta(entry: Dictionary) -> String:

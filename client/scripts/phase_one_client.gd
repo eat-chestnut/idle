@@ -72,6 +72,8 @@ var current_difficulties: Dictionary = {}
 var current_reward_status: Dictionary = {}
 var current_prepare_result: Dictionary = {}
 var current_settle_result: Dictionary = {}
+var current_dungeon_summary: Dictionary = {}
+var current_dungeon_records: Dictionary = {}
 var current_character_equipment_feedback: Dictionary = {}
 var current_prepared_monster_ids: PackedStringArray = []
 var recent_battle_context_ids: Array = []
@@ -380,6 +382,8 @@ func _sync_local_runtime_from_legacy_cache() -> void:
 		"reward_status": current_reward_status,
 		"prepare_result": current_prepare_result,
 		"settle_result": current_settle_result,
+		"dungeon_summary": current_dungeon_summary,
+		"dungeon_records": current_dungeon_records,
 		"character_equipment_feedback": current_character_equipment_feedback,
 		"prepared_monster_ids": current_prepared_monster_ids,
 		"recent_battle_context_ids": recent_battle_context_ids,
@@ -406,6 +410,8 @@ func _sync_legacy_cache_from_runtime_state() -> void:
 	current_reward_status = _runtime_reward_status()
 	current_prepare_result = _runtime_prepare_result()
 	current_settle_result = _runtime_settle_result()
+	current_dungeon_summary = _runtime_dungeon_summary()
+	current_dungeon_records = _runtime_dungeon_records()
 	current_character_equipment_feedback = _runtime_equipment_feedback()
 	current_prepared_monster_ids = _runtime_prepared_monster_ids()
 	recent_battle_context_ids = _runtime_recent_battle_context_ids()
@@ -713,6 +719,18 @@ func _runtime_settle_result() -> Dictionary:
 	return runtime_state.get_dictionary_state("settle_result")
 
 
+func _runtime_dungeon_summary() -> Dictionary:
+	if runtime_state == null:
+		return current_dungeon_summary.duplicate(true)
+	return runtime_state.get_dictionary_state("dungeon_summary")
+
+
+func _runtime_dungeon_records() -> Dictionary:
+	if runtime_state == null:
+		return current_dungeon_records.duplicate(true)
+	return runtime_state.get_dictionary_state("dungeon_records")
+
+
 func _runtime_equipment_feedback() -> Dictionary:
 	if runtime_state == null:
 		return current_character_equipment_feedback.duplicate(true)
@@ -729,6 +747,89 @@ func _runtime_prepared_monster_ids() -> PackedStringArray:
 	if runtime_state == null:
 		return PackedStringArray(current_prepared_monster_ids)
 	return runtime_state.get_packed_string_array_state("prepared_monster_ids")
+
+
+func _build_localized_settle_result(data: Dictionary, stage_difficulty_id_value: String) -> Dictionary:
+	var localized := data.duplicate(true)
+	var dungeon_summary := _runtime_dungeon_summary()
+	if dungeon_summary.is_empty():
+		dungeon_summary = current_dungeon_summary.duplicate(true)
+	if dungeon_summary.is_empty():
+		return localized
+
+	var record_stage_difficulty_id := stage_difficulty_id_value
+	if record_stage_difficulty_id.is_empty():
+		record_stage_difficulty_id = str(dungeon_summary.get("stage_difficulty_id", "")).strip_edges()
+
+	dungeon_summary["stage_difficulty_id"] = record_stage_difficulty_id
+	dungeon_summary["settled"] = true
+	var dungeon_result_type := (
+		"full_clear"
+		if bool(dungeon_summary.get("full_clear_completed", false))
+		else ("boss_clear" if int(localized.get("is_cleared", 0)) == 1 else "partial")
+	)
+	dungeon_summary["settle_result_type"] = dungeon_result_type
+
+	var updated_records := _record_dungeon_completion(record_stage_difficulty_id, dungeon_summary)
+	current_dungeon_summary = dungeon_summary.duplicate(true)
+	current_dungeon_records = updated_records.duplicate(true)
+
+	localized["dungeon_summary"] = current_dungeon_summary
+	localized["dungeon_record"] = _as_dictionary(updated_records.get(record_stage_difficulty_id, {}))
+	localized["dungeon_result_type"] = dungeon_result_type
+	localized["full_clear_recorded"] = bool(dungeon_summary.get("full_clear_completed", false))
+	if bool(dungeon_summary.get("boss_defeated", false)):
+		localized["boss_clear_elapsed_seconds"] = float(dungeon_summary.get("boss_defeated_elapsed_seconds", 0.0))
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		localized["full_clear_elapsed_seconds"] = float(dungeon_summary.get("full_clear_elapsed_seconds", 0.0))
+	return localized
+
+
+func _record_dungeon_completion(stage_difficulty_id: String, dungeon_summary: Dictionary) -> Dictionary:
+	var updated_records := _runtime_dungeon_records()
+	if updated_records.is_empty():
+		updated_records = current_dungeon_records.duplicate(true)
+	else:
+		updated_records = updated_records.duplicate(true)
+
+	var normalized_stage_difficulty_id := stage_difficulty_id.strip_edges()
+	if normalized_stage_difficulty_id.is_empty():
+		normalized_stage_difficulty_id = str(dungeon_summary.get("stage_difficulty_id", "")).strip_edges()
+	if normalized_stage_difficulty_id.is_empty():
+		return updated_records
+
+	var record := _as_dictionary(updated_records.get(normalized_stage_difficulty_id, {})).duplicate(true)
+	var timestamp := Time.get_datetime_string_from_system(false, true)
+	var battle_context_id := str(dungeon_summary.get("battle_context_id", "")).strip_edges()
+	if (
+		not battle_context_id.is_empty()
+		and str(record.get("last_recorded_battle_context_id", "")).strip_edges() == battle_context_id
+	):
+		return updated_records
+	record["stage_difficulty_id"] = normalized_stage_difficulty_id
+	record["stage_name"] = str(dungeon_summary.get("stage_name", "")).strip_edges()
+	record["difficulty_name"] = str(dungeon_summary.get("difficulty_name", "")).strip_edges()
+	record["last_recorded_battle_context_id"] = battle_context_id
+
+	if bool(dungeon_summary.get("boss_defeated", false)):
+		record["last_boss_clear_at"] = timestamp
+		record["boss_clear_count"] = maxi(int(record.get("boss_clear_count", 0)) + 1, 1)
+		var boss_clear_seconds := float(dungeon_summary.get("boss_defeated_elapsed_seconds", 0.0))
+		if boss_clear_seconds > 0.0:
+			record["last_boss_clear_seconds"] = boss_clear_seconds
+
+	if bool(dungeon_summary.get("full_clear_completed", false)):
+		record["last_full_clear_at"] = timestamp
+		record["full_clear_count"] = maxi(int(record.get("full_clear_count", 0)) + 1, 1)
+		var full_clear_seconds := float(dungeon_summary.get("full_clear_elapsed_seconds", 0.0))
+		if full_clear_seconds > 0.0:
+			record["last_full_clear_seconds"] = full_clear_seconds
+			var best_full_clear_seconds := float(record.get("best_full_clear_seconds", 0.0))
+			if best_full_clear_seconds <= 0.0 or full_clear_seconds < best_full_clear_seconds:
+				record["best_full_clear_seconds"] = full_clear_seconds
+
+	updated_records[normalized_stage_difficulty_id] = record
+	return updated_records
 
 
 func _restore_cached_startup_snapshot() -> void:
@@ -1274,6 +1375,7 @@ func _refresh_flow_summary() -> void:
 	var detail_character = _describe_character(_runtime_character_selection())
 	var battle_character = _describe_character(_runtime_battle_character_selection())
 	var route_context := _build_route_context(_runtime_selected_stage_difficulty_id())
+	var dungeon_summary := _runtime_dungeon_summary()
 	var battle_context_id = _runtime_battle_context_selection()
 	var route_summary := _build_flow_route_summary(route_context)
 	var save_line := "本地存档：等待建立。"
@@ -1312,8 +1414,12 @@ func _refresh_flow_summary() -> void:
 			next_step_line = "现在最顺：这一章已经展开，先挑一关。"
 		elif _runtime_selected_stage_difficulty_id().is_empty():
 			next_step_line = "现在最顺：关卡已经锁定，再选一档难度。"
+		elif not dungeon_summary.is_empty() and bool(dungeon_summary.get("full_clear_completed", false)) and _runtime_settle_result().is_empty():
+			next_step_line = "现在最顺：这轮已经全清，去结算页把收益和完整通关时间一起收稳。"
+		elif not dungeon_summary.is_empty() and bool(dungeon_summary.get("boss_defeated", false)) and _runtime_settle_result().is_empty():
+			next_step_line = "现在最顺：Boss 已倒，可以立即结算，也可以回战斗页继续清图补完整通关时间。"
 		elif not battle_context_id.is_empty():
-			next_step_line = "现在最顺：这一场已经开打，去战斗页推进，或等结果页把收获接住。"
+			next_step_line = "现在最顺：副本已经展开，去战斗页推进；普通怪、精英和 Boss 都已按大地图分布入场。"
 		elif _runtime_settle_result().is_empty():
 			next_step_line = "现在最顺：目标已经锁定，去出战页决定要不要开打。"
 		else:
@@ -1333,6 +1439,12 @@ func _refresh_flow_summary() -> void:
 	var current_character = _as_dictionary(_runtime_character_detail().get("character", {}))
 	if not current_character.is_empty() and int(current_character.get("is_active", 0)) == 0:
 		reminder_line = "提醒：这名角色还没启用，先在角色页点“启用角色”会更顺。"
+	elif not dungeon_summary.is_empty() and bool(dungeon_summary.get("full_clear_completed", false)):
+		reminder_line = "提醒：完整通关时间 %.1f 秒已写入本地记录，可作为后续挂机 / 离线收益基础。" % float(
+			dungeon_summary.get("full_clear_elapsed_seconds", 0.0)
+		)
+	elif not dungeon_summary.is_empty() and bool(dungeon_summary.get("boss_defeated", false)) and _runtime_settle_result().is_empty():
+		reminder_line = "提醒：Boss 已倒但尚未全清；如果现在结算，不会记录完整通关时间。"
 
 	var services := _as_dictionary(_runtime_startup_snapshot().get("services", {}))
 	var save_upload := _as_dictionary(services.get("save_upload", {}))
@@ -1703,7 +1815,12 @@ func _refresh_product_pages() -> void:
 	prepare_page.render_prepare_context(battle_character, route_context, _runtime_reward_status())
 	prepare_page.show_prepare_summary(_runtime_prepare_result())
 	if not _runtime_prepare_result().is_empty() and _allow_battle_page_restore:
-		battle_page.load_battle(_runtime_prepare_result(), route_context, _runtime_reward_status())
+		battle_page.load_battle(
+			_runtime_prepare_result(),
+			route_context,
+			_runtime_reward_status(),
+			_runtime_dungeon_summary()
+		)
 	else:
 		battle_page.reset_battle_space()
 	settle_page.render_settle_context(battle_character, route_context)
@@ -2163,6 +2280,12 @@ func _on_page_context_changed(context: String, payload: Dictionary) -> void:
 					settle_page.set_battle_context_id(battle_context_id)
 				_update_runtime_focus({"battle_context_id": battle_context_id})
 				autosave_reason = "battle_context_changed"
+		"dungeon_summary_changed":
+			var dungeon_summary := _as_dictionary(payload.get("dungeon_summary", {}))
+			if not dungeon_summary.is_empty():
+				current_dungeon_summary = dungeon_summary.duplicate(true)
+				_sync_local_runtime_from_legacy_cache()
+				autosave_reason = "dungeon_summary_changed"
 		"inventory_focus_changed":
 			_update_runtime_focus({}, {
 				"inventory_section": str(payload.get("inventory_section", "all")).strip_edges(),
@@ -3114,6 +3237,7 @@ func _on_prepare_pressed() -> void:
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
 	current_prepare_result = data
 	current_settle_result = {}
+	current_dungeon_summary = {}
 	current_prepared_monster_ids = _extract_monster_ids(data)
 	_allow_battle_page_restore = true
 	_sync_local_runtime_from_legacy_cache()
@@ -3191,6 +3315,10 @@ func _on_battle_request_settle(payload: Dictionary) -> void:
 	var battle_context_id_value = str(payload.get("battle_context_id", "")).strip_edges()
 	var killed_monsters = _as_array(payload.get("killed_monsters", []))
 	var is_cleared_value := int(payload.get("is_cleared", 0)) == 1
+	var dungeon_summary := _as_dictionary(payload.get("dungeon_summary", {}))
+	if not dungeon_summary.is_empty():
+		current_dungeon_summary = dungeon_summary.duplicate(true)
+		_sync_local_runtime_from_legacy_cache()
 
 	await _submit_settle_request(
 		character_id_value,
@@ -3209,6 +3337,7 @@ func _on_retry_battle_pressed() -> void:
 
 	current_prepare_result = {}
 	current_settle_result = {}
+	current_dungeon_summary = {}
 	current_prepared_monster_ids = PackedStringArray()
 	_allow_battle_page_restore = false
 	_sync_local_runtime_from_legacy_cache()
@@ -3311,12 +3440,13 @@ func _submit_settle_request(
 		return
 
 	var data: Dictionary = _as_dictionary(result.get("data", {}))
-	current_settle_result = data
-	current_reward_status = _as_dictionary(data.get("first_clear_reward_status", {}))
+	var localized_result := _build_localized_settle_result(data, stage_difficulty_id_value)
+	current_settle_result = localized_result
+	current_reward_status = _as_dictionary(localized_result.get("first_clear_reward_status", {}))
 	_allow_battle_page_restore = false
 	_sync_local_runtime_from_legacy_cache()
-	var created_equipment_instances := _as_array(data.get("created_equipment_instances", []))
-	var inventory_results := _as_dictionary(data.get("inventory_results", {}))
+	var created_equipment_instances := _as_array(localized_result.get("created_equipment_instances", []))
+	var inventory_results := _as_dictionary(localized_result.get("inventory_results", {}))
 	var inventory_entry_count := _as_array(inventory_results.get("stack_results", [])).size() + _as_array(inventory_results.get("equipment_instance_results", [])).size()
 	var focus_equipment := _as_dictionary(created_equipment_instances[0]) if not created_equipment_instances.is_empty() else {}
 	_update_runtime_focus(
@@ -3340,7 +3470,7 @@ func _submit_settle_request(
 			),
 		}
 	)
-	settle_page.show_settlement_summary(data)
+	settle_page.show_settlement_summary(localized_result)
 	if from_battle_page:
 		battle_page.set_page_state("success", "战斗已收束，结果页已经接住这轮战果。")
 	settle_page.set_page_state("success", "这一场已经打完，掉落、奖励、入包和后续路线都整理好了。")

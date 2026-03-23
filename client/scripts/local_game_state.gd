@@ -22,6 +22,8 @@ const DEFAULT_STATE := {
 	"reward_status": {},
 	"prepare_result": {},
 	"settle_result": {},
+	"dungeon_summary": {},
+	"dungeon_records": {},
 	"character_equipment_feedback": {},
 	"ui_focus": {
 		"active_page_key": "config",
@@ -196,6 +198,8 @@ func _build_persistent_runtime_snapshot() -> Dictionary:
 		"reward_status": get_dictionary_state("reward_status"),
 		"prepare_result": get_dictionary_state("prepare_result"),
 		"settle_result": get_dictionary_state("settle_result"),
+		"dungeon_summary": get_dictionary_state("dungeon_summary"),
+		"dungeon_records": get_dictionary_state("dungeon_records"),
 		"character_equipment_feedback": get_dictionary_state("character_equipment_feedback"),
 		"ui_focus": get_dictionary_state("ui_focus"),
 		"prepared_monster_ids": get_packed_string_array_state("prepared_monster_ids"),
@@ -206,7 +210,7 @@ func _build_persistent_runtime_snapshot() -> Dictionary:
 
 func _normalize_state_value(key: String, value: Variant) -> Variant:
 	match key:
-		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "character_equipment_feedback", "ui_focus", "local_save_meta", "selections":
+		"config", "startup_snapshot", "character_list", "character_detail", "inventory", "slots", "chapters", "stages", "difficulties", "reward_status", "prepare_result", "settle_result", "dungeon_summary", "dungeon_records", "character_equipment_feedback", "ui_focus", "local_save_meta", "selections":
 			return _dictionary_or_empty(value).duplicate(true)
 		"recent_battle_context_ids":
 			return _array_or_empty(value).duplicate(true)

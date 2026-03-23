@@ -336,7 +336,7 @@ func _refresh_route_summary(preview_stage_difficulty: Dictionary) -> void:
 	if str(route_context.get("stage_difficulty_id", "")).is_empty():
 		route_recommendation_label.text = "先回主线定下这一档，这里就会进入可开打状态。"
 	else:
-		route_recommendation_label.text = "目标已经定下；确认角色状态后就可以决定要不要开打。"
+		route_recommendation_label.text = "目标已经定下；确认角色状态后，就能进入固定 2x4 副本地图刷这一轮。"
 
 	clear_container(route_tag_row)
 	if not str(route_context.get("chapter_name", "")).is_empty():
@@ -363,22 +363,27 @@ func _refresh_enemy_summary(monster_list: Array) -> void:
 
 	var wave_numbers: Dictionary = {}
 	var boss_count := 0
+	var elite_count := 0
 	for monster in monster_list:
 		var entry: Dictionary = monster if typeof(monster) == TYPE_DICTIONARY else {}
 		wave_numbers[int(entry.get("wave_no", 1))] = true
-		if str(entry.get("monster_role", "")) == "boss_enemy":
-			boss_count += 1
+		match str(entry.get("monster_role", "")):
+			"boss_enemy":
+				boss_count += 1
+			"elite_enemy":
+				elite_count += 1
 		monster_rows_box.add_child(_build_monster_card(entry))
 
-	enemy_summary_label.text = "本次敌方：%d 名敌人 | %d 波 | 首领 %d 名。" % [
-		monster_list.size(),
-		wave_numbers.size(),
+	enemy_summary_label.text = "进图后会在固定 2x4 副本地图内一次性加载：普通 %d | 精英 %d | Boss %d | 共 %d 名敌人。" % [
+		maxi(monster_list.size() - elite_count - boss_count, 0),
+		elite_count,
 		boss_count,
+		monster_list.size(),
 	]
 	if boss_count > 0:
-		enemy_hint_label.text = "这一场会遇到首领目标，建议确认当前角色状态后再开打。"
+		enemy_hint_label.text = "Boss 会固定在终点区，身边保留 2 个精英守位；你可以直奔 Boss，也可以继续全清。"
 	else:
-		enemy_hint_label.text = "当前阵容以普通敌人为主，开始战斗后会立即进入正式战场。"
+		enemy_hint_label.text = "这些敌人不会再以单条遭遇壳出现，而是会铺进固定副本地图里。"
 
 
 func _refresh_reward_summary() -> void:
@@ -457,8 +462,8 @@ func _build_monster_card(entry: Dictionary) -> PanelContainer:
 	var tags := HBoxContainer.new()
 	tags.add_theme_constant_override("separation", 8)
 	tags.add_child(create_pill(
-		"首领" if str(entry.get("monster_role", "")) == "boss_enemy" else "普通敌人",
-		BATTLE_TINT if str(entry.get("monster_role", "")) == "boss_enemy" else CHARACTER_TINT
+		_monster_role_text(entry),
+		_monster_role_tint(entry)
 	))
 	box.add_child(tags)
 
@@ -474,6 +479,26 @@ func _build_monster_card(entry: Dictionary) -> PanelContainer:
 	box.add_child(meta)
 
 	return card
+
+
+func _monster_role_text(entry: Dictionary) -> String:
+	match str(entry.get("monster_role", "")):
+		"boss_enemy":
+			return "Boss"
+		"elite_enemy":
+			return "精英怪"
+		_:
+			return "普通怪"
+
+
+func _monster_role_tint(entry: Dictionary) -> Color:
+	match str(entry.get("monster_role", "")):
+		"boss_enemy":
+			return BATTLE_TINT
+		"elite_enemy":
+			return WARNING_TINT
+		_:
+			return CHARACTER_TINT
 
 
 func _format_reward_status(reward_status: Dictionary) -> String:

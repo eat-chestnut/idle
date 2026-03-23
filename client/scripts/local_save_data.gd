@@ -172,6 +172,8 @@ static func build_from_runtime_snapshot(
 
 	growth_state["prepare_result"] = _dictionary_or_empty(runtime_snapshot.get("prepare_result", {})).duplicate(true)
 	growth_state["settle_result"] = _dictionary_or_empty(runtime_snapshot.get("settle_result", {})).duplicate(true)
+	growth_state["dungeon_summary"] = _dictionary_or_empty(runtime_snapshot.get("dungeon_summary", {})).duplicate(true)
+	growth_state["dungeon_records"] = _dictionary_or_empty(runtime_snapshot.get("dungeon_records", {})).duplicate(true)
 	growth_state["prepared_monster_ids"] = _normalize_string_list(
 		runtime_snapshot.get("prepared_monster_ids", growth_state.get("prepared_monster_ids", []))
 	)
@@ -218,6 +220,8 @@ static func extract_runtime_snapshot(save_payload: Dictionary) -> Dictionary:
 		"reward_status": _dictionary_or_empty(route_state.get("reward_status", {})).duplicate(true),
 		"prepare_result": _dictionary_or_empty(growth_state.get("prepare_result", {})).duplicate(true),
 		"settle_result": _dictionary_or_empty(growth_state.get("settle_result", {})).duplicate(true),
+		"dungeon_summary": _dictionary_or_empty(growth_state.get("dungeon_summary", {})).duplicate(true),
+		"dungeon_records": _dictionary_or_empty(growth_state.get("dungeon_records", {})).duplicate(true),
 		"character_equipment_feedback": _dictionary_or_empty(
 			equipment_state.get("character_equipment_feedback", {})
 		).duplicate(true),
@@ -292,11 +296,18 @@ static func extract_save_meta(save_payload: Dictionary) -> Dictionary:
 		"active_page_key": str(ui_state.get("active_page_key", DEFAULT_ACTIVE_PAGE_KEY)).strip_edges(),
 		"has_prepare_result": not _dictionary_or_empty(growth_state.get("prepare_result", {})).is_empty(),
 		"has_settle_result": not _dictionary_or_empty(growth_state.get("settle_result", {})).is_empty(),
+		"has_dungeon_summary": not _dictionary_or_empty(growth_state.get("dungeon_summary", {})).is_empty(),
 		"has_pending_battle_context": (
 			not str(growth_state.get("battle_context_id", "")).strip_edges().is_empty()
 			and _dictionary_or_empty(growth_state.get("settle_result", {})).is_empty()
 		),
 		"recent_battle_context_count": _array_or_empty(growth_state.get("recent_battle_context_ids", [])).size(),
+		"full_clear_record_count": _count_full_clear_records(
+			_dictionary_or_empty(growth_state.get("dungeon_records", {}))
+		),
+		"latest_full_clear_seconds": float(
+			_dictionary_or_empty(growth_state.get("dungeon_summary", {})).get("full_clear_elapsed_seconds", 0.0)
+		),
 	}
 
 
@@ -339,6 +350,8 @@ static func _default_persistent_payload() -> Dictionary:
 		"growth_state": {
 			"prepare_result": {},
 			"settle_result": {},
+			"dungeon_summary": {},
+			"dungeon_records": {},
 			"prepared_monster_ids": [],
 			"recent_battle_context_ids": [],
 			"battle_context_id": "",
@@ -534,6 +547,8 @@ static func _normalize_growth_state(raw: Dictionary) -> Dictionary:
 	return {
 		"prepare_result": _dictionary_or_empty(raw.get("prepare_result", defaults.get("prepare_result", {}))).duplicate(true),
 		"settle_result": _dictionary_or_empty(raw.get("settle_result", defaults.get("settle_result", {}))).duplicate(true),
+		"dungeon_summary": _dictionary_or_empty(raw.get("dungeon_summary", defaults.get("dungeon_summary", {}))).duplicate(true),
+		"dungeon_records": _dictionary_or_empty(raw.get("dungeon_records", defaults.get("dungeon_records", {}))).duplicate(true),
 		"prepared_monster_ids": _normalize_string_list(raw.get("prepared_monster_ids", defaults.get("prepared_monster_ids", []))),
 		"recent_battle_context_ids": _normalize_string_list(
 			raw.get("recent_battle_context_ids", defaults.get("recent_battle_context_ids", []))
@@ -605,6 +620,15 @@ static func _normalize_id_string(value: Variant) -> String:
 		if is_equal_approx(float_value, float(rounded_from_string)):
 			return str(rounded_from_string)
 	return normalized
+
+
+static func _count_full_clear_records(records: Dictionary) -> int:
+	var count := 0
+	for record_key in records.keys():
+		var record := _dictionary_or_empty(records.get(record_key, {}))
+		if float(record.get("last_full_clear_seconds", 0.0)) > 0.0:
+			count += 1
+	return count
 
 
 static func _timestamp_now() -> String:
